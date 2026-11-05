@@ -6,11 +6,17 @@
 - Port guard (`gpu.guard_ports`, on by default): the server listens on the standard Forge `:7860` and Ollama `:11434` ports and moves the services it starts to loopback `127.0.0.1:7861` / `:11435`, so requests from any LAN program pass the same GPU budget queue as `/api/sd/` and `/api/llm/`. Only services with `autostart` are guarded, and only when the public port is free; a busy port is left alone with a warning in the queue status. Internal ports: `internal_port` per process
 
 ### Changed
+- First-run wizard: unticking Forge or Ollama now really disables it (it used to be undone by install defaults; the Forge key didn't match its process; Ollama was always installed). The Python checkbox is gone — Python is installed with the SD backend. Startup installs only components that autostart; a disabled one is installed on its first manual start
+- Installs of one component never run twice at once (startup install and a manual start wait for each other); the SD backend has a single install status
+- `/` and mDNS report the real build version; new `--version` flag
+- Ollama default env no longer sets `OLLAMA_DEBUG=1`
 - Renamed to **Imagecaster Server** to match the Imagecaster client (ex SD Studio): Go module, binary `imagecaster-server`, Docker service, release assets, GitHub repo `Zazza/imagecaster-server`
 - mDNS service type is now `_imagecaster._tcp` (instance "Imagecaster Server") — the one Imagecaster 1.0 browses; LAN auto-discovery works again
 - Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist
 
 ### Removed
+- Install methods `pip`, `binary`, `archive` (unused by any default; Forge installs from zip, Python from tgz, git and Ollama have per-OS code)
+- Docker files and the stale `server-config.yaml` shipped in release archives (config is generated in the data dir on first run)
 - Legacy standalone GPU proxy `gpuproxy` and the `proxy:` config section (superseded by the port guard; an old `proxy:` section is ignored), and the internal `X-SD-Studio` header
 - GPU lease kind `yue`: no client ever used it; `POST /api/gpu/lease` now accepts `sd` and `llm` only (`yue` → 400 `invalid kind`)
 

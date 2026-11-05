@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -28,6 +27,7 @@ type Installer struct {
 	mu         sync.RWMutex
 	statuses   map[string]*InstallStatus
 	logs       map[string]*process.RingBuffer
+	installMu  map[string]*sync.Mutex
 	OnProgress func(key, progress string)
 }
 
@@ -42,9 +42,10 @@ func (inst *Installer) resolveTarget(target string) string {
 
 func NewInstaller(cfg *config.Config) *Installer {
 	inst := &Installer{
-		config:   cfg,
-		statuses: make(map[string]*InstallStatus),
-		logs:     make(map[string]*process.RingBuffer),
+		config:    cfg,
+		statuses:  make(map[string]*InstallStatus),
+		logs:      make(map[string]*process.RingBuffer),
+		installMu: make(map[string]*sync.Mutex),
 	}
 
 	for key, bc := range cfg.Backends {
@@ -62,6 +63,9 @@ func NewInstaller(cfg *config.Config) *Installer {
 	for key, pc := range cfg.Processes {
 		if pc.Install.Method != "" {
 			if _, exists := inst.statuses[key]; exists {
+				continue
+			}
+			if inst.isBackendProcess(key) && inst.getConfig(cfg.ActiveSD) != nil {
 				continue
 			}
 			s := &InstallStatus{Key: key}
@@ -87,10 +91,33 @@ func (inst *Installer) IsInstalled(key string) bool {
 	return s.Installed
 }
 
-var installOrder = []string{"python", "forge", "ollama"}
+func (inst *Installer) installPlan() []string {
+	var plan []string
+	if inst.backendAutoStarts() {
+		plan = append(plan, "python", inst.config.ActiveSD)
+	}
+	if pc, ok := inst.config.Processes["ollama"]; ok && pc.AutoStart {
+		plan = append(plan, "ollama")
+	}
+	return plan
+}
+
+func (inst *Installer) backendAutoStarts() bool {
+	backend, ok := inst.config.Backends[inst.config.ActiveSD]
+	if !ok {
+		return false
+	}
+	pc, ok := inst.config.Processes[backend.ProcessKey]
+	return ok && pc.AutoStart
+}
+
+func (inst *Installer) isBackendProcess(key string) bool {
+	backend, ok := inst.config.Backends[inst.config.ActiveSD]
+	return ok && backend.ProcessKey == key
+}
 
 func (inst *Installer) EnsureAllInstalled() {
-	for _, key := range installOrder {
+	for _, key := range inst.installPlan() {
 		if key == "ollama" {
 			if findOllamaBinary(inst.config.DataDir) != "" {
 				inst.mu.Lock()
@@ -165,11 +192,33 @@ func (inst *Installer) EnsureInstalled(key, binary string) error {
 			}
 		}
 	}
-	ic := inst.getConfig(key)
-	if ic == nil {
+	if inst.isBackendProcess(key) {
+		if err := inst.ensureConfigured("python"); err != nil {
+			return fmt.Errorf("python: %w", err)
+		}
+		if inst.getConfig(inst.config.ActiveSD) != nil {
+			key = inst.config.ActiveSD
+		}
+	}
+	return inst.ensureConfigured(key)
+}
+
+func (inst *Installer) ensureConfigured(key string) error {
+	if inst.getConfig(key) == nil {
 		return nil
 	}
 	return inst.Install(key)
+}
+
+func (inst *Installer) keyLock(key string) *sync.Mutex {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	lk, ok := inst.installMu[key]
+	if !ok {
+		lk = &sync.Mutex{}
+		inst.installMu[key] = lk
+	}
+	return lk
 }
 
 func (inst *Installer) ensureStatus(key string) *process.RingBuffer {
@@ -205,6 +254,10 @@ func (inst *Installer) getConfig(key string) *config.InstallConfig {
 }
 
 func (inst *Installer) Install(key string) error {
+	lk := inst.keyLock(key)
+	lk.Lock()
+	defer lk.Unlock()
+
 	lb := inst.ensureStatus(key)
 
 	inst.mu.Lock()
@@ -268,12 +321,6 @@ func (inst *Installer) doInstall(key string, ic config.InstallConfig, lb *proces
 	switch ic.Method {
 	case config.InstallZip:
 		return inst.installZip(key, ic, lb)
-	case config.InstallBinary:
-		return inst.installBinary(key, ic, lb)
-	case config.InstallPip:
-		return inst.installPip(key, ic, lb)
-	case config.InstallArchive:
-		return inst.installArchive(key, ic, lb)
 	case config.InstallTgz:
 		return inst.installTgz(key, ic, lb)
 	}
@@ -289,31 +336,6 @@ func (inst *Installer) checkInstalled(ic config.InstallConfig) bool {
 		target := inst.resolveTarget(ic.Target)
 		st, err := os.Stat(target)
 		return err == nil && st.IsDir()
-	case config.InstallBinary, config.InstallArchive:
-		if ic.Target == "" {
-			return false
-		}
-		target := inst.resolveTarget(ic.Target)
-		if runtime.GOOS == "windows" && !strings.HasSuffix(target, ".exe") {
-			target += ".exe"
-		}
-		_, err := os.Stat(target)
-		return err == nil
-	case config.InstallPip:
-		if ic.Target == "" {
-			return false
-		}
-		if process.FindBinary(inst.config.DataDir, ic.Target) == "" {
-			return false
-		}
-		pythonPath := pythonBinPath(inst.config.DataDir)
-		if _, err := os.Stat(pythonPath); err == nil {
-			cmd := exec.Command(pythonPath, "-c", "import "+ic.Target)
-			if err := cmd.Run(); err != nil {
-				return false
-			}
-		}
-		return true
 	}
 	return false
 }

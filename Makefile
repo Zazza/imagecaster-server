@@ -1,4 +1,4 @@
-.PHONY: build run test vet clean docker-build docker-up docker-down
+.PHONY: build run test vet clean
 
 BINARY   := imagecaster-server
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -19,11 +19,3 @@ vet:
 clean:
 	rm -f $(BINARY)
 
-docker-build:
-	docker compose build
-
-docker-up:
-	docker compose up -d
-
-docker-down:
-	docker compose down

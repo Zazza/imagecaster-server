@@ -28,6 +28,8 @@ import (
 	"imagecaster-server/tui"
 )
 
+var version = "dev"
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "attach" {
 		if err := attach.Main(os.Args[2:]); err != nil {
@@ -41,7 +43,13 @@ func main() {
 	configPath := flag.String("config", "", "config file path (default: {data-dir}/server-config.yaml)")
 	port := flag.Int("port", 0, "override server port")
 	headless := flag.Bool("headless", false, "run without TUI (log output only)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	dir := *dataDir
 	if dir == "" {
@@ -172,7 +180,7 @@ func (d *appDeps) newServer() *http.Server {
 }
 
 func (d *appDeps) registerMDNS() *MDNSService {
-	mdns := NewMDNS(d.cfg.Port, d.cfg.MDNS)
+	mdns := NewMDNS(d.cfg.Port, d.cfg.MDNS, version)
 	if err := mdns.Register(); err != nil {
 		log.Printf("mDNS registration failed (non-fatal): %v", err)
 	} else if d.cfg.MDNS {
@@ -227,6 +235,26 @@ func runHeadless(cfg *config.Config) {
 	}
 }
 
+func applyWizardComponents(cfg *config.Config, components map[string]bool) {
+	for key, active := range components {
+		if active {
+			continue
+		}
+		procKey := key
+		if key == "forge" {
+			backend := cfg.GetActiveBackend()
+			if backend == nil {
+				continue
+			}
+			procKey = backend.ProcessKey
+		}
+		if proc, ok := cfg.Processes[procKey]; ok {
+			proc.AutoStart = false
+			cfg.Processes[procKey] = proc
+		}
+	}
+}
+
 func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
 	logCapture := process.NewLogCapture(300)
 	log.SetOutput(logCapture)
@@ -244,15 +272,7 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
 		freshCfg := config.NewDefault()
 		freshCfg.DataDir = result.DataDir
 
-		for key, active := range result.Components {
-			if !active {
-				if proc, ok := freshCfg.Processes[key]; ok {
-					proc.AutoStart = false
-					proc.Install = config.InstallConfig{}
-					freshCfg.Processes[key] = proc
-				}
-			}
-		}
+		applyWizardComponents(&freshCfg, result.Components)
 
 		gpuOpt := sdgpu.NewOptimizerAdapter()
 		freshCfg.ApplyBackendToProcess(gpuOpt)
@@ -481,7 +501,7 @@ func setupMux(handlers *Handlers, inst *installer.Installer, mm *models.ModelMan
 		if r.URL.Path == "/" {
 			api.WriteJSON(w, map[string]interface{}{
 				"name":    "Imagecaster Server",
-				"version": "1.0",
+				"version": version,
 				"status":  "running",
 			})
 			return

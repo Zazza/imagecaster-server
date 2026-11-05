@@ -7,12 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"imagecaster-server/process"
 )
 
 func extractZip(zipPath, targetDir string) error {
@@ -167,108 +164,6 @@ func extractTgz(tgzPath, targetDir string) error {
 	return nil
 }
 
-func extractBinaryFromTgz(tgzPath, binaryName, targetPath string, lb *process.RingBuffer) error {
-	f, err := os.Open(tgzPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if matchBinaryName(filepath.Base(hdr.Name), binaryName) && hdr.Typeflag == tar.TypeReg {
-			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(out, tr)
-			out.Close()
-			if err != nil {
-				return err
-			}
-			lb.Write(fmt.Sprintf("Extracted %s from %s", binaryName, hdr.Name))
-			return nil
-		}
-	}
-	return fmt.Errorf("%s not found in archive", binaryName)
-}
-
-func extractBinaryFromTarZst(tarZstPath, binaryName, targetPath string, lb *process.RingBuffer) error {
-	tmpDir, err := os.MkdirTemp("", "sd-extract-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpDir)
-
-	cmd := exec.Command("tar", "-I", "zstd", "-xf", tarZstPath, "-C", tmpDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		cmd = exec.Command("tar", "--zstd", "-xf", tarZstPath, "-C", tmpDir)
-		if output2, err2 := cmd.CombinedOutput(); err2 != nil {
-			return fmt.Errorf("tar extract (tried -I zstd and --zstd): %s; %s: %w", strings.TrimSpace(string(output)), strings.TrimSpace(string(output2)), err2)
-		}
-	}
-
-	var found string
-	filepath.Walk(tmpDir, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
-			return nil
-		}
-		if matchBinaryName(filepath.Base(path), binaryName) {
-			found = path
-		}
-		return nil
-	})
-	if found == "" {
-		return fmt.Errorf("%s not found in extracted archive", binaryName)
-	}
-
-	if err := copyFile(found, targetPath); err != nil {
-		return err
-	}
-	lb.Write(fmt.Sprintf("Extracted %s from archive", binaryName))
-	return nil
-}
-
-func extractBinaryFromZip(zipPath, binaryName, targetPath string) error {
-	r, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		if matchBinaryName(filepath.Base(f.Name), binaryName) && !f.FileInfo().IsDir() {
-			rc, err := f.Open()
-			if err != nil {
-				return err
-			}
-			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-			if err != nil {
-				rc.Close()
-				return err
-			}
-			_, err = io.Copy(out, rc)
-			out.Close()
-			rc.Close()
-			return err
-		}
-	}
-	return fmt.Errorf("%s not found in archive", binaryName)
-}
-
 func renameOrCopy(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
@@ -335,15 +230,4 @@ func matchBinaryName(name, target string) bool {
 		return true
 	}
 	return false
-}
-
-func archiveExt(url string) string {
-	switch {
-	case strings.HasSuffix(url, ".tar.zst"):
-		return ".tar.zst"
-	case strings.HasSuffix(url, ".tar.gz"):
-		return ".tar.gz"
-	default:
-		return filepath.Ext(url)
-	}
 }

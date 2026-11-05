@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -82,9 +83,7 @@ func (m InstallModel) View() string {
 	b.WriteString(titleStyle.Render(" Installing components... "))
 	b.WriteString("\n\n")
 
-	order := []string{"python", "forge", "ollama"}
-
-	for _, key := range order {
+	for _, key := range installOrder(m.statuses) {
 		s, ok := m.statuses[key]
 		if !ok {
 			continue
@@ -122,10 +121,23 @@ func (m InstallModel) View() string {
 	return borderStyle.Render(b.String())
 }
 
+func installOrder(statuses map[string]ComponentInstallStatus) []string {
+	var middle []string
+	for k := range statuses {
+		if k != "python" && k != "ollama" {
+			middle = append(middle, k)
+		}
+	}
+	sort.Strings(middle)
+	order := []string{"python"}
+	order = append(order, middle...)
+	return append(order, "ollama")
+}
+
 func componentLabel(key string) string {
 	switch key {
 	case "python":
-		return "Python 3.10"
+		return "Python"
 	case "forge":
 		return "Forge"
 	case "ollama":

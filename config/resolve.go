@@ -238,9 +238,6 @@ func forgeArgsOnPort(args []string, port int) []string {
 }
 
 func resolveInstallTarget(baseDir string, ic InstallConfig) string {
-	if ic.Method == InstallPip {
-		return ic.Target
-	}
 	if ic.Target == "" || filepath.IsAbs(ic.Target) {
 		return ic.Target
 	}

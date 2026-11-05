@@ -42,7 +42,6 @@ func NewWizardModel(defaultDir string) WizardModel {
 	return WizardModel{
 		dataInput: ti,
 		components: []Component{
-			{Key: "python", Label: "Python 3.10", Active: true},
 			{Key: "forge", Label: "Stable Diffusion Forge", Active: true},
 			{Key: "ollama", Label: "Ollama (LLM)", Active: true},
 		},

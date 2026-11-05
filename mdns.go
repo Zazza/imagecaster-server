@@ -8,10 +8,11 @@ type MDNSService struct {
 	server  *zeroconf.Server
 	port    int
 	enabled bool
+	version string
 }
 
-func NewMDNS(port int, enabled bool) *MDNSService {
-	return &MDNSService{port: port, enabled: enabled}
+func NewMDNS(port int, enabled bool, version string) *MDNSService {
+	return &MDNSService{port: port, enabled: enabled, version: version}
 }
 
 func (m *MDNSService) Register() error {
@@ -24,7 +25,7 @@ func (m *MDNSService) Register() error {
 		"_imagecaster._tcp",
 		"local.",
 		m.port,
-		[]string{"version=1.0"},
+		[]string{"version=" + m.version},
 		nil,
 	)
 	if err != nil {

@@ -48,7 +48,7 @@ jobs:
           else
             mv imagecaster-server "$name/imagecaster-server"
           fi
-          cp server-config.yaml README.md "$name/"
+          cp README.md "$name/"
           tar czf "${name}.tar.gz" "$name"
       - uses: softprops/action-gh-release@v2
         with:

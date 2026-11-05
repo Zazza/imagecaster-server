@@ -43,42 +43,6 @@ func venvScriptsDir(venvDir string) string {
 	return filepath.Join(venvDir, "bin")
 }
 
-func findPipForDataDir(dataDir string, lb *process.RingBuffer) (string, string) {
-	candidates := []struct {
-		bin  string
-		name string
-	}{
-		{pipBinPath(dataDir, "pip3"), "bundled pip3"},
-		{pipBinPath(dataDir, "pip"), "bundled pip"},
-	}
-
-	for _, c := range candidates {
-		if strings.ContainsRune(c.bin, os.PathSeparator) {
-			if _, err := os.Stat(c.bin); err == nil {
-				lb.Write(fmt.Sprintf("Found %s at %s", c.name, c.bin))
-				return c.bin, c.name
-			}
-		} else {
-			path, err := exec.LookPath(c.bin)
-			if err == nil {
-				lb.Write(fmt.Sprintf("Found %s at %s", c.name, path))
-				if c.bin == "uv" {
-					return path, "uv pip"
-				}
-				return path, c.name
-			}
-		}
-	}
-
-	lb.Write("pip not found, trying get-pip.py fallback")
-	pipPath, err := installPipFallbackForDataDir(dataDir, lb)
-	if err != nil {
-		lb.Write(fmt.Sprintf("Fallback failed: %v", err))
-		return "", ""
-	}
-	return pipPath, "pip3"
-}
-
 func installPipFallbackForDataDir(dataDir string, lb *process.RingBuffer) (string, error) {
 	bundledPython := pythonBinPath(dataDir)
 	var pythonPath string

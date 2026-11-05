@@ -3,11 +3,8 @@ package config
 type InstallMethod string
 
 const (
-	InstallZip     InstallMethod = "zip"
-	InstallBinary  InstallMethod = "binary"
-	InstallPip     InstallMethod = "pip"
-	InstallArchive InstallMethod = "archive"
-	InstallTgz     InstallMethod = "tgz"
+	InstallZip InstallMethod = "zip"
+	InstallTgz InstallMethod = "tgz"
 )
 
 type Config struct {
