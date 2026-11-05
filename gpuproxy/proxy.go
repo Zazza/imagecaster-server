@@ -36,14 +36,14 @@ type EndpointStatus struct {
 }
 
 type Proxy struct {
-	config      Config
-	queue       *PriorityQueue
-	handlers    map[string]*handler
-	servers     []*http.Server
-	addrs       map[string]string
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	gpuMonitor  GPUInfoer
+	config     Config
+	queue      *PriorityQueue
+	handlers   map[string]*handler
+	servers    []*http.Server
+	addrs      map[string]string
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	gpuMonitor GPUInfoer
 }
 
 func New(cfg Config, gpuMonitor GPUInfoer) *Proxy {

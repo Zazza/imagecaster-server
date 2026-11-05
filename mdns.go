@@ -5,9 +5,9 @@ import (
 )
 
 type MDNSService struct {
-	server   *zeroconf.Server
-	port     int
-	enabled  bool
+	server  *zeroconf.Server
+	port    int
+	enabled bool
 }
 
 func NewMDNS(port int, enabled bool) *MDNSService {
