@@ -20,7 +20,6 @@ import (
 	"imagecaster-server/attach"
 	"imagecaster-server/config"
 	sdgpu "imagecaster-server/gpu"
-	"imagecaster-server/gpuproxy"
 	"imagecaster-server/gpuqueue"
 	sdhealth "imagecaster-server/health"
 	"imagecaster-server/installer"
@@ -82,31 +81,15 @@ func main() {
 }
 
 type appDeps struct {
-	cfg      *config.Config
-	inst     *installer.Installer
-	pm       *process.ProcessManager
-	hm       *sdhealth.HealthMonitor
-	gm       *sdgpu.GPUMonitor
-	gpuProxy *gpuproxy.Proxy
-	mux      *http.ServeMux
-	q        *gpuqueue.Queue
-	sdw      *sdWeightTracker
-}
-
-type gpuMonitorAdapter struct {
-	*sdgpu.GPUMonitor
-}
-
-func (a *gpuMonitorAdapter) Info() gpuproxy.GPUInfo {
-	gi := a.GPUMonitor.Info()
-	return gpuproxy.GPUInfo{
-		Name:        gi.Name,
-		MemoryTotal: gi.MemoryTotal,
-		MemoryFree:  gi.MemoryFree,
-		MemoryUsed:  gi.MemoryUsed,
-		Utilization: gi.Utilization,
-		Available:   gi.Available,
-	}
+	cfg    *config.Config
+	inst   *installer.Installer
+	pm     *process.ProcessManager
+	hm     *sdhealth.HealthMonitor
+	gm     *sdgpu.GPUMonitor
+	guards *portGuards
+	mux    *http.ServeMux
+	q      *gpuqueue.Queue
+	sdw    *sdWeightTracker
 }
 
 func initApp(cfg *config.Config) *appDeps {
@@ -115,7 +98,7 @@ func initApp(cfg *config.Config) *appDeps {
 	if cfg.DetectedVRAMMB == 0 {
 		cfg.DetectedVRAMMB = gpuOpt.DetectGPU()
 	}
-	cfg.ApplyProxyPorts(log.Printf)
+	guardSpecs, guardWarns := applyPortGuard(cfg)
 
 	inst := installer.NewInstaller(cfg)
 	inst.EnsurePythonBasePackages()
@@ -155,17 +138,14 @@ func initApp(cfg *config.Config) *appDeps {
 	mux := setupMux(handlers, inst, mm, bm, proxy)
 	gpuqueue.NewAPI(q).RegisterRoutes(mux)
 
-	var gpuProxy *gpuproxy.Proxy
-	if cfg.Proxy.Enabled {
-		gpuProxy = gpuproxy.New(cfg.Proxy, &gpuMonitorAdapter{gm})
-		if err := gpuProxy.Start(); err != nil {
-			log.Fatalf("GPU proxy start failed: %v", err)
-		}
+	for _, msg := range guardWarns {
+		q.Warn(msg)
 	}
+	guards := startPortGuards(guardSpecs, proxy, q)
 
 	return &appDeps{
 		cfg: cfg, inst: inst, pm: pm, hm: hm, gm: gm,
-		gpuProxy: gpuProxy, mux: mux, q: q, sdw: sdw,
+		guards: guards, mux: mux, q: q, sdw: sdw,
 	}
 }
 
@@ -202,9 +182,9 @@ func (d *appDeps) registerMDNS() *MDNSService {
 }
 
 func (d *appDeps) shutdown() {
-	if d.gpuProxy != nil {
-		d.gpuProxy.Stop()
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d.guards.shutdown(ctx)
 	d.pm.StopAll()
 }
 

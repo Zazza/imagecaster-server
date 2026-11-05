@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -119,67 +120,121 @@ func (c *Config) ApplyBackendToProcess(gpu GPUOptimizer) {
 	c.Processes[backend.ProcessKey] = proc
 }
 
-func (c *Config) ApplyProxyPorts(logf func(string, ...interface{})) {
-	if !c.Proxy.Enabled {
-		return
-	}
+type PortGuard struct {
+	Process    string
+	ListenAddr string
+	ProxyPath  string
+}
 
-	for endpointName, epCfg := range c.Proxy.Endpoints {
-		realBackend, err := url.Parse(epCfg.TargetURL)
+func (c *Config) ApplyPortGuard() []PortGuard {
+	return c.ApplyPortGuardIf(nil)
+}
+
+func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
+	if !c.GPU.GuardPorts {
+		return nil
+	}
+	keys := make([]string, 0, len(c.Processes))
+	for k := range c.Processes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var guards []PortGuard
+	for _, key := range keys {
+		pc := c.Processes[key]
+		if !pc.AutoStart || pc.ProxyPath == "" || pc.TargetURL == "" {
+			continue
+		}
+		target, err := url.Parse(pc.TargetURL)
 		if err != nil {
 			continue
 		}
-
-		_, portStr, err := net.SplitHostPort(realBackend.Host)
-		if err != nil {
+		host, portStr, err := net.SplitHostPort(target.Host)
+		if err != nil || !isLoopbackHost(host) {
 			continue
 		}
+		public, err := strconv.Atoi(portStr)
+		if err != nil || public <= 0 {
+			continue
+		}
+		internal := pc.InternalPort
+		if internal <= 0 {
+			internal = public + 1
+		}
+		if internal == public {
+			continue
+		}
+		guard := PortGuard{
+			Process:    key,
+			ListenAddr: ":" + portStr,
+			ProxyPath:  pc.ProxyPath,
+		}
+		if allow != nil && !allow(guard) {
+			continue
+		}
+		internalHost := net.JoinHostPort("127.0.0.1", strconv.Itoa(internal))
 
-		proxyAddr := "http://localhost" + epCfg.ListenAddr
+		target.Host = internalHost
+		pc.TargetURL = target.String()
+		pc.HealthURL = moveLoopbackPort(pc.HealthURL, public, internalHost)
 
-		for procKey, pc := range c.Processes {
-			if pc.ProxyPath == "" {
-				continue
-			}
+		env := make(map[string]string, len(pc.Env)+1)
+		for k, v := range pc.Env {
+			env[k] = v
+		}
+		_, hasOllamaHost := env["OLLAMA_HOST"]
+		if hasOllamaHost || pc.ProxyPath == "/api/llm/" {
+			env["OLLAMA_HOST"] = internalHost
+		}
+		pc.Env = env
 
-			matched := false
-			switch {
-			case endpointName == "ollama" && pc.ProxyPath == "/api/llm/":
-				matched = true
-			case endpointName == "sd" && pc.ProxyPath == "/api/sd/":
-				matched = true
-			}
-			if !matched {
-				continue
-			}
+		if pc.ProxyPath == "/api/sd/" {
+			pc.Args = forgeArgsOnPort(pc.Args, internal)
+		}
 
-			pc.TargetURL = proxyAddr
-			pc.HealthURL = "http://" + realBackend.Host
+		c.Processes[key] = pc
+		guards = append(guards, guard)
+	}
+	return guards
+}
 
-			switch endpointName {
-			case "ollama":
-				pc.HealthURL = pc.HealthURL + "/api/tags"
-				if pc.Env == nil {
-					pc.Env = make(map[string]string)
-				}
-				pc.Env["OLLAMA_HOST"] = realBackend.Host
-			case "sd":
-				pc.HealthURL = pc.HealthURL + "/sdapi/v1/options"
-				hasPort := false
-				for _, a := range pc.Args {
-					if a == "--port" {
-						hasPort = true
-						break
-					}
-				}
-				if !hasPort {
-					pc.Args = append(pc.Args, "--port", portStr)
-				}
-			}
+func isLoopbackHost(host string) bool {
+	switch host {
+	case "", "localhost":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
-			c.Processes[procKey] = pc
+func moveLoopbackPort(raw string, public int, internalHost string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	host, portStr, err := net.SplitHostPort(u.Host)
+	if err != nil || !isLoopbackHost(host) || portStr != strconv.Itoa(public) {
+		return raw
+	}
+	u.Host = internalHost
+	return u.String()
+}
+
+func forgeArgsOnPort(args []string, port int) []string {
+	out := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--listen":
+		case a == "--port", a == "--server-name":
+			i++
+		case strings.HasPrefix(a, "--port="), strings.HasPrefix(a, "--server-name="):
+		default:
+			out = append(out, a)
 		}
 	}
+	return append(out, "--port", strconv.Itoa(port))
 }
 
 func resolveInstallTarget(baseDir string, ic InstallConfig) string {

@@ -1,9 +1,5 @@
 package config
 
-import (
-	"imagecaster-server/gpuproxy"
-)
-
 type InstallMethod string
 
 const (
@@ -22,18 +18,18 @@ type Config struct {
 	DetectedVRAMMB int                      `yaml:"detected_vram_mb"`
 	Processes      map[string]ProcessConfig `yaml:"processes"`
 	Backends       map[string]BackendConfig `yaml:"backends"`
-	Proxy          gpuproxy.Config          `yaml:"proxy"`
 	GPU            GPUConfig                `yaml:"gpu"`
 }
 
 type GPUConfig struct {
-	TotalBudgetMB     int `yaml:"total_budget_mb"`
-	ReserveMB         int `yaml:"reserve_mb"`
-	MaxWaitSeconds    int `yaml:"max_wait_seconds"`
-	LeaseTTLSeconds   int `yaml:"lease_ttl_seconds"`
-	SDDefaultWeightMB int `yaml:"sd_default_weight_mb"`
-	SDOverheadMB      int `yaml:"sd_overhead_mb"`
-	LLMWeightMB       int `yaml:"llm_weight_mb"`
+	TotalBudgetMB     int  `yaml:"total_budget_mb"`
+	ReserveMB         int  `yaml:"reserve_mb"`
+	MaxWaitSeconds    int  `yaml:"max_wait_seconds"`
+	LeaseTTLSeconds   int  `yaml:"lease_ttl_seconds"`
+	SDDefaultWeightMB int  `yaml:"sd_default_weight_mb"`
+	SDOverheadMB      int  `yaml:"sd_overhead_mb"`
+	LLMWeightMB       int  `yaml:"llm_weight_mb"`
+	GuardPorts        bool `yaml:"guard_ports"`
 }
 
 func (g *GPUConfig) ResolveBudget(detectedVRAMMB int) int {
@@ -54,19 +50,20 @@ type InstallConfig struct {
 }
 
 type ProcessConfig struct {
-	Name       string            `yaml:"name"`
-	Binary     string            `yaml:"binary"`
-	Args       []string          `yaml:"args"`
-	Env        map[string]string `yaml:"env"`
-	WorkDir    string            `yaml:"workdir"`
-	HealthURL  string            `yaml:"health_url"`
-	TargetURL  string            `yaml:"target_url"`
-	ProxyPath  string            `yaml:"proxy_path"`
-	AutoStart  bool              `yaml:"autostart"`
-	Restart    bool              `yaml:"restart"`
-	MaxRestart int               `yaml:"max_restart"`
-	Install    InstallConfig     `yaml:"install"`
-	Category   string            `yaml:"category"`
+	Name         string            `yaml:"name"`
+	Binary       string            `yaml:"binary"`
+	Args         []string          `yaml:"args"`
+	Env          map[string]string `yaml:"env"`
+	WorkDir      string            `yaml:"workdir"`
+	HealthURL    string            `yaml:"health_url"`
+	TargetURL    string            `yaml:"target_url"`
+	ProxyPath    string            `yaml:"proxy_path"`
+	InternalPort int               `yaml:"internal_port"`
+	AutoStart    bool              `yaml:"autostart"`
+	Restart      bool              `yaml:"restart"`
+	MaxRestart   int               `yaml:"max_restart"`
+	Install      InstallConfig     `yaml:"install"`
+	Category     string            `yaml:"category"`
 }
 
 type BackendConfig struct {

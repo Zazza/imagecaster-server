@@ -2,12 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- Port guard (`gpu.guard_ports`, on by default): the server listens on the standard Forge `:7860` and Ollama `:11434` ports and moves the services it starts to loopback `127.0.0.1:7861` / `:11435`, so requests from any LAN program pass the same GPU budget queue as `/api/sd/` and `/api/llm/`. Only services with `autostart` are guarded, and only when the public port is free; a busy port is left alone with a warning in the queue status. Internal ports: `internal_port` per process
+
 ### Changed
 - Renamed to **Imagecaster Server** to match the Imagecaster client (ex SD Studio): Go module, binary `imagecaster-server`, Docker service, release assets, GitHub repo `Zazza/imagecaster-server`
 - mDNS service type is now `_imagecaster._tcp` (instance "Imagecaster Server") — the one Imagecaster 1.0 browses; LAN auto-discovery works again
 - Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist
 
 ### Removed
+- Legacy standalone GPU proxy `gpuproxy` and the `proxy:` config section (superseded by the port guard; an old `proxy:` section is ignored), and the internal `X-SD-Studio` header
 - GPU lease kind `yue`: no client ever used it; `POST /api/gpu/lease` now accepts `sd` and `llm` only (`yue` → 400 `invalid kind`)
 
 ## [1.1.0] — 2026-10-08

@@ -37,7 +37,7 @@ func NewProxyHandler(pm *process.ProcessManager, cfg *config.Config, gate *Gate)
 		if err != nil {
 			continue
 		}
-		ph.routes[pc.ProxyPath] = &proxyRoute{proxy: newReverseProxy(target), gate: gate}
+		ph.routes[pc.ProxyPath] = &proxyRoute{proxy: newReverseProxy(target, pc.ProxyPath), gate: gate}
 	}
 
 	return ph
@@ -53,7 +53,7 @@ func (ph *ProxyHandler) UpdateRoute(proxyPath, targetURL string) error {
 	if rt, ok := ph.routes[proxyPath]; ok {
 		gate = rt.gate
 	}
-	ph.routes[proxyPath] = &proxyRoute{proxy: newReverseProxy(target), gate: gate}
+	ph.routes[proxyPath] = &proxyRoute{proxy: newReverseProxy(target, proxyPath), gate: gate}
 	ph.mu.Unlock()
 	return nil
 }
@@ -76,7 +76,6 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Header.Set("X-SD-Studio", "1")
 	handler := http.StripPrefix(prefix, rt.proxy)
 	if rt.gate != nil && rt.gate.Enabled() {
 		handler = rt.gate.Middleware(handler)
@@ -84,8 +83,15 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(w, r)
 }
 
-func newReverseProxy(target *url.URL) *httputil.ReverseProxy {
+func newReverseProxy(target *url.URL, proxyPath string) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	if proxyPath == "/api/llm/" {
+		director := proxy.Director
+		proxy.Director = func(r *http.Request) {
+			director(r)
+			r.Host = target.Host
+		}
+	}
 	proxy.FlushInterval = -1
 	proxy.Transport = &http.Transport{
 		ResponseHeaderTimeout: 0, // SD can take very long
