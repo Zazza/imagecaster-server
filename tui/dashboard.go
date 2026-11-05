@@ -31,6 +31,7 @@ type DashboardModel struct {
 	showQueue     bool
 	queueSel      int
 	queueFlash    string
+	attached      bool
 }
 
 func NewDashboardModel(deps ServerDeps, ip string) DashboardModel {
@@ -112,7 +113,7 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case queueResultMsg:
 		if msg.err != nil {
-			m.queueFlash = "error: " + msg.err.Error()
+			m.queueFlash = fmt.Sprintf(T("queue.error"), msg.err.Error())
 		} else {
 			m.queueFlash = ""
 		}
@@ -374,7 +375,7 @@ func (m DashboardModel) maxTermOffset() int {
 
 func (m DashboardModel) View() string {
 	if m.width == 0 || m.height == 0 {
-		return "Loading..."
+		return T("common.loading")
 	}
 	if m.showTerminal {
 		return m.viewTerminal()
@@ -397,7 +398,7 @@ func (m DashboardModel) viewLogs() string {
 	w, h := m.width, m.height
 
 	var lines []string
-	lines = append(lines, headerBg.Render(fmt.Sprintf(" Logs: %s ", m.logKey)))
+	lines = append(lines, headerBg.Render(" "+fmt.Sprintf(T("logs.title"), m.logKey)+" "))
 	lines = append(lines, sep(w))
 
 	visible := h - 4
@@ -412,11 +413,11 @@ func (m DashboardModel) viewLogs() string {
 	if bot > total {
 		bot = total
 	}
-	scrollInfo := fmt.Sprintf("line %d-%d/%d", top, bot, total)
-	footer := helpStyle.Render("[j/k/pgup/pgdn/g/G] scroll  [q/esc] back")
+	scrollInfo := fmt.Sprintf(T("scroll.info"), top, bot, total)
+	footer := helpStyle.Render(T("logs.footer"))
 	footer += "  " + labelStyle.Render(scrollInfo)
 	if m.logFollowing {
-		footer += "  " + progressGreen.Render("FOLLOW")
+		footer += "  " + progressGreen.Render(T("scroll.follow"))
 	}
 	lines = append(lines, footer)
 
@@ -427,7 +428,7 @@ func (m DashboardModel) viewTerminal() string {
 	w, h := m.width, m.height
 
 	var lines []string
-	lines = append(lines, headerBg.Render(" Terminal "))
+	lines = append(lines, headerBg.Render(" "+T("term.title")+" "))
 	lines = append(lines, sep(w))
 
 	visible := h - 4
@@ -442,11 +443,11 @@ func (m DashboardModel) viewTerminal() string {
 	if bot > total {
 		bot = total
 	}
-	scrollInfo := fmt.Sprintf("line %d-%d/%d", top, bot, total)
-	footer := helpStyle.Render("[j/k/pgup/pgdn/g/G] scroll  [t/q/esc] back")
+	scrollInfo := fmt.Sprintf(T("scroll.info"), top, bot, total)
+	footer := helpStyle.Render(T("term.footer"))
 	footer += "  " + labelStyle.Render(scrollInfo)
 	if m.termFollowing {
-		footer += "  " + progressGreen.Render("FOLLOW")
+		footer += "  " + progressGreen.Render(T("scroll.follow"))
 	}
 	lines = append(lines, footer)
 
@@ -457,7 +458,7 @@ func (m DashboardModel) renderScrollArea(logLines []string, offset, visible, wid
 	result := make([]string, 0, visible)
 
 	if len(logLines) == 0 {
-		result = append(result, helpStyle.Render("No logs available"))
+		result = append(result, helpStyle.Render(T("logs.empty")))
 		for len(result) < visible {
 			result = append(result, "")
 		}
@@ -497,7 +498,7 @@ func (m DashboardModel) viewDashboard() string {
 
 	var lines []string
 
-	header := fmt.Sprintf(" Imagecaster Server   %s  %s ", runningStyle.Render("[RUNNING]"), m.address())
+	header := fmt.Sprintf(" Imagecaster Server   %s  %s ", runningStyle.Render(T("dash.running")), m.address())
 	lines = append(lines, headerBg.Render(header))
 	if m.deps.ConnState != nil {
 		if banner := m.deps.ConnState(); banner != "" {
@@ -507,7 +508,7 @@ func (m DashboardModel) viewDashboard() string {
 	lines = append(lines, sep(w))
 	lines = append(lines, m.renderMetrics()...)
 	lines = append(lines, sep(w))
-	lines = append(lines, subtitleStyle.Render("SERVICES"))
+	lines = append(lines, subtitleStyle.Render(T("dash.services")))
 
 	keys := m.serviceKeys()
 	cursorIdx := 0
@@ -528,33 +529,37 @@ func (m DashboardModel) viewDashboard() string {
 			statusIcon = healthyStyle.Render("*")
 			healthText := ""
 			if si.Healthy {
-				healthText = fmt.Sprintf(" ok %dms", si.Latency)
+				healthText = fmt.Sprintf(T("dash.health_ok"), si.Latency)
 			}
-			statusText = fmt.Sprintf("%s PID %d %s%s", runningStyle.Render("running"), si.PID, si.Uptime, healthText)
+			statusText = fmt.Sprintf("%s PID %d %s%s", runningStyle.Render(statusLabel(si.Status)), si.PID, si.Uptime, healthText)
 		case "crashed":
 			statusIcon = crashedStyle.Render("!")
-			statusText = crashedStyle.Render("crashed")
+			statusText = crashedStyle.Render(statusLabel(si.Status))
 		default:
 			statusIcon = stoppedStyle.Render("o")
-			statusText = stoppedStyle.Render(si.Status)
+			statusText = stoppedStyle.Render(statusLabel(si.Status))
 		}
 
 		line := fmt.Sprintf("%s %s %-28s %s", cursor, statusIcon, si.Name, statusText)
 		lines = append(lines, line)
 	}
 
-	// Utilities
-	lines = append(lines, sep(w))
-	lines = append(lines, subtitleStyle.Render("UTILITIES"))
+	var utilities []string
 	for _, key := range keys {
-		si := m.services[key]
-		if si.Category != "utility" || key == "python" {
-			continue
+		if m.services[key].Category == "utility" {
+			utilities = append(utilities, key)
 		}
-		installStatus := stoppedStyle.Render("not installed")
+	}
+	if len(utilities) > 0 {
+		lines = append(lines, sep(w))
+		lines = append(lines, subtitleStyle.Render(T("dash.utilities")))
+	}
+	for _, key := range utilities {
+		si := m.services[key]
+		installStatus := stoppedStyle.Render(T("util.not_installed"))
 		installs := m.deps.InstallStatus()
 		if is, ok := installs[key]; ok && is.Installed {
-			installStatus = runningStyle.Render("installed")
+			installStatus = runningStyle.Render(T("util.installed"))
 			if is.Version != "" {
 				installStatus += fmt.Sprintf(" v%s", is.Version)
 			}
@@ -567,14 +572,18 @@ func (m DashboardModel) viewDashboard() string {
 		lines = append(lines, "")
 	}
 
-	help := "[r] restart  [s] start/stop  [l] logs"
+	help := T("dash.select") + "  " + T("dash.restart") + "  " + T("dash.startstop") + "  " + T("dash.logs")
 	if m.deps.QueueSnapshot != nil {
-		help += "  [g] gpu queue"
+		help += "  " + T("dash.queue")
 	}
 	if m.deps.ServerLogs != nil {
-		help += "  [t] terminal"
+		help += "  " + T("dash.terminal")
 	}
-	help += "  [q] quit"
+	if m.attached {
+		help += "  " + T("dash.detach")
+	} else {
+		help += "  " + T("dash.quit")
+	}
 	lines = append(lines, helpStyle.Render(help))
 
 	return fillScreen(w, h, lines)

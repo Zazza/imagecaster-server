@@ -100,6 +100,7 @@ type AppModel struct {
 	install   InstallModel
 	dashboard DashboardModel
 	quitting  bool
+	attached  bool
 }
 
 func NewAppModel(deps ServerDeps) AppModel {
@@ -123,14 +124,16 @@ func NewAttachModel(deps ServerDeps, hostport string) AppModel {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	m := AppModel{
-		deps:   deps,
-		ctx:    ctx,
-		cancel: cancel,
-		ip:     hostport,
-		phase:  PhaseDashboard,
+		deps:     deps,
+		ctx:      ctx,
+		cancel:   cancel,
+		ip:       hostport,
+		phase:    PhaseDashboard,
+		attached: true,
 	}
 
 	m.dashboard = NewDashboardModel(deps, m.ip)
+	m.dashboard.attached = true
 
 	return m
 }
@@ -203,7 +206,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m AppModel) View() string {
 	if m.quitting {
-		return "\n  Shutting down...\n\n"
+		if m.attached {
+			return "\n  " + T("app.detaching") + "\n\n"
+		}
+		return "\n  " + T("app.shutting_down") + "\n\n"
 	}
 
 	switch m.phase {

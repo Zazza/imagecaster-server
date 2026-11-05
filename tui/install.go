@@ -80,7 +80,7 @@ func (m InstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m InstallModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render(" Installing components... "))
+	b.WriteString(titleStyle.Render(" " + T("install.title") + " "))
 	b.WriteString("\n\n")
 
 	for _, key := range installOrder(m.statuses) {
@@ -94,29 +94,29 @@ func (m InstallModel) View() string {
 		switch {
 		case s.Installed:
 			b.WriteString(label)
-			b.WriteString(progressGreen.Render(" done"))
+			b.WriteString(progressGreen.Render(" " + T("install.done")))
 		case s.Installing:
 			b.WriteString(label)
 			b.WriteString(m.spinner.View())
 			b.WriteString(" ")
-			b.WriteString(progressBlue.Render(truncateProgress(s.Progress, 40)))
+			b.WriteString(progressBlue.Render(truncateProgress(progressLabel(s.Progress), 40)))
 		case s.Error != "":
 			b.WriteString(label)
-			b.WriteString(progressRed.Render(" failed"))
+			b.WriteString(progressRed.Render(" " + T("install.failed")))
 		default:
 			b.WriteString(label)
-			b.WriteString(progressGray.Render(" waiting"))
+			b.WriteString(progressGray.Render(" " + T("install.waiting")))
 		}
 		b.WriteString("\n")
 	}
 
 	if m.done {
 		b.WriteString("\n")
-		b.WriteString(progressGreen.Render("All components installed! Starting services..."))
+		b.WriteString(progressGreen.Render(T("install.all_done")))
 	}
 
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("Ctrl+C to quit"))
+	b.WriteString(helpStyle.Render(T("install.quit")))
 
 	return borderStyle.Render(b.String())
 }
@@ -149,8 +149,9 @@ func componentLabel(key string) string {
 }
 
 func truncateProgress(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	r := []rune(s)
+	if len(r) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	return string(r[:maxLen-3]) + "..."
 }

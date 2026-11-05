@@ -16,6 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"imagecaster-server/i18n"
 	"imagecaster-server/tui"
 )
 
@@ -482,9 +483,9 @@ func (c *Client) banner() string {
 	case StateOK:
 		return ""
 	case StateConnecting:
-		return "connecting to " + c.target.Base + "..."
+		return fmt.Sprintf(i18n.T("attach.connecting"), c.target.Base)
 	default:
-		return fmt.Sprintf("connection lost, reconnecting (attempt %d): %s", c.fails, truncateRunes(sanitizeString(c.lastErr), bannerMaxErrRunes))
+		return fmt.Sprintf(i18n.T("attach.reconnecting"), c.fails, truncateRunes(sanitizeString(c.lastErr), bannerMaxErrRunes))
 	}
 }
 

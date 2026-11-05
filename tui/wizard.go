@@ -59,7 +59,7 @@ func (m WizardModel) View() string {
 	b.WriteString("\n\n")
 	b.WriteString(labelStyle.Render(T("wizard.datadir")))
 	b.WriteString("\n")
-	b.WriteString(selectedStyle.Render("> " + m.dataInput.View()))
+	b.WriteString(selectedStyle.Render(m.dataInput.View()))
 	b.WriteString("\n\n")
 	b.WriteString(helpStyle.Render(T("wizard.components")))
 	if runtime.GOOS == "windows" {

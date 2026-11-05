@@ -9,7 +9,7 @@
 - SD backend is **Forge Neo** 2.31 (`forge-neo`, Haoming02/sd-webui-forge-classic) — the one Imagecaster needs. Its venv is created with a bundled `uv` 0.12.19 (checksum-pinned, in `<data>/bin`) and Python 3.13 (in `<data>/python`); Neo installs PyTorch itself on first start (`--uv`, into the same venv, uv cache in `<data>/uv-cache`). An existing backend whose binary is already in place is never reinstalled; if setup failed after download, the next start only finishes the setup
 - Ollama: the one already installed in the system is used; otherwise it is installed into `<data>/ollama`. On Windows this is now the standalone zip instead of `OllamaSetup.exe`, so nothing is installed system-wide and nothing autostarts; on macOS without Homebrew the universal `ollama-darwin.tgz` is used (the per-arch name was a 404)
 - First-run wizard asks only for the data folder (Neo is required, Ollama is detected) and warns about the C: drive on Windows. Startup installs only components that autostart
-- Interface language Russian or English, chosen from the system language (`IMAGECASTER_LANG` or `lang:` in config override it)
+- Interface language Russian or English, chosen from the system language (`IMAGECASTER_LANG` or `lang:` in config override it): wizard, install screen, dashboard, logs, GPU queue and attach mode. In attach mode the footer says `[q] detach` (the server keeps running); the empty UTILITIES block is hidden
 - Installs of one component never run twice at once (startup install and a manual start wait for each other); the SD backend has a single install status
 - `/` and mDNS report the real build version; new `--version` flag
 - Ollama default env no longer sets `OLLAMA_DEBUG=1`

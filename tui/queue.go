@@ -40,14 +40,14 @@ func buildQueueRows(snap QueueSnapshot) []queueRow {
 
 	idx := 0
 	if len(running) > 0 {
-		rows = append(rows, queueRow{isHeader: true, header: "RUNNING"})
+		rows = append(rows, queueRow{isHeader: true, header: T("queue.running")})
 	}
 	for _, j := range running {
 		rows = append(rows, queueRow{job: j, idx: idx})
 		idx++
 	}
 	if len(snap.Waiting) > 0 {
-		rows = append(rows, queueRow{isHeader: true, header: "QUEUE"})
+		rows = append(rows, queueRow{isHeader: true, header: T("queue.waiting")})
 	}
 	for i, j := range snap.Waiting {
 		rows = append(rows, queueRow{job: j, waiting: true, idx: idx, pos: i + 1})
@@ -114,10 +114,10 @@ func queueSummaryLine(snap QueueSnapshot, used int) string {
 	if snap.Budget > 0 {
 		pct = float64(used) / float64(snap.Budget) * 100
 	}
-	line := fmt.Sprintf("%s  %d/%dMB  run %d  queue %d",
+	line := fmt.Sprintf(T("queue.summary"),
 		renderBar(pct, barWidth), used, snap.Budget, len(snap.Running), len(snap.Waiting))
 	if len(snap.Warnings) > 0 {
-		line += fmt.Sprintf("  warn %d", len(snap.Warnings))
+		line += fmt.Sprintf(T("queue.warn"), len(snap.Warnings))
 	}
 	return line
 }
@@ -178,22 +178,22 @@ func (m DashboardModel) renderQueueRow(r queueRow, selected bool) string {
 		cursor = selectedStyle.Render(">")
 	}
 	if r.waiting {
-		return fmt.Sprintf("%s #%-3d %-16s %-5s %-20s %6dMB p %-2d waits %s",
+		return fmt.Sprintf("%s #%-3d %-16s %-5s %-20s %6dMB p %-2d %s",
 			cursor, r.pos, r.job.ID, r.job.Kind, r.job.Client, r.job.WeightMB, r.job.Priority,
-			formatQueueDur(time.Since(r.job.SubmittedAt)))
+			fmt.Sprintf(T("queue.waits"), formatQueueDur(time.Since(r.job.SubmittedAt))))
 	}
-	return fmt.Sprintf("%s %s   %-16s %-5s %-20s %6dMB p %-2d lease %s",
+	return fmt.Sprintf("%s %s   %-16s %-5s %-20s %6dMB p %-2d %s",
 		cursor, runningStyle.Render("*"), r.job.ID, r.job.Kind, r.job.Client, r.job.WeightMB, r.job.Priority,
-		formatQueueDur(time.Until(r.job.LeaseDeadline)))
+		fmt.Sprintf(T("queue.lease"), formatQueueDur(time.Until(r.job.LeaseDeadline))))
 }
 
 func (m DashboardModel) viewQueue() string {
 	w, h := m.width, m.height
 	snap := m.deps.QueueSnapshot()
 
-	title := " GPU Queue"
+	title := " " + T("queue.title")
 	if snap.Budget > 0 {
-		title = " GPU Queue  " + queueSummaryLine(snap, queueUsedMB(snap))
+		title += "  " + queueSummaryLine(snap, queueUsedMB(snap))
 	}
 
 	var lines []string
@@ -206,9 +206,9 @@ func (m DashboardModel) viewQueue() string {
 	lines = append(lines, sep(w))
 
 	if snap.Budget <= 0 {
-		lines = append(lines, helpStyle.Render("  GPU queue disabled"))
+		lines = append(lines, helpStyle.Render("  "+T("queue.disabled")))
 		lines = append(lines, sep(w))
-		lines = append(lines, helpStyle.Render("[q] back"))
+		lines = append(lines, helpStyle.Render(T("queue.back")))
 		return fillScreen(w, h, lines)
 	}
 
@@ -226,7 +226,7 @@ func (m DashboardModel) viewQueue() string {
 	}
 
 	if len(rows) == 0 {
-		lines = append(lines, helpStyle.Render("  no jobs"))
+		lines = append(lines, helpStyle.Render("  "+T("queue.empty")))
 	} else {
 		for i := offset; i < end; i++ {
 			lines = append(lines, m.renderQueueRow(rows[i], !rows[i].isHeader && rows[i].idx == sel))
@@ -246,11 +246,11 @@ func (m DashboardModel) viewQueue() string {
 		lines = append(lines, progressRed.Render(m.queueFlash))
 	}
 
-	posInfo := "job 0/0"
+	posInfo := fmt.Sprintf(T("queue.pos"), 0, 0)
 	if total > 0 {
-		posInfo = fmt.Sprintf("job %d/%d", sel+1, total)
+		posInfo = fmt.Sprintf(T("queue.pos"), sel+1, total)
 	}
-	footer := helpStyle.Render("[j/k] select  [u/d] priority  [x] cancel/release  [q] back")
+	footer := helpStyle.Render(T("queue.footer"))
 	footer += "  " + labelStyle.Render(posInfo)
 	lines = append(lines, footer)
 
