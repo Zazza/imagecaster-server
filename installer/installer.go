@@ -325,6 +325,16 @@ func (inst *Installer) Install(key string) error {
 	return err
 }
 
+func (inst *Installer) Logs(key string, n int) []string {
+	inst.mu.Lock()
+	lb := inst.logs[key]
+	inst.mu.Unlock()
+	if lb == nil {
+		return nil
+	}
+	return lb.Lines(n)
+}
+
 func (inst *Installer) Status() map[string]InstallStatus {
 	inst.mu.RLock()
 	defer inst.mu.RUnlock()

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -60,11 +61,47 @@ const (
 )
 
 func DefaultDataDir() string {
+	if d := SavedDataDir(); d != "" {
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			return d
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return dataDirName
 	}
 	return dataDirIn(home)
+}
+
+func dataDirPointer() string {
+	d, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(d, dataDirName, "data-dir")
+}
+
+func SavedDataDir() string {
+	p := dataDirPointer()
+	if p == "" {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func SaveDataDir(dir string) error {
+	p := dataDirPointer()
+	if p == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(dir+"\n"), 0o644)
 }
 
 func dataDirIn(home string) string {

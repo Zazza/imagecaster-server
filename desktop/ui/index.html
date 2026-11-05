@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imagecaster Server</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <img src="logo.png" alt="" width="40" height="40">
+  <div>
+    <h1>Imagecaster Server</h1>
+    <div class="sub"><span data-i="sub"></span> <span id="ver"></span></div>
+  </div>
+</header>
+
+<main>
+  <section id="s-welcome" class="step">
+    <h2 data-i="welcome.title"></h2>
+    <p data-i="welcome.text"></p>
+    <ul class="list">
+      <li data-i="welcome.neo"></li>
+      <li data-i="welcome.ollama"></li>
+    </ul>
+    <p class="card" id="gpu"></p>
+  </section>
+
+  <section id="s-home" class="step" hidden>
+    <h2 data-i="home.title"></h2>
+    <p data-i="home.text"></p>
+    <div class="row">
+      <input id="home" type="text" spellcheck="false">
+      <button id="browse" class="ghost" data-i="home.browse"></button>
+    </div>
+    <p class="hint" id="free"></p>
+  </section>
+
+  <section id="s-install" class="step" hidden>
+    <h2 id="inst-title" data-i="install.title"></h2>
+    <ol id="stages" class="stages"></ol>
+    <p class="now" id="now"></p>
+    <div id="fail" class="fail" hidden>
+      <p id="fail-text"></p>
+      <p class="hint" data-i="install.retryHint"></p>
+    </div>
+    <p class="hint" data-i="install.bg"></p>
+    <button id="toggle-log" class="link" data-i="install.more"></button>
+    <pre id="log" hidden></pre>
+  </section>
+
+  <section id="s-done" class="step" hidden>
+    <h2 data-i="done.title"></h2>
+    <p data-i="done.text"></p>
+    <p data-i="done.addr"></p>
+    <div class="row">
+      <code id="addr" class="addr"></code>
+      <button id="copy" class="ghost" data-i="done.copy"></button>
+    </div>
+  </section>
+
+  <p class="error" id="err" hidden></p>
+</main>
+
+<footer class="bottom">
+  <button id="back" class="ghost" hidden data-i="btn.back"></button>
+  <span class="grow"></span>
+  <button id="retry" class="primary" hidden data-i="btn.retry"></button>
+  <button id="openlog" class="ghost" hidden data-i="btn.openlog"></button>
+  <button id="next" class="primary" data-i="btn.next"></button>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

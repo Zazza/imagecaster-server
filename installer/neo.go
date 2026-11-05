@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 
+	"imagecaster-server/hide"
 	"imagecaster-server/process"
 )
 
@@ -35,7 +35,7 @@ func (inst *Installer) setupBackend(target string, lb *process.RingBuffer) error
 		return fmt.Errorf("uv: %w", err)
 	}
 	lb.Write("Creating venv with Python " + NeoPythonVersion + " (uv downloads Python)...")
-	cmd := exec.Command(uv, "venv", "venv", "--python", NeoPythonVersion, "--managed-python", "--seed", "--clear")
+	cmd := hide.Command(uv, "venv", "venv", "--python", NeoPythonVersion, "--managed-python", "--seed", "--clear")
 	cmd.Dir = target
 	cmd.Env = UvEnv(inst.config.DataDir)
 	out, err := cmd.CombinedOutput()

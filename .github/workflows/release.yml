@@ -22,34 +22,47 @@ jobs:
           - goos: windows
             goarch: arm64
     runs-on: ubuntu-latest
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: 0
+      NAME: imagecaster-server-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
       - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-          VERSION: ${{ github.ref_name }}
         run: |
-          output=imagecaster-server
-          [ "$GOOS" = "windows" ] && output="${output}.exe"
-          go build -ldflags "-s -w -X main.version=${VERSION#v}" -o "$output" .
-      - name: Package
-        env:
-          GOOS: ${{ matrix.goos }}
-        run: |
-          name=imagecaster-server-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          mkdir "$name"
+          version="${GITHUB_REF_NAME#v}"
+          ldflags="-s -w -X main.version=${version}"
+          mkdir -p "$NAME"
           if [ "$GOOS" = "windows" ]; then
-            mv imagecaster-server.exe "$name/imagecaster-server.exe"
+            GOOS= GOARCH= go tool go-winres simply --icon desktop/ui/icon.ico --manifest none \
+              --product-name "Imagecaster Server" --file-description "Imagecaster Server" \
+              --product-version "$version" --arch "$GOARCH"
+            go build -tags desktop,production -ldflags "$ldflags -H windowsgui" -o "$NAME/imagecaster-server.exe" .
+            go build -ldflags "$ldflags" -o "$NAME/imagecaster-server-console.exe" .
           else
-            mv imagecaster-server "$name/imagecaster-server"
+            go build -ldflags "$ldflags" -o "$NAME/imagecaster-server" .
           fi
-          cp README.md "$name/"
-          tar czf "${name}.tar.gz" "$name"
+          if [ "$GOOS" = "darwin" ]; then
+            cp packaging/start.command "$NAME/Imagecaster Server.command"
+            chmod +x "$NAME/Imagecaster Server.command"
+          fi
+          cp README.md README-ru.md "$NAME/"
+      - name: Package
+        run: |
+          if [ "$GOOS" = "windows" ]; then
+            zip -qr "${NAME}.zip" "$NAME"
+            sha256sum "${NAME}.zip" > "${NAME}.zip.sha256"
+          else
+            tar czf "${NAME}.tar.gz" "$NAME"
+            sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
-          files: "*.tar.gz"
+          files: |
+            *.tar.gz
+            *.zip
+            *.sha256

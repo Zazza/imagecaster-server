@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"imagecaster-server/hide"
 	"imagecaster-server/process"
 )
 
@@ -151,7 +152,7 @@ func (inst *Installer) installGitLinux(lb *process.RingBuffer) error {
 			continue
 		}
 		lb.Write(fmt.Sprintf("Installing git via %s...", pm.cmd))
-		output, err := exec.Command(pm.cmd, pm.args...).CombinedOutput()
+		output, err := hide.Command(pm.cmd, pm.args...).CombinedOutput()
 		if err != nil {
 			lb.Write(fmt.Sprintf("%s failed: %v: %s", pm.cmd, err, string(output)))
 			continue
@@ -166,9 +167,9 @@ func (inst *Installer) installGitLinux(lb *process.RingBuffer) error {
 }
 
 func (inst *Installer) installGitDarwin(lb *process.RingBuffer) error {
-	if err := exec.Command("xcode-select", "-p").Run(); err != nil {
+	if err := hide.Command("xcode-select", "-p").Run(); err != nil {
 		lb.Write("Installing Xcode command line tools...")
-		_ = exec.Command("xcode-select", "--install").Run()
+		_ = hide.Command("xcode-select", "--install").Run()
 	}
 	if GitAvailable(inst.config.DataDir) {
 		lb.Write("git available via Xcode tools")

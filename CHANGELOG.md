@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Windows: install with clicks, like the Partscaster worker. The release zip has `imagecaster-server.exe` — a setup window (data folder, graphics card, free space, install progress) and then a tray icon (Forge Neo and Ollama status, address for the app, open Forge Neo, dashboard, log, exit) — and `imagecaster-server-console.exe` (the TUI, also opened from the tray as the dashboard). No console windows for child processes; quitting stops all of them. A second start with the same folder only says it is already running. Nothing starts with Windows
+- macOS: release archive has `Imagecaster Server.command` that clears the download quarantine and starts the server in Terminal
+- Release archives have `.sha256` checksum files; Windows archives are `.zip`
 - Port guard (`gpu.guard_ports`, on by default): the server listens on the standard Forge `:7860` and Ollama `:11434` ports and moves the services it starts to loopback `127.0.0.1:7861` / `:11435`, so requests from any LAN program pass the same GPU budget queue as `/api/sd/` and `/api/llm/`. Only services with `autostart` are guarded, and only when the public port is free; a busy port is left alone with a warning in the queue status. Internal ports: `internal_port` per process
 
 ### Changed
@@ -15,7 +18,7 @@
 - Ollama default env no longer sets `OLLAMA_DEBUG=1`
 - Renamed to **Imagecaster Server** to match the Imagecaster client (ex SD Studio): Go module, binary `imagecaster-server`, Docker service, release assets, GitHub repo `Zazza/imagecaster-server`
 - mDNS service type is now `_imagecaster._tcp` (instance "Imagecaster Server") — the one Imagecaster 1.0 browses; LAN auto-discovery works again
-- Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist
+- Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist. A folder chosen in the wizard or the setup window is remembered (`<user config dir>/imagecaster-server/data-dir`) and its config is written there (it used to land in the default folder)
 
 ### Removed
 - Classic Forge backend (an old config with `active_sd: forge` switches to Forge Neo; the old Forge folder is left on disk — move its models to `sd-webui-forge-neo/models`) and the separate Python 3.10 component (python-build-standalone, base packages, venv pre-install of torch/deps)

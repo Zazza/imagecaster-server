@@ -7,12 +7,15 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"imagecaster-server/hide"
 )
 
 func SetPlatformProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
 	}
+	hide.Window(cmd)
 }
 
 func PlatformKill(mp *ManagedProcess) error {
@@ -30,11 +33,13 @@ func PlatformKill(mp *ManagedProcess) error {
 }
 
 func killProcessTree(pid int) {
-	exec.Command("taskkill", "/PID", itoa(pid), "/T", "/F").Run()
+	run(exec.Command("taskkill", "/PID", itoa(pid), "/T", "/F"))
 
-	out, _ := exec.Command("wmic", "process", "where",
+	wmic := exec.Command("wmic", "process", "where",
 		"ParentProcessId="+itoa(pid),
-		"get", "ProcessId", "/format:csv").Output()
+		"get", "ProcessId", "/format:csv")
+	hide.Window(wmic)
+	out, _ := wmic.Output()
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "Node,") {
@@ -43,9 +48,14 @@ func killProcessTree(pid int) {
 		fields := strings.Split(line, ",")
 		childPID := strings.TrimSpace(fields[len(fields)-1])
 		if childPID != "" && childPID != itoa(pid) {
-			exec.Command("taskkill", "/PID", childPID, "/T", "/F").Run()
+			run(exec.Command("taskkill", "/PID", childPID, "/T", "/F"))
 		}
 	}
+}
+
+func run(cmd *exec.Cmd) {
+	hide.Window(cmd)
+	_ = cmd.Run()
 }
 
 func itoa(n int) string {

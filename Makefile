@@ -1,4 +1,4 @@
-.PHONY: build run test vet clean
+.PHONY: build build-windows run test vet clean
 
 BINARY   := imagecaster-server
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -6,6 +6,10 @@ LDFLAGS  := -ldflags "-X main.version=$(VERSION)"
 
 build:
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY) .
+
+build-windows:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -ldflags "-X main.version=$(VERSION) -H windowsgui" -o $(BINARY).exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BINARY)-console.exe .
 
 run: build
 	./$(BINARY)
@@ -17,5 +21,5 @@ vet:
 	go vet ./...
 
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(BINARY).exe $(BINARY)-console.exe
 

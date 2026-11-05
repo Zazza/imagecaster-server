@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 
+	"imagecaster-server/hide"
 	"imagecaster-server/process"
 )
 
@@ -89,6 +90,15 @@ func (inst *Installer) installOllama() (string, error) {
 	return findOllamaBinary(inst.config.DataDir), nil
 }
 
+func (inst *Installer) OllamaFound() bool {
+	if pc, ok := inst.config.Processes["ollama"]; ok && filepath.IsAbs(pc.Binary) {
+		if _, err := os.Stat(pc.Binary); err == nil {
+			return true
+		}
+	}
+	return findOllamaBinary(inst.config.DataDir) != ""
+}
+
 func (inst *Installer) EnsureOllama() string {
 	p, err := inst.installOllama()
 	if err != nil {
@@ -126,7 +136,7 @@ func (inst *Installer) installOllamaMac(lb *process.RingBuffer) error {
 		lb.Write("Installing Ollama via Homebrew...")
 		log.Printf("[ollama] using Homebrew at %s", brew)
 
-		cmd := exec.Command(brew, "install", "ollama")
+		cmd := hide.Command(brew, "install", "ollama")
 		output, err := cmd.CombinedOutput()
 		if len(output) > 0 {
 			for _, line := range strings.Split(string(output), "\n") {
@@ -253,9 +263,9 @@ func (inst *Installer) downloadOllamaBinary(lb *process.RingBuffer, goos string)
 }
 
 func extractOllamaTarZst(archivePath, targetDir string, lb *process.RingBuffer) error {
-	cmd := exec.Command("tar", "-I", "zstd", "-xf", archivePath, "-C", targetDir)
+	cmd := hide.Command("tar", "-I", "zstd", "-xf", archivePath, "-C", targetDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		cmd = exec.Command("tar", "--zstd", "-xf", archivePath, "-C", targetDir)
+		cmd = hide.Command("tar", "--zstd", "-xf", archivePath, "-C", targetDir)
 		if output2, err2 := cmd.CombinedOutput(); err2 != nil {
 			return fmt.Errorf("tar extract (tried -I zstd and --zstd): %s; %s: %w", strings.TrimSpace(string(output)), strings.TrimSpace(string(output2)), err2)
 		}
@@ -264,7 +274,7 @@ func extractOllamaTarZst(archivePath, targetDir string, lb *process.RingBuffer) 
 }
 
 func extractOllamaTgz(archivePath, targetDir string, lb *process.RingBuffer) error {
-	out, err := exec.Command("tar", "-xzf", archivePath, "-C", targetDir).CombinedOutput()
+	out, err := hide.Command("tar", "-xzf", archivePath, "-C", targetDir).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tar extract: %s: %w", strings.TrimSpace(string(out)), err)
 	}

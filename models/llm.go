@@ -7,10 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os/exec"
 	"strings"
 
 	"imagecaster-server/api"
+	"imagecaster-server/hide"
 )
 
 func (m *ModelManager) handleLLMModels(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func (m *ModelManager) handleLLMPullStream(w http.ResponseWriter, r *http.Reques
 	binary := m.ollamaBinary()
 	log.Printf("[llm-pull] starting: %s pull %s (binary=%s)", binary, name, binary)
 
-	cmd := exec.Command(binary, "pull", name)
+	cmd := hide.Command(binary, "pull", name)
 	cmd.Env = m.ollamaEnv()
 
 	stdout, _ := cmd.StdoutPipe()
@@ -116,7 +116,7 @@ func (m *ModelManager) streamOutput(r io.Reader, w http.ResponseWriter, f http.F
 }
 
 func (m *ModelManager) PullLLMModel(name string) error {
-	cmd := exec.Command(m.ollamaBinary(), "pull", name)
+	cmd := hide.Command(m.ollamaBinary(), "pull", name)
 	cmd.Env = m.ollamaEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -126,7 +126,7 @@ func (m *ModelManager) PullLLMModel(name string) error {
 }
 
 func (m *ModelManager) ListLLMModels() ([]LLMModelInfo, error) {
-	cmd := exec.Command(m.ollamaBinary(), "list")
+	cmd := hide.Command(m.ollamaBinary(), "list")
 	cmd.Env = m.ollamaEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -150,7 +150,7 @@ func (m *ModelManager) ListLLMModels() ([]LLMModelInfo, error) {
 }
 
 func (m *ModelManager) DeleteLLMModel(name string) error {
-	cmd := exec.Command(m.ollamaBinary(), "rm", name)
+	cmd := hide.Command(m.ollamaBinary(), "rm", name)
 	cmd.Env = m.ollamaEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {

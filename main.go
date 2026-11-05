@@ -52,6 +52,15 @@ func main() {
 		return
 	}
 
+	if desktopBuild && !*headless {
+		dir := *dataDir
+		if dir != "" {
+			dir, _ = filepath.Abs(dir)
+		}
+		runDesktop(dir, *configPath, *port)
+		return
+	}
+
 	dir := *dataDir
 	if dir == "" {
 		dir = config.DefaultDataDir()
@@ -60,7 +69,7 @@ func main() {
 
 	cfgFile := *configPath
 	if cfgFile == "" {
-		cfgFile = filepath.Join(dir, "server-config.yaml")
+		cfgFile = filepath.Join(dir, configName)
 	}
 
 	_, configErr := os.Stat(cfgFile)
@@ -250,19 +259,14 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
 			log.Fatalf("Failed to create data directory: %v", err)
 		}
 
-		freshCfg := config.NewDefault()
-		freshCfg.DataDir = result.DataDir
-
-		gpuOpt := sdgpu.NewOptimizerAdapter()
-		freshCfg.ApplyBackendToProcess(gpuOpt)
-		freshCfg.ApplyInstallDefaults()
-		freshCfg.ResolvePaths()
-
-		if err := saveConfig(cfgFile, &freshCfg); err != nil {
+		if cfgFile == filepath.Join(cfg.DataDir, configName) {
+			cfgFile = filepath.Join(result.DataDir, configName)
+		}
+		freshCfg, err := firstRunConfig(cfgFile, result.DataDir)
+		if err != nil {
 			log.Fatalf("Failed to save config: %v", err)
 		}
-
-		*cfg = freshCfg
+		*cfg = *freshCfg
 	}
 
 	d := initApp(cfg)
@@ -454,6 +458,23 @@ func queueJobDTO(j gpuqueue.Job) tui.QueueJob {
 		SubmittedAt:   j.SubmittedAt,
 		LeaseDeadline: j.LeaseDeadline,
 	}
+}
+
+const configName = "server-config.yaml"
+
+func firstRunConfig(cfgFile, dataDir string) (*config.Config, error) {
+	cfg := config.NewDefault()
+	cfg.DataDir = dataDir
+	cfg.ApplyBackendToProcess(sdgpu.NewOptimizerAdapter())
+	cfg.ApplyInstallDefaults()
+	cfg.ResolvePaths()
+	if err := saveConfig(cfgFile, &cfg); err != nil {
+		return nil, err
+	}
+	if err := config.SaveDataDir(dataDir); err != nil {
+		log.Printf("data dir not remembered: %v", err)
+	}
+	return &cfg, nil
 }
 
 func saveConfig(path string, cfg *config.Config) error {

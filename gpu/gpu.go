@@ -3,7 +3,6 @@ package gpu
 import (
 	"context"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"imagecaster-server/config"
+	"imagecaster-server/hide"
 )
 
 type GPUInfo struct {
@@ -63,7 +63,7 @@ func (gm *GPUMonitor) Start(ctx context.Context) {
 }
 
 func (gm *GPUMonitor) poll() {
-	cmd := exec.Command(gm.binary,
+	cmd := hide.Command(gm.binary,
 		"--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu",
 		"--format=csv,noheader,nounits",
 	)
@@ -127,7 +127,7 @@ func checkXformersCompat(pythonBinary, workDir string) bool {
 	if pythonBinary == "" {
 		return false
 	}
-	cmd := exec.Command(pythonBinary, "-c",
+	cmd := hide.Command(pythonBinary, "-c",
 		"import torch; v=tuple(int(x) for x in torch.__version__.split('+')[0].split('.')[:2]); "+
 			"print('native' if v>=(2,0) else 'legacy')",
 	)
