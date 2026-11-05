@@ -5,6 +5,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,7 +43,11 @@ const createBreakawayFromJob = 0x01000000
 func startOutsideJob(name string, args ...string) {
 	cmd := exec.Command(name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createBreakawayFromJob}
-	_ = cmd.Start()
+	if err := cmd.Start(); err != nil {
+		log.Printf("start %s: %v", name, err)
+		return
+	}
+	go cmd.Wait()
 }
 
 func openFile(path string) {
@@ -56,7 +61,9 @@ func openURL(url string) {
 func copyText(text string) {
 	cmd := hide.Command("clip")
 	cmd.Stdin = strings.NewReader(text)
-	_ = cmd.Run()
+	if err := cmd.Run(); err != nil {
+		log.Printf("copy to clipboard: %v", err)
+	}
 }
 
 func openConsole(exe string, args ...string) error {
@@ -77,7 +84,7 @@ func BindSelfToJob() error {
 	}
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		_ = windows.CloseHandle(job)
+		windows.CloseHandle(job)
 		return err
 	}
 	return windows.AssignProcessToJobObject(job, windows.CurrentProcess())

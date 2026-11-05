@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"imagecaster-server/config"
 	"imagecaster-server/process"
@@ -14,16 +15,19 @@ import (
 func (inst *Installer) installZip(key string, ic config.InstallConfig, lb *process.RingBuffer) error {
 	target := inst.resolveTarget(ic.Target)
 	if inst.needsBackendSetup(key) {
-		if st, err := os.Stat(target); err == nil && st.IsDir() {
+		if fileExists(filepath.Join(target, "launch.py")) {
 			lb.Write("Backend files found, finishing setup in " + target)
 			return inst.backendSetup(target, lb)
 		}
+	} else if st, err := os.Stat(target); err == nil && st.IsDir() {
+		lb.Write("Files already in " + target + ", not downloading again")
+		return nil
 	}
 	inst.setProgress(key, "downloading")
 	lb.Write(fmt.Sprintf("Downloading %s -> %s", ic.URL, target))
 	log.Printf("[%s] downloading %s -> %s", key, ic.URL, target)
 
-	resp, err := http.Get(ic.URL)
+	resp, err := HTTPGet(ic.URL)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}

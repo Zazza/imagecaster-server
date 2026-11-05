@@ -497,3 +497,48 @@ func TestApplyPortGuard_ProbesBusyPorts(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	assert.Empty(t, w.messages())
 }
+
+func TestHoldPortGuards_LoopbackOnlyListenerCountsAsBusy(t *testing.T) {
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { busy.Close() })
+	busyPort := busy.Addr().(*net.TCPAddr).Port
+	url := "http://127.0.0.1:" + strconv.Itoa(busyPort)
+	cfg := &config.Config{
+		GPU: config.GPUConfig{GuardPorts: true},
+		Processes: map[string]config.ProcessConfig{
+			"ollama": {Name: "Ollama", AutoStart: true, TargetURL: url, ProxyPath: "/api/llm/", InternalPort: freePort(t)},
+		},
+	}
+
+	guards, warns, held := holdPortGuards(cfg)
+
+	assert.Empty(t, guards)
+	assert.Empty(t, held)
+	require.Len(t, warns, 1)
+	assert.Equal(t, url, cfg.Processes["ollama"].TargetURL)
+}
+
+func TestHoldPortGuards_KeepsPortUntilGuardStarts(t *testing.T) {
+	p := freePort(t)
+	url := "http://127.0.0.1:" + strconv.Itoa(p)
+	cfg := &config.Config{
+		GPU: config.GPUConfig{GuardPorts: true},
+		Processes: map[string]config.ProcessConfig{
+			"sd": {Name: "SD", AutoStart: true, TargetURL: url, ProxyPath: "/api/sd/", InternalPort: freePort(t)},
+		},
+	}
+
+	guards, _, held := holdPortGuards(cfg)
+	require.Len(t, guards, 1)
+	_, err := net.Listen("tcp", guards[0].ListenAddr)
+	require.Error(t, err, "port must stay taken between probe and guard start")
+
+	ch := make(chan seenRequest, 1)
+	pg := startHeldPortGuards(guards, held, recordingHandler(ch), &fakeWarner{})
+	t.Cleanup(func() { pg.shutdown(context.Background()) })
+	resp, err := noKeepAliveClient().Get(url + "/x")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, "/api/sd/x", (<-ch).path)
+}

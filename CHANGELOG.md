@@ -14,6 +14,14 @@
 - The old Python 3.10 folder (`<data>/python`) is no longer put into the services' PATH
 - `--headless` serves the API right away and installs/starts the services in the background, so a client can connect and see the install progress (it used to wait for the whole install). A busy port stops the server at once
 - `--headless` first start with `--data DIR` writes that folder into the new config (it used to write `~/imagecaster-server`, so from the second start everything went there)
+- No crash ("concurrent map read and map write") when the status is polled while Ollama finishes installing or on Retry in the window
+- On exit the server also stops an Ollama it started from a system install (it used to stay running and hold VRAM); nothing is started after shutdown began; an interrupted `uv venv` is stopped and removed so the next start redoes it
+- Forge Neo is unpacked next to its folder and renamed in one step (retried while antivirus holds files); a folder without `launch.py` (e.g. only downloaded models) gets the code without losing the models; an existing custom backend folder is never wiped
+- MinGit on Windows is unpacked correctly (`cmd/git.exe` was put in the wrong place)
+- Downloads (installer and models) abort after 60 s without data instead of hanging
+- Port guard treats 7860/11434 as busy when something already answers on 127.0.0.1 (e.g. Ollama.app on macOS) and keeps the port taken until the guard starts
+- The data folder typed in the first-run wizard is made absolute (`~` expanded)
+- A child service's PATH no longer grows on every restart
 - SD backend is **Forge Neo** 2.31 (`forge-neo`, Haoming02/sd-webui-forge-classic) — the one Imagecaster needs. Its venv is created with a bundled `uv` 0.12.19 (checksum-pinned, in `<data>/bin`) and Python 3.13 (in `<data>/python`); Neo installs PyTorch itself on first start (`--uv`, into the same venv, uv cache in `<data>/uv-cache`). An existing backend whose binary is already in place is never reinstalled; if setup failed after download, the next start only finishes the setup
 - Ollama: the one already installed in the system is used; otherwise it is installed into `<data>/ollama`. On Windows this is now the standalone zip instead of `OllamaSetup.exe`, so nothing is installed system-wide and nothing autostarts; on macOS without Homebrew the universal `ollama-darwin.tgz` is used (the per-arch name was a 404)
 - First-run wizard asks only for the data folder (Neo is required, Ollama is detected) and warns about the C: drive on Windows. Startup installs only components that autostart

@@ -92,7 +92,7 @@ func (inst *Installer) installGitWindows(lb *process.RingBuffer) error {
 
 	url := mingitURL()
 	lb.Write(fmt.Sprintf("Downloading MinGit %s...", gitVersion))
-	resp, err := http.Get(url)
+	resp, err := HTTPGet(url)
 	if err != nil {
 		return fmt.Errorf("download mingit: %w", err)
 	}
@@ -121,7 +121,7 @@ func (inst *Installer) installGitWindows(lb *process.RingBuffer) error {
 	}
 
 	lb.Write("Extracting MinGit...")
-	if err := extractZip(tmpPath, target); err != nil {
+	if err := extractZipFlat(tmpPath, target); err != nil {
 		os.RemoveAll(target)
 		return fmt.Errorf("extract mingit: %w", err)
 	}

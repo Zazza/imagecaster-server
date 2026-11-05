@@ -91,7 +91,7 @@ func (inst *Installer) installOllama() (string, error) {
 }
 
 func (inst *Installer) OllamaFound() bool {
-	if pc, ok := inst.config.Processes["ollama"]; ok && filepath.IsAbs(pc.Binary) {
+	if pc, ok := inst.config.Process("ollama"); ok && filepath.IsAbs(pc.Binary) {
 		if _, err := os.Stat(pc.Binary); err == nil {
 			return true
 		}
@@ -180,7 +180,7 @@ func (inst *Installer) downloadOllamaBinary(lb *process.RingBuffer, goos string)
 	lb.Write(fmt.Sprintf("Downloading Ollama (%s/%s)...", goos, arch))
 	log.Printf("[ollama] downloading %s -> %s", url, targetDir)
 
-	resp, err := http.Get(url)
+	resp, err := HTTPGet(url)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}

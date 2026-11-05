@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"imagecaster-server/hide"
 	"imagecaster-server/process"
@@ -35,10 +37,19 @@ func (inst *Installer) setupBackend(target string, lb *process.RingBuffer) error
 		return fmt.Errorf("uv: %w", err)
 	}
 	lb.Write("Creating venv with Python " + NeoPythonVersion + " (uv downloads Python)...")
-	cmd := hide.Command(uv, "venv", "venv", "--python", NeoPythonVersion, "--managed-python", "--seed", "--clear")
+	cmd := exec.CommandContext(inst.ctx, uv, "venv", "venv", "--python", NeoPythonVersion, "--managed-python", "--seed", "--clear")
+	hide.Window(cmd)
 	cmd.Dir = target
 	cmd.Env = UvEnv(inst.config.DataDir)
+	cmd.WaitDelay = 5 * time.Second
+	inst.running.Lock()
 	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if rmErr := os.RemoveAll(filepath.Join(target, "venv")); rmErr != nil {
+			log.Printf("[backend] remove unfinished venv: %v", rmErr)
+		}
+	}
+	inst.running.Unlock()
 	if err != nil {
 		lb.Write(string(out))
 		return fmt.Errorf("uv venv: %w", err)

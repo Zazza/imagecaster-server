@@ -85,7 +85,7 @@ func installUv(a uvAsset, uv string) (string, error) {
 }
 
 func downloadFile(url, dst string) error {
-	resp, err := http.Get(url)
+	resp, err := HTTPGet(url)
 	if err != nil {
 		return err
 	}

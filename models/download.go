@@ -71,7 +71,7 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp, err := http.Get(downloadURL)
+	resp, err := installer.HTTPGet(downloadURL)
 	if err != nil {
 		fmt.Fprintf(w, "data: [ERROR] download: %s\n\n", err.Error())
 		flusher.Flush()

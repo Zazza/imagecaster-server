@@ -3,9 +3,11 @@ package process
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -27,6 +29,7 @@ type ProcessManager struct {
 	processes map[string]*ManagedProcess
 	installer Installer
 	dataDir   string
+	closed    bool
 	OnChange  func()
 }
 
@@ -68,6 +71,10 @@ func (pm *ProcessManager) Start(name string) error {
 
 func (pm *ProcessManager) start(name string) error {
 	pm.Mu.Lock()
+	if pm.closed {
+		pm.Mu.Unlock()
+		return fmt.Errorf("process %q: %w", name, ErrClosed)
+	}
 	mp, ok := pm.processes[name]
 	if !ok {
 		pm.Mu.Unlock()
@@ -79,11 +86,13 @@ func (pm *ProcessManager) start(name string) error {
 	}
 
 	mp.Status = "starting"
+	pc := mp.Config
+	pc.Env = maps.Clone(pc.Env)
 	pm.Mu.Unlock()
 
-	if mp.Config.HealthURL != "" {
+	if pc.HealthURL != "" {
 		hctx, hcancel := context.WithTimeout(context.Background(), 2*time.Second)
-		hreq, _ := http.NewRequestWithContext(hctx, http.MethodGet, mp.Config.HealthURL, nil)
+		hreq, _ := http.NewRequestWithContext(hctx, http.MethodGet, pc.HealthURL, nil)
 		hresp, herr := http.DefaultClient.Do(hreq)
 		hcancel()
 		if herr == nil {
@@ -92,6 +101,8 @@ func (pm *ProcessManager) start(name string) error {
 				pm.Mu.Lock()
 				mp.Status = "running"
 				mp.StartedAt = time.Now()
+				mp.PID = 0
+				mp.CancelFunc = nil
 				mp.LogBuf.Write("already running (health check passed, skipped start)")
 				pm.processes[name] = mp
 				pm.Mu.Unlock()
@@ -103,7 +114,7 @@ func (pm *ProcessManager) start(name string) error {
 	}
 
 	if pm.installer != nil && !mp.InstallFailed {
-		if err := pm.installer.EnsureInstalled(name, mp.Config.Binary); err != nil {
+		if err := pm.installer.EnsureInstalled(name, pc.Binary); err != nil {
 			pm.Mu.Lock()
 			mp.Status = "crashed"
 			mp.InstallFailed = true
@@ -115,40 +126,41 @@ func (pm *ProcessManager) start(name string) error {
 		}
 	}
 
-	if mp.Config.Binary != "" && !strings.ContainsRune(mp.Config.Binary, '/') && !strings.ContainsRune(mp.Config.Binary, os.PathSeparator) {
-		resolved := FindBinary(pm.dataDir, mp.Config.Binary)
+	if pc.Binary != "" && !strings.ContainsRune(pc.Binary, '/') && !strings.ContainsRune(pc.Binary, os.PathSeparator) {
+		resolved := FindBinary(pm.dataDir, pc.Binary)
 		if resolved != "" {
-			mp.Config.Binary = resolved
+			pc.Binary = resolved
 		}
 	}
 
-	if mp.Config.Env == nil {
-		mp.Config.Env = make(map[string]string)
+	env := pc.Env
+	if env == nil {
+		env = make(map[string]string)
 	}
 	for _, dir := range pm.toolPathDirs() {
 		existing := os.Getenv("PATH")
-		if e, ok := mp.Config.Env["PATH"]; ok {
+		if e, ok := env["PATH"]; ok {
 			existing = e
 		}
-		mp.Config.Env["PATH"] = dir + string(os.PathListSeparator) + existing
+		env["PATH"] = dir + string(os.PathListSeparator) + existing
 	}
 
-	if runtime.GOOS == "windows" && mp.Config.Binary != "" && !strings.HasSuffix(mp.Config.Binary, ".exe") {
-		exePath := mp.Config.Binary + ".exe"
+	if runtime.GOOS == "windows" && pc.Binary != "" && !strings.HasSuffix(pc.Binary, ".exe") {
+		exePath := pc.Binary + ".exe"
 		if _, err := os.Stat(exePath); err == nil {
-			mp.Config.Binary = exePath
+			pc.Binary = exePath
 		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, mp.Config.Binary, mp.Config.Args...)
+	cmd := exec.CommandContext(ctx, pc.Binary, pc.Args...)
 
-	if mp.Config.WorkDir != "" {
-		cmd.Dir = mp.Config.WorkDir
+	if pc.WorkDir != "" {
+		cmd.Dir = pc.WorkDir
 	}
 
-	if len(mp.Config.Env) > 0 {
-		cmd.Env = append(cmd.Environ(), envSlice(mp.Config.Env)...)
+	if len(env) > 0 {
+		cmd.Env = append(cmd.Environ(), envSlice(env)...)
 	}
 
 	SetPlatformProcAttr(cmd)
@@ -156,8 +168,6 @@ func (pm *ProcessManager) start(name string) error {
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
-	mp.Cmd = cmd
-	mp.CancelFunc = cancel
 	mp.LogBuf.Write(fmt.Sprintf("--- process restarted at %s ---", time.Now().Format("2006-01-02 15:04:05")))
 
 	if pm.installer != nil && pm.dataDir != "" {
@@ -171,40 +181,43 @@ func (pm *ProcessManager) start(name string) error {
 	}
 
 	pm.Mu.Lock()
-	pm.processes[name] = mp
-	pm.Mu.Unlock()
-
-	if err := cmd.Start(); err != nil {
-		pm.Mu.Lock()
-		mp.Status = "crashed"
-		mp.LogBuf.Write(fmt.Sprintf("failed to start: %v (binary=%s workdir=%s)", err, mp.Config.Binary, mp.Config.WorkDir))
+	if pm.closed {
+		mp.Status = "stopped"
 		pm.processes[name] = mp
 		pm.Mu.Unlock()
 		cancel()
-		return fmt.Errorf("start %q: %w (binary=%s)", name, err, mp.Config.Binary)
+		return fmt.Errorf("process %q: %w", name, ErrClosed)
 	}
-
+	mp.Cmd = cmd
+	mp.CancelFunc = cancel
+	if err := cmd.Start(); err != nil {
+		mp.Status = "crashed"
+		mp.LogBuf.Write(fmt.Sprintf("failed to start: %v (binary=%s workdir=%s)", err, pc.Binary, pc.WorkDir))
+		pm.processes[name] = mp
+		pm.Mu.Unlock()
+		cancel()
+		return fmt.Errorf("start %q: %w (binary=%s)", name, err, pc.Binary)
+	}
 	mp.PID = cmd.Process.Pid
+	mp.Config.Binary = pc.Binary
 	mp.StartedAt = time.Now()
 	mp.Status = "starting"
 	mp.Managed = true
-
-	pm.Mu.Lock()
 	pm.processes[name] = mp
 	pm.Mu.Unlock()
 
-	log.Printf("[%s] started (pid=%d binary=%s workdir=%s)", name, mp.PID, mp.Config.Binary, mp.Config.WorkDir)
+	log.Printf("[%s] started (pid=%d binary=%s workdir=%s)", name, mp.PID, pc.Binary, pc.WorkDir)
 	pm.notifyChange()
 
 	go pipeLogs(stdout, mp.LogBuf, mp.LogFile, name)
 	go pipeLogs(stderr, mp.LogBuf, mp.LogFile, name)
 
 	go func() {
-		if mp.Config.HealthURL != "" {
-			log.Printf("[%s] waiting for healthy response from %s ...", name, mp.Config.HealthURL)
+		if pc.HealthURL != "" {
+			log.Printf("[%s] waiting for healthy response from %s ...", name, pc.HealthURL)
 			for i := 0; i < 120; i++ {
 				hctx, hcancel := context.WithTimeout(context.Background(), 2*time.Second)
-				hreq, _ := http.NewRequestWithContext(hctx, http.MethodGet, mp.Config.HealthURL, nil)
+				hreq, _ := http.NewRequestWithContext(hctx, http.MethodGet, pc.HealthURL, nil)
 				hresp, herr := http.DefaultClient.Do(hreq)
 				hcancel()
 				if herr == nil {
@@ -359,6 +372,15 @@ func (pm *ProcessManager) Watch(ctx context.Context) {
 	}
 }
 
+var ErrClosed = errors.New("process manager is shut down")
+
+func (pm *ProcessManager) Close() {
+	pm.Mu.Lock()
+	pm.closed = true
+	pm.Mu.Unlock()
+	pm.StopAll()
+}
+
 func (pm *ProcessManager) StopAll() {
 	pm.Mu.RLock()
 	defer pm.Mu.RUnlock()
@@ -375,22 +397,20 @@ func (pm *ProcessManager) StopAll() {
 }
 
 func (pm *ProcessManager) isOurProcess(mp *ManagedProcess) bool {
-	if mp.PID == 0 || mp.CancelFunc == nil {
-		return false
-	}
-	return strings.HasPrefix(mp.Config.Binary, pm.dataDir)
+	return mp.PID != 0 && mp.CancelFunc != nil
 }
 
-func (pm *ProcessManager) UpdateProcessConfig(name string, binary string, args []string, workdir string) {
+func (pm *ProcessManager) UpdateProcessConfig(name string, pc config.ProcessConfig) {
 	pm.Mu.Lock()
 	defer pm.Mu.Unlock()
 	mp, ok := pm.processes[name]
 	if !ok {
 		return
 	}
-	mp.Config.Binary = binary
-	mp.Config.Args = args
-	mp.Config.WorkDir = workdir
+	mp.Config.Binary = pc.Binary
+	mp.Config.Args = pc.Args
+	mp.Config.WorkDir = pc.WorkDir
+	mp.Config.Env = pc.Env
 	pm.processes[name] = mp
 }
 

@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"imagecaster-server/config"
 	"imagecaster-server/process"
@@ -30,6 +32,9 @@ type Installer struct {
 	installMu    map[string]*sync.Mutex
 	backendSetup func(target string, lb *process.RingBuffer) error
 	OnProgress   func(key, progress string)
+	ctx          context.Context
+	cancel       context.CancelFunc
+	running      sync.Mutex
 }
 
 var _ process.Installer = (*Installer)(nil)
@@ -48,6 +53,7 @@ func NewInstaller(cfg *config.Config) *Installer {
 		logs:      make(map[string]*process.RingBuffer),
 		installMu: make(map[string]*sync.Mutex),
 	}
+	inst.ctx, inst.cancel = context.WithCancel(context.Background())
 	inst.backendSetup = inst.setupBackend
 
 	for key, bc := range cfg.Backends {
@@ -98,7 +104,7 @@ func (inst *Installer) installPlan() []string {
 	if inst.backendAutoStarts() {
 		plan = append(plan, inst.config.ActiveSD)
 	}
-	if pc, ok := inst.config.Processes["ollama"]; ok && pc.AutoStart {
+	if pc, ok := inst.config.Process("ollama"); ok && pc.AutoStart {
 		plan = append(plan, "ollama")
 	}
 	return plan
@@ -109,7 +115,7 @@ func (inst *Installer) backendAutoStarts() bool {
 	if !ok {
 		return false
 	}
-	pc, ok := inst.config.Processes[backend.ProcessKey]
+	pc, ok := inst.config.Process(backend.ProcessKey)
 	return ok && pc.AutoStart
 }
 
@@ -192,7 +198,7 @@ func (inst *Installer) backendBinaryExists() bool {
 		return false
 	}
 	binary := backend.Binary
-	if pc, ok := inst.config.Processes[backend.ProcessKey]; ok && pc.Binary != "" {
+	if pc, ok := inst.config.Process(backend.ProcessKey); ok && pc.Binary != "" {
 		binary = pc.Binary
 	}
 	if binary == "" || !filepath.IsAbs(binary) {
@@ -266,7 +272,7 @@ func (inst *Installer) getConfig(key string) *config.InstallConfig {
 	if bc, ok := inst.config.Backends[key]; ok && bc.Install.Method != "" {
 		return &bc.Install
 	}
-	if pc, ok := inst.config.Processes[key]; ok && pc.Install.Method != "" {
+	if pc, ok := inst.config.Process(key); ok && pc.Install.Method != "" {
 		return &pc.Install
 	}
 	return nil
@@ -385,4 +391,19 @@ func fileExists(p string) bool {
 	}
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func (inst *Installer) Close() {
+	inst.cancel()
+	done := make(chan struct{})
+	go func() {
+		inst.running.Lock()
+		inst.running.Unlock()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		log.Printf("installer: setup commands still running after shutdown")
+	}
 }

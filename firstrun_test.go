@@ -45,3 +45,21 @@ func TestFirstRunConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestAbsDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip(err)
+	}
+	cwd, _ := os.Getwd()
+	cases := map[string]string{
+		"~":           home,
+		"~/ai":        filepath.Join(home, "ai"),
+		"imagecaster": filepath.Join(cwd, "imagecaster"),
+	}
+	for in, want := range cases {
+		if got := absDir(in); got != want {
+			t.Errorf("absDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

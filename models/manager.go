@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"imagecaster-server/config"
+	"imagecaster-server/installer"
 )
 
 type ModelManager struct {
@@ -64,7 +65,7 @@ func (m *ModelManager) DownloadModel(url, targetDir, filename string) error {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	resp, err := http.Get(url)
+	resp, err := installer.HTTPGet(url)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
@@ -114,7 +115,7 @@ func (m *ModelManager) DeleteModel(dir, filename string) error {
 }
 
 func (m *ModelManager) ollamaBinary() string {
-	if pc, ok := m.config.Processes["ollama"]; ok && pc.Binary != "" {
+	if pc, ok := m.config.Process("ollama"); ok && pc.Binary != "" {
 		return pc.Binary
 	}
 	return "ollama"

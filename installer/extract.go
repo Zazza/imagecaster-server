@@ -4,10 +4,12 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func extractZip(zipPath, targetDir string) error {
@@ -17,127 +19,115 @@ func extractZip(zipPath, targetDir string) error {
 	}
 	defer r.Close()
 
-	tmpDir, err := os.MkdirTemp("", "sd-extract-*")
+	parent, base := filepath.Dir(targetDir), filepath.Base(targetDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	removeUnfinished(parent, base+".part-")
+	tmpDir, err := os.MkdirTemp(parent, base+".part-*")
 	if err != nil {
 		return err
 	}
-
-	success := false
-	defer func() {
-		if !success {
-			os.RemoveAll(tmpDir)
-		}
-	}()
+	defer os.RemoveAll(tmpDir)
 
 	for _, f := range r.File {
-		if f.Name == "" {
-			continue
-		}
-
 		parts := strings.SplitN(f.Name, "/", 2)
 		if len(parts) < 2 || parts[1] == "" {
 			continue
 		}
-		relPath := parts[1]
-
-		destPath := filepath.Join(tmpDir, relPath)
-
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(destPath, 0755)
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-
-		outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY, f.Mode())
-		if err != nil {
-			rc.Close()
-			return err
-		}
-
-		_, err = io.Copy(outFile, rc)
-		outFile.Close()
-		rc.Close()
-		if err != nil {
+		if err := writeZipEntry(tmpDir, parts[1], f); err != nil {
 			return err
 		}
 	}
 
-	if err := os.RemoveAll(targetDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove old target: %w", err)
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		if err := renameRetry(tmpDir, targetDir); err != nil {
+			return fmt.Errorf("move to target: %w", err)
+		}
+		return nil
 	}
-
-	if err := renameOrCopy(tmpDir, targetDir); err != nil {
+	if err := mergeInto(tmpDir, targetDir); err != nil {
 		return fmt.Errorf("move to target: %w", err)
 	}
-
-	success = true
 	return nil
 }
 
-func renameOrCopy(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
+func removeUnfinished(dir, prefix string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("[install] list %s: %v", dir, err)
+		return
 	}
-
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			log.Printf("[install] remove unfinished extract %s: %v", e.Name(), err)
+		}
 	}
+}
 
+func mergeInto(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			if err := renameOrCopy(srcPath, dstPath); err != nil {
+	for _, e := range entries {
+		s, d := filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())
+		st, err := os.Stat(d)
+		if err == nil && st.IsDir() && e.IsDir() {
+			if err := mergeInto(s, d); err != nil {
 				return err
 			}
-		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
+			continue
+		}
+		if err == nil {
+			if err := os.RemoveAll(d); err != nil {
 				return err
 			}
 		}
+		if err := renameRetry(s, d); err != nil {
+			return err
+		}
 	}
-
-	return os.RemoveAll(src)
+	return nil
 }
 
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
+func renameRetry(src, dst string) error {
+	var err error
+	for i := 0; i < 20; i++ {
+		if err = os.Rename(src, dst); err == nil {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
-	defer in.Close()
-
-	info, err := in.Stat()
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(out, in)
-	out.Close()
 	return err
+}
+
+func safeJoin(root, name string) (string, error) {
+	dest := filepath.Join(root, filepath.FromSlash(name))
+	if dest != root && !strings.HasPrefix(dest, root+string(os.PathSeparator)) {
+		return "", fmt.Errorf("zip entry escapes target: %s", name)
+	}
+	return dest, nil
+}
+
+func writeZipEntry(root, name string, f *zip.File) error {
+	dest, err := safeJoin(root, name)
+	if err != nil {
+		return err
+	}
+	if f.FileInfo().IsDir() {
+		return os.MkdirAll(dest, 0o755)
+	}
+	if dest == root {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	return extractZipEntry(f, dest)
 }
 
 func matchBinaryName(name, target string) bool {
@@ -161,20 +151,7 @@ func extractZipFlat(zipPath, targetDir string) error {
 		return err
 	}
 	for _, f := range r.File {
-		dest := filepath.Join(root, filepath.FromSlash(f.Name))
-		if dest != root && !strings.HasPrefix(dest, root+string(os.PathSeparator)) {
-			return fmt.Errorf("zip entry escapes target: %s", f.Name)
-		}
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return err
-		}
-		if err := extractZipEntry(f, dest); err != nil {
+		if err := writeZipEntry(root, f.Name, f); err != nil {
 			return err
 		}
 	}
@@ -187,7 +164,8 @@ func extractZipEntry(f *zip.File, dest string) error {
 		return err
 	}
 	defer rc.Close()
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	mode := f.Mode().Perm() | 0o600
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}

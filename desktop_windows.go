@@ -204,7 +204,9 @@ func (e *desktopEngine) Stop() {
 	cancel()
 	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
 	defer done()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("HTTP shutdown: %v", err)
+	}
 	d.shutdown()
 	mdns.Shutdown()
 	log.Println("Server stopped")
@@ -247,7 +249,7 @@ func (e *desktopEngine) Snapshot() desktop.Snapshot {
 	}
 
 	if _, ok := statuses["ollama"]; !ok {
-		if pc, ok := cfg.Processes["ollama"]; ok && pc.AutoStart && !d.inst.OllamaFound() {
+		if pc, ok := cfg.Process("ollama"); ok && pc.AutoStart && !d.inst.OllamaFound() {
 			comps = append(comps, desktop.Component{Key: "ollama", Label: componentName("ollama"), State: desktop.StateWait})
 		}
 	}
@@ -260,7 +262,7 @@ func (e *desktopEngine) Snapshot() desktop.Snapshot {
 	hr := d.hm.Results()
 	svc := func(key string) string {
 		st := ps[key].Status
-		if pc, ok := cfg.Processes[key]; ok && st == "crashed" && pc.Restart && ps[key].Restarts < pc.MaxRestart {
+		if pc, ok := cfg.Process(key); ok && st == "crashed" && pc.Restart && ps[key].Restarts < pc.MaxRestart {
 			st = "starting"
 		}
 		return desktop.ServiceState(st, hr[key].Healthy)

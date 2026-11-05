@@ -1,5 +1,10 @@
 package config
 
+import (
+	"maps"
+	"sync"
+)
+
 type InstallMethod string
 
 const (
@@ -83,4 +88,25 @@ func (c *Config) GetActiveBackend() *BackendConfig {
 		return nil
 	}
 	return &b
+}
+
+var procMu sync.RWMutex
+
+func (c *Config) Process(key string) (ProcessConfig, bool) {
+	procMu.RLock()
+	defer procMu.RUnlock()
+	pc, ok := c.Processes[key]
+	return pc, ok
+}
+
+func (c *Config) SetProcess(key string, pc ProcessConfig) {
+	procMu.Lock()
+	defer procMu.Unlock()
+	c.Processes[key] = pc
+}
+
+func (c *Config) ProcessesCopy() map[string]ProcessConfig {
+	procMu.RLock()
+	defer procMu.RUnlock()
+	return maps.Clone(c.Processes)
 }

@@ -191,7 +191,7 @@ func (h *Handlers) fetchModels() map[string]interface{} {
 	models := make(map[string]interface{})
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	if pc, ok := h.config.Processes["sd"]; ok && pc.TargetURL != "" {
+	if pc, ok := h.config.Process("sd"); ok && pc.TargetURL != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, pc.TargetURL+"/sdapi/v1/options", nil)
@@ -207,7 +207,7 @@ func (h *Handlers) fetchModels() map[string]interface{} {
 		}
 	}
 
-	if pc, ok := h.config.Processes["ollama"]; ok && pc.TargetURL != "" {
+	if pc, ok := h.config.Process("ollama"); ok && pc.TargetURL != "" {
 		llmModels := h.fetchOllamaRunningModels(client, pc.TargetURL)
 		if len(llmModels) > 0 {
 			models["llm_running"] = llmModels

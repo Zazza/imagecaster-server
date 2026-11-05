@@ -6,6 +6,7 @@ import (
 	"context"
 	"embed"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,7 +134,9 @@ func (w *Window) OpenLog() {
 }
 
 func (w *Window) Copy(text string) {
-	_ = runtime.ClipboardSetText(w.ctx, text)
+	if err := runtime.ClipboardSetText(w.ctx, text); err != nil {
+		log.Printf("copy to clipboard: %v", err)
+	}
 }
 
 func (w *Window) Close() {

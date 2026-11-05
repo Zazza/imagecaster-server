@@ -51,7 +51,7 @@ func (hm *HealthMonitor) Start(ctx context.Context) {
 }
 
 func (hm *HealthMonitor) checkAll() {
-	for name, pc := range hm.config.Processes {
+	for name, pc := range hm.config.ProcessesCopy() {
 		if pc.HealthURL == "" {
 			continue
 		}

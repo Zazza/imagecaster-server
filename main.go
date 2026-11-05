@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -123,7 +125,7 @@ func initApp(cfg *config.Config) *appDeps {
 	if cfg.DetectedVRAMMB == 0 {
 		cfg.DetectedVRAMMB = gpuOpt.DetectGPU()
 	}
-	guardSpecs, guardWarns := applyPortGuard(cfg)
+	guardSpecs, guardWarns, guardHeld := holdPortGuards(cfg)
 
 	inst := installer.NewInstaller(cfg)
 	pm := process.NewProcessManager(cfg, inst, cfg.DataDir)
@@ -151,7 +153,7 @@ func initApp(cfg *config.Config) *appDeps {
 		modelsDir = backend.ModelsDir
 	}
 	sdTargetURL := ""
-	if pc, ok := cfg.Processes["sd"]; ok {
+	if pc, ok := cfg.Process("sd"); ok {
 		sdTargetURL = pc.TargetURL
 	}
 	sdw := newSDWeight(gateCfg, mm, modelsDir, sdTargetURL)
@@ -165,7 +167,7 @@ func initApp(cfg *config.Config) *appDeps {
 	for _, msg := range guardWarns {
 		q.Warn(msg)
 	}
-	guards := startPortGuards(guardSpecs, proxy, q)
+	guards := startHeldPortGuards(guardSpecs, guardHeld, proxy, q)
 
 	return &appDeps{
 		cfg: cfg, inst: inst, pm: pm, hm: hm, gm: gm,
@@ -209,7 +211,8 @@ func (d *appDeps) shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d.guards.shutdown(ctx)
-	d.pm.StopAll()
+	d.inst.Close()
+	d.pm.Close()
 }
 
 func runHeadless(cfg *config.Config) {
@@ -270,6 +273,7 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool, port int) {
 		if result.DataDir == "" {
 			return
 		}
+		result.DataDir = absDir(result.DataDir)
 
 		if err := os.MkdirAll(result.DataDir, 0755); err != nil {
 			log.Fatalf("Failed to create data directory: %v", err)
@@ -481,6 +485,18 @@ func queueJobDTO(j gpuqueue.Job) tui.QueueJob {
 
 const configName = "server-config.yaml"
 
+func absDir(dir string) string {
+	if dir == "~" || strings.HasPrefix(dir, "~/") || strings.HasPrefix(dir, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, dir[1:])
+		}
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
+
 func firstRunConfig(cfgFile, dataDir string) (*config.Config, error) {
 	cfg := config.NewDefault()
 	cfg.DataDir = dataDir
@@ -545,29 +561,34 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func ensureOllamaBinary(cfg *config.Config, pm *process.ProcessManager, inst *installer.Installer, gm *sdgpu.GPUMonitor) {
-	if ollamaPath := inst.EnsureOllama(); ollamaPath != "" {
-		if pc, ok := cfg.Processes["ollama"]; ok {
-			pc.Binary = ollamaPath
-			libDir := filepath.Join(filepath.Dir(filepath.Dir(ollamaPath)), "lib")
-			if info, err := os.Stat(libDir); err == nil && info.IsDir() {
-				if pc.Env == nil {
-					pc.Env = make(map[string]string)
-				}
-				existing := pc.Env["LD_LIBRARY_PATH"]
-				if existing == "" {
-					existing = os.Getenv("LD_LIBRARY_PATH")
-				}
-				if existing != "" {
-					pc.Env["LD_LIBRARY_PATH"] = libDir + string(os.PathListSeparator) + existing
-				} else {
-					pc.Env["LD_LIBRARY_PATH"] = libDir
-				}
-			}
-			configureOllamaGPU(&pc, gm)
-			cfg.Processes["ollama"] = pc
-			pm.UpdateProcessConfig("ollama", ollamaPath, pc.Args, pc.WorkDir)
+	ollamaPath := inst.EnsureOllama()
+	if ollamaPath == "" {
+		return
+	}
+	pc, ok := cfg.Process("ollama")
+	if !ok {
+		return
+	}
+	pc.Binary = ollamaPath
+	pc.Env = maps.Clone(pc.Env)
+	libDir := filepath.Join(filepath.Dir(filepath.Dir(ollamaPath)), "lib")
+	if info, err := os.Stat(libDir); err == nil && info.IsDir() {
+		if pc.Env == nil {
+			pc.Env = make(map[string]string)
+		}
+		existing := pc.Env["LD_LIBRARY_PATH"]
+		if existing == "" {
+			existing = os.Getenv("LD_LIBRARY_PATH")
+		}
+		if existing != "" {
+			pc.Env["LD_LIBRARY_PATH"] = libDir + string(os.PathListSeparator) + existing
+		} else {
+			pc.Env["LD_LIBRARY_PATH"] = libDir
 		}
 	}
+	configureOllamaGPU(&pc, gm)
+	cfg.SetProcess("ollama", pc)
+	pm.UpdateProcessConfig("ollama", pc)
 }
 
 func configureOllamaGPU(pc *config.ProcessConfig, gm *sdgpu.GPUMonitor) {
