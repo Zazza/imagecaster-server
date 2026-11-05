@@ -366,7 +366,7 @@ GET /api/health                 # Health check results for all services
 `gpuqueue` serializes GPU-heavy work across services (SD, LLM, external workers)
 via a weighted VRAM budget: a job runs only when free budget ≥ its weight,
 otherwise it waits in a FIFO queue (with manual priority). Protects against
-VRAM thrash/OOM when Forge, Ollama and yue-worker load models concurrently.
+VRAM thrash/OOM when Forge, Ollama and external workers load models concurrently.
 
 - **Weighted admission**: heavy proxy paths acquire budget before forwarding;
   light paths (options, progress, tags, ps) pass free
@@ -385,10 +385,10 @@ VRAM thrash/OOM when Forge, Ollama and yue-worker load models concurrently.
 | `/api/llm/api/generate`, `/api/llm/api/chat` | POST | `llm_weight_mb` |
 | everything else (options, progress, samplers, tags, ps, embeddings) | * | 0 (pass free) |
 
-### Lease API (external GPU consumers, e.g. yue-worker)
+### Lease API (external GPU consumers)
 
 ```
-POST   /api/gpu/lease                 {kind: sd|llm|yue, client, weight_mb, priority?, wait_seconds?}
+POST   /api/gpu/lease                 {kind: sd|llm, client, weight_mb, priority?, wait_seconds?}
        -> 200 {id, acquired: true, ttl_seconds}
        -> 202 {id, acquired: false, position}
        -> 503 {"error": "gpu queue timeout"} + Retry-After (wait expired)

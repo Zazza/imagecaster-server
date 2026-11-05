@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Removed
+- GPU lease kind `yue`: no client ever used it; `POST /api/gpu/lease` now accepts `sd` and `llm` only (`yue` → 400 `invalid kind`)
+
 ## [1.1.0] — 2026-10-08
 
 ### Added

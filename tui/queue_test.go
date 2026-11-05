@@ -82,7 +82,7 @@ func TestViewQueue_RenderSectionsAndFields(t *testing.T) {
 			SubmittedAt: now.Add(-time.Minute), LeaseDeadline: now.Add(5 * time.Minute),
 		}},
 		Waiting: []QueueJob{{
-			ID: "wait-1", Kind: "llm", Client: "yue-worker", WeightMB: 3000, Priority: 1,
+			ID: "wait-1", Kind: "llm", Client: "ext-worker", WeightMB: 3000, Priority: 1,
 			SubmittedAt: now.Add(-30 * time.Second),
 		}},
 		Warnings: []string{"stale lease"},
@@ -94,7 +94,7 @@ func TestViewQueue_RenderSectionsAndFields(t *testing.T) {
 	for _, want := range []string{
 		"GPU Queue", "RUNNING", "QUEUE",
 		"5000/15884MB", "run 1", "queue 1", "warn 1",
-		"run-1", "wait-1", "sd", "llm", "192.168.1.50:777", "yue-worker",
+		"run-1", "wait-1", "sd", "llm", "192.168.1.50:777", "ext-worker",
 		"5000MB", "3000MB", "p 2", "p 1", "lease", "waits",
 	} {
 		assert.Contains(t, view, want)

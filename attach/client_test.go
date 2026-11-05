@@ -332,7 +332,7 @@ func TestClient_Deps_QueueSnapshotMapsAllFields(t *testing.T) {
 	  "queue": [{
 	    "id": "wait-1",
 	    "kind": "llm",
-	    "client": "yue",
+	    "client": "ext-worker",
 	    "weight_mb": 3000,
 	    "priority": 1,
 	    "submitted_at": "2026-10-08T10:01:30Z",
@@ -358,7 +358,7 @@ func TestClient_Deps_QueueSnapshotMapsAllFields(t *testing.T) {
 	assert.Equal(t, tui.QueueJob{
 		ID:          "wait-1",
 		Kind:        "llm",
-		Client:      "yue",
+		Client:      "ext-worker",
 		WeightMB:    3000,
 		Priority:    1,
 		SubmittedAt: time.Date(2026, 10, 8, 10, 1, 30, 0, time.UTC),

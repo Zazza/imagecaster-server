@@ -11,12 +11,11 @@ type Kind string
 const (
 	KindSD  Kind = "sd"
 	KindLLM Kind = "llm"
-	KindYue Kind = "yue"
 )
 
 func (k Kind) Valid() bool {
 	switch k {
-	case KindSD, KindLLM, KindYue:
+	case KindSD, KindLLM:
 		return true
 	}
 	return false

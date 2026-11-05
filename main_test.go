@@ -29,7 +29,7 @@ func TestGpuQueueSnapshot_MapsJobs(t *testing.T) {
 		Queue: []gpuqueue.Job{{
 			ID:          "wait-1",
 			Kind:        gpuqueue.KindLLM,
-			Client:      "yue",
+			Client:      "ext-worker",
 			WeightMB:    3000,
 			Priority:    1,
 			SubmittedAt: submitted.Add(90 * time.Second),
@@ -54,7 +54,7 @@ func TestGpuQueueSnapshot_MapsJobs(t *testing.T) {
 	assert.Equal(t, tui.QueueJob{
 		ID:          "wait-1",
 		Kind:        "llm",
-		Client:      "yue",
+		Client:      "ext-worker",
 		WeightMB:    3000,
 		Priority:    1,
 		SubmittedAt: submitted.Add(90 * time.Second),

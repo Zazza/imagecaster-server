@@ -41,7 +41,7 @@ func TestKind_Valid(t *testing.T) {
 	}{
 		{"sd", KindSD, true},
 		{"llm", KindLLM, true},
-		{"yue", KindYue, true},
+		{"yue removed", Kind("yue"), false},
 		{"unknown", Kind("foo"), false},
 		{"empty", Kind(""), false},
 	}
@@ -86,7 +86,7 @@ func TestQueue_PriorityThenFIFOOrder(t *testing.T) {
 	require.False(t, acquired)
 	assert.Equal(t, 1, pos)
 
-	high, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 3000, Priority: 0})
+	high, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 3000, Priority: 0})
 	require.False(t, acquired)
 
 	norm, acquired, _ := q.TryAcquire(Spec{Kind: KindSD, WeightMB: 3000, Priority: 1})
@@ -148,7 +148,7 @@ func TestQueue_SkipAheadPastOversizedHead(t *testing.T) {
 	require.False(t, acquired)
 	assert.Equal(t, 1, pos)
 
-	small, acquired, pos := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 3000})
+	small, acquired, pos := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 3000})
 	require.True(t, acquired)
 	assert.Equal(t, 0, pos)
 
@@ -249,7 +249,7 @@ func TestRelease_AdmitsBlockedAcquire(t *testing.T) {
 	done := make(chan *Lease, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		l, err := q.Acquire(context.Background(), Spec{Kind: KindYue, WeightMB: 4000})
+		l, err := q.Acquire(context.Background(), Spec{Kind: KindLLM, WeightMB: 4000})
 		if err != nil {
 			errCh <- err
 			return
@@ -292,7 +292,7 @@ func TestHeartbeat_ExtendsDeadlineThenEvicts(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, after.LeaseDeadline.After(before.LeaseDeadline))
 
-	waiting, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 3000})
+	waiting, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 3000})
 	require.False(t, acquired)
 
 	time.Sleep(120 * time.Millisecond)
@@ -325,7 +325,7 @@ func TestQueue_SweeperEvictsExpiredLease(t *testing.T) {
 	lease, err := q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 5000})
 	require.NoError(t, err)
 
-	waiting, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 5000})
+	waiting, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 5000})
 	require.False(t, acquired)
 
 	require.True(t, waitFor(t, 8*time.Second, func() bool {
@@ -345,7 +345,7 @@ func TestCancel_RunningAndQueued(t *testing.T) {
 	running, err := q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 3000})
 	require.NoError(t, err)
 
-	queued, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 3000})
+	queued, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 3000})
 	require.False(t, acquired)
 
 	require.True(t, q.Cancel(queued.ID()))
@@ -409,7 +409,7 @@ func TestMove_PriorityClamped(t *testing.T) {
 	require.NoError(t, err)
 	defer holder.Release()
 
-	j, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+	j, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 	require.False(t, acquired)
 
 	for i := 0; i < 12; i++ {
@@ -548,7 +548,7 @@ func TestWaitLease_RunningQueuedUnknown(t *testing.T) {
 	holder, err := q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 1000})
 	require.NoError(t, err)
 
-	queued, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+	queued, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 	require.False(t, acquired)
 
 	running, err := q.WaitLease(context.Background(), holder.ID())
@@ -580,7 +580,7 @@ func TestWaitLease_ContextCancelled(t *testing.T) {
 	require.NoError(t, err)
 	defer holder.Release()
 
-	queued, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+	queued, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 	require.False(t, acquired)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -658,7 +658,7 @@ func TestEvictExpired_DropsAbandonedWaiting(t *testing.T) {
 	require.NoError(t, err)
 	defer holder.Release()
 
-	orphan, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+	orphan, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 	require.False(t, acquired)
 	require.Len(t, q.Status().Queue, 1)
 
@@ -684,7 +684,7 @@ func TestEvictExpired_DispatchesBeforeAbandonedDrop(t *testing.T) {
 	require.NoError(t, err)
 	_ = expired
 
-	waiting, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+	waiting, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 	require.False(t, acquired)
 
 	time.Sleep(60 * time.Millisecond)
@@ -705,19 +705,19 @@ func TestQueue_MaxQueueLenRejects(t *testing.T) {
 	defer holder.Release()
 
 	for i := 0; i < 2; i++ {
-		_, acquired, pos := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+		_, acquired, pos := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 		require.False(t, acquired)
 		assert.Equal(t, i+1, pos)
 	}
 
 	assert.True(t, q.QueueFull())
 
-	lease, acquired, pos := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 1000})
+	lease, acquired, pos := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 1000})
 	require.False(t, acquired)
 	assert.Zero(t, pos)
 	assert.Nil(t, lease)
 
-	_, err = q.Acquire(context.Background(), Spec{Kind: KindYue, WeightMB: 1000})
+	_, err = q.Acquire(context.Background(), Spec{Kind: KindLLM, WeightMB: 1000})
 	require.ErrorIs(t, err, ErrQueueFull)
 	assert.Len(t, q.Status().Queue, 2)
 }
@@ -730,7 +730,7 @@ func TestQueue_UnlimitedQueueLenWhenNegative(t *testing.T) {
 	defer holder.Release()
 
 	for i := 0; i < 150; i++ {
-		_, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 100})
+		_, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 100})
 		require.False(t, acquired)
 	}
 	assert.Len(t, q.Status().Queue, 150)
@@ -745,11 +745,11 @@ func TestQueue_DefaultMaxQueueLen100(t *testing.T) {
 	defer holder.Release()
 
 	for i := 0; i < 100; i++ {
-		_, acquired, _ := q.TryAcquire(Spec{Kind: KindYue, WeightMB: 100})
+		_, acquired, _ := q.TryAcquire(Spec{Kind: KindLLM, WeightMB: 100})
 		require.False(t, acquired)
 	}
 
-	_, err = q.Acquire(context.Background(), Spec{Kind: KindYue, WeightMB: 100})
+	_, err = q.Acquire(context.Background(), Spec{Kind: KindLLM, WeightMB: 100})
 	require.ErrorIs(t, err, ErrQueueFull)
 	assert.Len(t, q.Status().Queue, 100)
 }
@@ -761,7 +761,7 @@ func TestSanitizeClient(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"plain", "yue-worker", "yue-worker"},
+		{"plain", "ext-worker", "ext-worker"},
 		{"esc osc boom", "\u001b]52;c;boom\u0007x", "]52;c;boomx"},
 		{"csi erase", "a\u001b[2Jb", "a[2Jb"},
 		{"tab newline cr", "a\tb\nc\rd", "abcd"},

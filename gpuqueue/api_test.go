@@ -91,6 +91,7 @@ func TestAPI_LeaseValidation(t *testing.T) {
 	}{
 		{"invalid kind", map[string]any{"kind": "foo", "weight_mb": 100}},
 		{"empty kind", map[string]any{"kind": "", "weight_mb": 100}},
+		{"removed kind yue", map[string]any{"kind": "yue", "weight_mb": 100}},
 		{"zero weight", map[string]any{"kind": "sd", "weight_mb": 0}},
 		{"negative weight", map[string]any{"kind": "sd", "weight_mb": -10}},
 		{"weight over budget", map[string]any{"kind": "sd", "weight_mb": 5001}},

@@ -368,7 +368,7 @@ GET /api/health                 # Результаты проверки здор
 воркерами) через взвешенный бюджет VRAM: джоба выполняется только когда
 свободный бюджет ≥ её веса, иначе ждёт в FIFO-очереди (с ручным приоритетом).
 Защищает от трэша/OOM VRAM при одновременной загрузке моделей Forge, Ollama
-и yue-воркером.
+и внешних воркеров.
 
 - **Взвешенный admission**: тяжёлые пути прокси приобретают бюджет до проброса;
   лёгкие пути (options, progress, tags, ps) проходят свободно
@@ -387,10 +387,10 @@ GET /api/health                 # Результаты проверки здор
 | `/api/llm/api/generate`, `/api/llm/api/chat` | POST | `llm_weight_mb` |
 | всё прочее (options, progress, samplers, tags, ps, embeddings) | * | 0 (проходит свободно) |
 
-### Lease-API (внешние GPU-потребители, например yue-воркер)
+### Lease-API (внешние GPU-потребители)
 
 ```
-POST   /api/gpu/lease                 {kind: sd|llm|yue, client, weight_mb, priority?, wait_seconds?}
+POST   /api/gpu/lease                 {kind: sd|llm, client, weight_mb, priority?, wait_seconds?}
        -> 200 {id, acquired: true, ttl_seconds}
        -> 202 {id, acquired: false, position}
        -> 503 {"error": "gpu queue timeout"} + Retry-After (ожидание истекло)
