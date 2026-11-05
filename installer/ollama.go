@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"sd-studio-server/process"
+	"imagecaster-server/process"
 )
 
 func findOllamaBinary(dataDir string) string {

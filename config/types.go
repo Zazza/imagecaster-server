@@ -1,7 +1,7 @@
 package config
 
 import (
-	"sd-studio-server/gpuproxy"
+	"imagecaster-server/gpuproxy"
 )
 
 type InstallMethod string

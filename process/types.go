@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"time"
 
-	"sd-studio-server/config"
+	"imagecaster-server/config"
 )
 
 type ProcessStatus struct {

@@ -38,12 +38,12 @@ func TestGitBinPath(t *testing.T) {
 		},
 		{
 			name:    "nested_path",
-			dataDir: "/home/user/.local/share/sd-studio",
+			dataDir: "/home/user/.local/share/imagecaster",
 			want: func() string {
 				if runtime.GOOS == "windows" {
-					return filepath.Join("/home/user/.local/share/sd-studio", "git", "cmd", "git.exe")
+					return filepath.Join("/home/user/.local/share/imagecaster", "git", "cmd", "git.exe")
 				}
-				return filepath.Join("/home/user/.local/share/sd-studio", "bin", "git")
+				return filepath.Join("/home/user/.local/share/imagecaster", "bin", "git")
 			}(),
 		},
 	}

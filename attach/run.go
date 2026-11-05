@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
-	"sd-studio-server/tui"
+	"imagecaster-server/tui"
 )
 
 func Main(args []string) error {

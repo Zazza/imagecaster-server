@@ -1,17 +1,17 @@
-# SD Studio Server
+# Imagecaster Server
 
 [Русский](README-ru.md)
 
 Standalone Go service that orchestrates AI components — Stable Diffusion WebUI, Ollama — with installation, lifecycle management, health monitoring, GPU optimization, and a terminal dashboard.
 
-> **Note:** Rembg support was removed in v1.1.0 — recent versions of SD Studio no longer use it.
-> The last release with Rembg support is [v0.5.0](https://github.com/Zazza/sd-ai-server/releases/tag/v0.5.0).
+> **Note:** Rembg support was removed in v1.1.0 — Imagecaster (formerly SD Studio) no longer uses it.
+> The last release with Rembg support is [v0.5.0](https://github.com/Zazza/imagecaster-server/releases/tag/v0.5.0).
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              SD Studio Server                     │
+│               Imagecaster Server                │
 ├──────────┬───────────┬───────────┬──────────────┤
 │ Process  │    GPU    │  Health   │     TUI      │
 │ Manager  │ Monitor   │ Monitor   │  Dashboard   │
@@ -26,27 +26,27 @@ Standalone Go service that orchestrates AI components — Stable Diffusion WebUI
 
 ```bash
 # Build
-go build -o sd-studio-server .
+go build -o imagecaster-server .
 
 # First run — interactive setup wizard
-./sd-studio-server --data ~/sd-studio-server
+./imagecaster-server --data ~/imagecaster-server
 
 # Headless mode (no TUI)
-./sd-studio-server --headless
+./imagecaster-server --headless
 
 # Custom port
-./sd-studio-server --port 9090
+./imagecaster-server --port 9090
 ```
 
 ## Running Modes
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| TUI (interactive) | `./sd-studio-server` | Terminal dashboard with real-time status |
-| Attach (remote) | `./sd-studio-server attach 192.168.1.184` | Connect a TUI dashboard to a running headless daemon; `q` detaches, the daemon keeps running |
-| Headless | `./sd-studio-server --headless` | Log output only — for servers and Docker |
-| Custom port | `./sd-studio-server --port 9090` | Override HTTP API port |
-| Custom config | `./sd-studio-server --config path.yaml` | Use specific config file |
+| TUI (interactive) | `./imagecaster-server` | Terminal dashboard with real-time status |
+| Attach (remote) | `./imagecaster-server attach 192.168.1.184` | Connect a TUI dashboard to a running headless daemon; `q` detaches, the daemon keeps running |
+| Headless | `./imagecaster-server --headless` | Log output only — for servers and Docker |
+| Custom port | `./imagecaster-server --port 9090` | Override HTTP API port |
+| Custom config | `./imagecaster-server --config path.yaml` | Use specific config file |
 
 ## Configuration
 
@@ -54,7 +54,7 @@ Stored in `{data-dir}/server-config.yaml`. Key fields:
 
 ```yaml
 port: 8080
-data_dir: ~/sd-studio-server
+data_dir: ~/imagecaster-server
 active_sd: forge
 mdns: true
 ```

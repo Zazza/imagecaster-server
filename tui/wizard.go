@@ -112,7 +112,7 @@ func (m *WizardModel) updateFocus() {
 func (m WizardModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render(" SD Studio Server — Setup "))
+	b.WriteString(titleStyle.Render(" Imagecaster Server — Setup "))
 	b.WriteString("\n\n")
 
 	b.WriteString(labelStyle.Render("Data directory:"))

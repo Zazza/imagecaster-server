@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"sd-studio-server/config"
+	"imagecaster-server/config"
 )
 
 func newTestModelManager(t *testing.T, modelsDir string) *ModelManager {

@@ -34,19 +34,19 @@ jobs:
           CGO_ENABLED: 0
           VERSION: ${{ github.ref_name }}
         run: |
-          output=sd-studio-server
+          output=imagecaster-server
           [ "$GOOS" = "windows" ] && output="${output}.exe"
           go build -ldflags "-s -w -X main.version=${VERSION#v}" -o "$output" .
       - name: Package
         env:
           GOOS: ${{ matrix.goos }}
         run: |
-          name=sd-studio-server-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          name=imagecaster-server-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
           mkdir "$name"
           if [ "$GOOS" = "windows" ]; then
-            mv sd-studio-server.exe "$name/sd-studio-server.exe"
+            mv imagecaster-server.exe "$name/imagecaster-server.exe"
           else
-            mv sd-studio-server "$name/sd-studio-server"
+            mv imagecaster-server "$name/imagecaster-server"
           fi
           cp server-config.yaml README.md "$name/"
           tar czf "${name}.tar.gz" "$name"

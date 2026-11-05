@@ -1,4 +1,4 @@
-# SD Studio Server Configuration
+# Imagecaster Server Configuration
 
 port: 8080
 mdns: true

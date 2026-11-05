@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"sd-studio-server/gpuqueue"
-	"sd-studio-server/tui"
+	"imagecaster-server/gpuqueue"
+	"imagecaster-server/tui"
 )
 
 func TestGpuQueueSnapshot_MapsJobs(t *testing.T) {

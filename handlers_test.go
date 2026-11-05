@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"sd-studio-server/config"
-	sdgpu "sd-studio-server/gpu"
-	sdhealth "sd-studio-server/health"
-	"sd-studio-server/installer"
-	"sd-studio-server/process"
+	"imagecaster-server/config"
+	sdgpu "imagecaster-server/gpu"
+	sdhealth "imagecaster-server/health"
+	"imagecaster-server/installer"
+	"imagecaster-server/process"
 )
 
 func newTestHandlers() *Handlers {

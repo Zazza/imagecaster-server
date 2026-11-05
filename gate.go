@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"sd-studio-server/api"
-	"sd-studio-server/gpuqueue"
-	"sd-studio-server/models"
+	"imagecaster-server/api"
+	"imagecaster-server/gpuqueue"
+	"imagecaster-server/models"
 )
 
 const (

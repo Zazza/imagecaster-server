@@ -1,5 +1,5 @@
 services:
-  sd-studio-server:
+  imagecaster-server:
     build: .
     ports:
       - "8080:8080"

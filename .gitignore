@@ -1,4 +1,4 @@
-sd-studio-server
+imagecaster-server
 *.db
 .DS_Store
 Thumbs.db

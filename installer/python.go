@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"sd-studio-server/process"
+	"imagecaster-server/process"
 )
 
 func pythonBinPath(dataDir string) string {

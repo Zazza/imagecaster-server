@@ -1,17 +1,17 @@
-# SD Studio Server
+# Imagecaster Server
 
 [English](README.md)
 
 Автономный Go-сервис для оркестрации AI-компонентов — Stable Diffusion WebUI, Ollama — с автоматической установкой, управлением жизненным циклом, мониторингом здоровья, GPU-оптимизацией и терминальным дашбордом.
 
-> **Примечание:** поддержка Rembg удалена в v1.1.0 — в новых версиях SD Studio он не используется.
-> Последний релиз с поддержкой Rembg — [v0.5.0](https://github.com/Zazza/sd-ai-server/releases/tag/v0.5.0).
+> **Примечание:** поддержка Rembg удалена в v1.1.0 — Imagecaster (бывший SD Studio) его не использует.
+> Последний релиз с поддержкой Rembg — [v0.5.0](https://github.com/Zazza/imagecaster-server/releases/tag/v0.5.0).
 
 ## Обзор
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              SD Studio Server                     │
+│               Imagecaster Server                │
 ├──────────┬───────────┬───────────┬──────────────┤
 │ Process  │    GPU    │  Health   │     TUI      │
 │ Manager  │ Monitor   │ Monitor   │  Dashboard   │
@@ -27,27 +27,27 @@
 
 ```bash
 # Сборка
-go build -o sd-studio-server .
+go build -o imagecaster-server .
 
 # Первый запуск — интерактивный мастер настройки
-./sd-studio-server --data ~/sd-studio-server
+./imagecaster-server --data ~/imagecaster-server
 
 # Без TUI (headless-режим)
-./sd-studio-server --headless
+./imagecaster-server --headless
 
 # Кастомный порт
-./sd-studio-server --port 9090
+./imagecaster-server --port 9090
 ```
 
 ## Режимы запуска
 
 | Режим | Команда | Описание |
 |-------|---------|----------|
-| TUI (интерактивный) | `./sd-studio-server` | Терминальный дашборд со статусом сервисов |
-| Attach (удалённый) | `./sd-studio-server attach 192.168.1.184` | Подключить TUI-дашборд к работающему headless-демону; `q` — отключиться, демон продолжает работу |
-| Headless | `./sd-studio-server --headless` | Только лог-вывод — для серверов и Docker |
-| Кастомный порт | `./sd-studio-server --port 9090` | Переопределить порт HTTP API |
-| Кастомный конфиг | `./sd-studio-server --config path.yaml` | Использовать конкретный файл конфигурации |
+| TUI (интерактивный) | `./imagecaster-server` | Терминальный дашборд со статусом сервисов |
+| Attach (удалённый) | `./imagecaster-server attach 192.168.1.184` | Подключить TUI-дашборд к работающему headless-демону; `q` — отключиться, демон продолжает работу |
+| Headless | `./imagecaster-server --headless` | Только лог-вывод — для серверов и Docker |
+| Кастомный порт | `./imagecaster-server --port 9090` | Переопределить порт HTTP API |
+| Кастомный конфиг | `./imagecaster-server --config path.yaml` | Использовать конкретный файл конфигурации |
 
 ## Конфигурация
 
@@ -55,7 +55,7 @@ go build -o sd-studio-server .
 
 ```yaml
 port: 8080
-data_dir: ~/sd-studio-server
+data_dir: ~/imagecaster-server
 active_sd: forge
 mdns: true
 ```

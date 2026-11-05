@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+- Renamed to **Imagecaster Server** to match the Imagecaster client (ex SD Studio): Go module, binary `imagecaster-server`, Docker service, release assets, GitHub repo `Zazza/imagecaster-server`
+- mDNS service type is now `_imagecaster._tcp` (instance "Imagecaster Server") — the one Imagecaster 1.0 browses; LAN auto-discovery works again
+- Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist
+
 ### Removed
 - GPU lease kind `yue`: no client ever used it; `POST /api/gpu/lease` now accepts `sd` and `llm` only (`yue` → 400 `invalid kind`)
 

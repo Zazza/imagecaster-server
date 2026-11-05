@@ -57,12 +57,29 @@ func DefaultForgeBinary() string {
 	return "python/bin/python3"
 }
 
+const (
+	dataDirName       = "imagecaster-server"
+	legacyDataDirName = "sd-studio-server"
+)
+
 func DefaultDataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "sd-studio-server"
+		return dataDirName
 	}
-	return filepath.Join(home, "sd-studio-server")
+	return dataDirIn(home)
+}
+
+func dataDirIn(home string) string {
+	dir := filepath.Join(home, dataDirName)
+	if _, err := os.Stat(dir); err == nil {
+		return dir
+	}
+	legacy := filepath.Join(home, legacyDataDirName)
+	if info, err := os.Stat(legacy); err == nil && info.IsDir() {
+		return legacy
+	}
+	return dir
 }
 
 func NewDefault() Config {

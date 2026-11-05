@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"sd-studio-server/api"
-	"sd-studio-server/config"
+	"imagecaster-server/api"
+	"imagecaster-server/config"
 )
 
 type BackendManager struct {

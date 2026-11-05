@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"sd-studio-server/config"
+	"imagecaster-server/config"
 )
 
 type ModelManager struct {

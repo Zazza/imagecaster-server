@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"sd-studio-server/api"
+	"imagecaster-server/api"
 )
 
 func (inst *Installer) RegisterRoutes(mux *http.ServeMux) {

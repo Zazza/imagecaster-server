@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"strings"
 
-	"sd-studio-server/config"
-	"sd-studio-server/process"
+	"imagecaster-server/config"
+	"imagecaster-server/process"
 )
 
 func (inst *Installer) installZip(key string, ic config.InstallConfig, lb *process.RingBuffer) error {

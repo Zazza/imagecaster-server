@@ -497,7 +497,7 @@ func (m DashboardModel) viewDashboard() string {
 
 	var lines []string
 
-	header := fmt.Sprintf(" SD Studio Server   %s  %s ", runningStyle.Render("[RUNNING]"), m.address())
+	header := fmt.Sprintf(" Imagecaster Server   %s  %s ", runningStyle.Render("[RUNNING]"), m.address())
 	lines = append(lines, headerBg.Render(header))
 	if m.deps.ConnState != nil {
 		if banner := m.deps.ConnState(); banner != "" {

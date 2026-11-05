@@ -1,4 +1,4 @@
-module sd-studio-server
+module imagecaster-server
 
 go 1.25.0
 

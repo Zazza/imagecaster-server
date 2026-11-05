@@ -1,16 +1,16 @@
 [English](server-en.md) | [Русский](server-ru.md) | [Back to README](../README.md)
 
-# SD Studio Server
+# Imagecaster Server
 
 Standalone Go service that orchestrates all AI components — Stable Diffusion WebUI, Ollama — with installation, lifecycle management, health monitoring, GPU optimization, and a terminal dashboard.
 
 ## Overview
 
-SD Studio Server eliminates manual setup of AI services. It installs, starts, monitors and manages all components through a single configuration file, accessible via HTTP API or interactive TUI.
+Imagecaster Server eliminates manual setup of AI services. It installs, starts, monitors and manages all components through a single configuration file, accessible via HTTP API or interactive TUI.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              SD Studio Server                     │
+│               Imagecaster Server                │
 ├──────────┬───────────┬───────────┬──────────────┤
 │ Process  │    GPU    │  Health   │     TUI      │
 │ Manager  │ Monitor   │ Monitor   │  Dashboard   │
@@ -26,7 +26,7 @@ SD Studio Server eliminates manual setup of AI services. It installs, starts, mo
 ### Build from source
 
 ```bash
-go build -o sd-studio-server .
+go build -o imagecaster-server .
 ```
 
 ### Docker
@@ -39,16 +39,16 @@ docker compose up --build
 
 ```bash
 # First run — interactive setup wizard
-./sd-studio-server --data ~/sd-studio-server
+./imagecaster-server --data ~/imagecaster-server
 
 # Headless mode (no TUI)
-./sd-studio-server --headless
+./imagecaster-server --headless
 
 # Custom port
-./sd-studio-server --port 9090
+./imagecaster-server --port 9090
 
 # Custom config
-./sd-studio-server --config /path/to/server-config.yaml
+./imagecaster-server --config /path/to/server-config.yaml
 ```
 
 On first run, the setup wizard guides you through:
@@ -60,11 +60,11 @@ On first run, the setup wizard guides you through:
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| TUI (interactive) | `./sd-studio-server` | Terminal dashboard with real-time service status and controls |
-| Attach (remote) | `./sd-studio-server attach [host[:port]]` | Connect a TUI dashboard to a running daemon (default `127.0.0.1:8080`) |
-| Headless | `./sd-studio-server --headless` | Log output only, no TUI — for servers and Docker |
-| Custom port | `./sd-studio-server --port 9090` | Override HTTP API port |
-| Custom config | `./sd-studio-server --config path.yaml` | Use specific config file |
+| TUI (interactive) | `./imagecaster-server` | Terminal dashboard with real-time service status and controls |
+| Attach (remote) | `./imagecaster-server attach [host[:port]]` | Connect a TUI dashboard to a running daemon (default `127.0.0.1:8080`) |
+| Headless | `./imagecaster-server --headless` | Log output only, no TUI — for servers and Docker |
+| Custom port | `./imagecaster-server --port 9090` | Override HTTP API port |
+| Custom config | `./imagecaster-server --config path.yaml` | Use specific config file |
 
 ### Attach Mode
 
@@ -72,8 +72,8 @@ On first run, the setup wizard guides you through:
 (typically `--headless` under systemd) over its REST API — e.g. from a desktop:
 
 ```bash
-./sd-studio-server attach 192.168.1.184        # port 8080 by default
-./sd-studio-server attach 192.168.1.184:8080
+./imagecaster-server attach 192.168.1.184        # port 8080 by default
+./imagecaster-server attach 192.168.1.184:8080
 ```
 
 - Same dashboard as local TUI: services, health, GPU/VRAM, GPU queue line and
@@ -91,7 +91,7 @@ Configuration is stored in `{data-dir}/server-config.yaml`:
 
 ```yaml
 port: 8080
-data_dir: ~/sd-studio-server
+data_dir: ~/imagecaster-server
 active_sd: forge
 mdns: true
 detected_vram_mb: 8192
@@ -269,7 +269,7 @@ Automated installation of all components.
 
 Service discovery on local network.
 
-- Advertises `_sd-studio._tcp` service
+- Advertises `_imagecaster._tcp` service
 - Desktop apps can auto-discover the server
 - Configurable via `mdns: true/false` in config
 
@@ -415,12 +415,12 @@ expose the API beyond the trusted LAN.
 ```yaml
 # docker-compose.yml
 services:
-  sd-studio-server:
+  imagecaster-server:
     build: .
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/root/sd-studio-server
+      - ./data:/root/imagecaster-server
     deploy:
       resources:
         reservations:

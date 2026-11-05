@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"strings"
 
-	"sd-studio-server/process"
+	"imagecaster-server/process"
 )
 
 func extractZip(zipPath, targetDir string) error {

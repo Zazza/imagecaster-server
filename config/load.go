@@ -114,6 +114,6 @@ func WriteTemplate(path string) error {
 	if err != nil {
 		return err
 	}
-	header := []byte("# SD Studio Server Configuration\n# Auto-generated default config\n\n")
+	header := []byte("# Imagecaster Server Configuration\n# Auto-generated default config\n\n")
 	return os.WriteFile(path, append(header, data...), 0644)
 }

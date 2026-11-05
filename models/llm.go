@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"sd-studio-server/api"
+	"imagecaster-server/api"
 )
 
 func (m *ModelManager) handleLLMModels(w http.ResponseWriter, r *http.Request) {

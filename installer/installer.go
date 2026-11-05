@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"sd-studio-server/config"
-	"sd-studio-server/process"
+	"imagecaster-server/config"
+	"imagecaster-server/process"
 )
 
 type InstallStatus struct {

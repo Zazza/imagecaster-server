@@ -1,6 +1,6 @@
 .PHONY: build run test vet clean docker-build docker-up docker-down
 
-BINARY   := sd-studio-server
+BINARY   := imagecaster-server
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -ldflags "-X main.version=$(VERSION)"
 

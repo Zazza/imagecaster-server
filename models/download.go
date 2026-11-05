@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"sd-studio-server/api"
-	"sd-studio-server/installer"
+	"imagecaster-server/api"
+	"imagecaster-server/installer"
 )
 
 func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Request) {

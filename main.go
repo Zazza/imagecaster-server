@@ -16,17 +16,17 @@ import (
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 
-	"sd-studio-server/api"
-	"sd-studio-server/attach"
-	"sd-studio-server/config"
-	sdgpu "sd-studio-server/gpu"
-	"sd-studio-server/gpuproxy"
-	"sd-studio-server/gpuqueue"
-	sdhealth "sd-studio-server/health"
-	"sd-studio-server/installer"
-	"sd-studio-server/models"
-	"sd-studio-server/process"
-	"sd-studio-server/tui"
+	"imagecaster-server/api"
+	"imagecaster-server/attach"
+	"imagecaster-server/config"
+	sdgpu "imagecaster-server/gpu"
+	"imagecaster-server/gpuproxy"
+	"imagecaster-server/gpuqueue"
+	sdhealth "imagecaster-server/health"
+	"imagecaster-server/installer"
+	"imagecaster-server/models"
+	"imagecaster-server/process"
+	"imagecaster-server/tui"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 		return
 	}
 
-	dataDir := flag.String("data", "", "data directory (default: ~/sd-studio-server)")
+	dataDir := flag.String("data", "", "data directory (default: ~/imagecaster-server)")
 	configPath := flag.String("config", "", "config file path (default: {data-dir}/server-config.yaml)")
 	port := flag.Int("port", 0, "override server port")
 	headless := flag.Bool("headless", false, "run without TUI (log output only)")
@@ -196,7 +196,7 @@ func (d *appDeps) registerMDNS() *MDNSService {
 	if err := mdns.Register(); err != nil {
 		log.Printf("mDNS registration failed (non-fatal): %v", err)
 	} else if d.cfg.MDNS {
-		log.Printf("mDNS: registered _sd-studio._tcp on port %d", d.cfg.Port)
+		log.Printf("mDNS: registered _imagecaster._tcp on port %d", d.cfg.Port)
 	}
 	return mdns
 }
@@ -209,7 +209,7 @@ func (d *appDeps) shutdown() {
 }
 
 func runHeadless(cfg *config.Config) {
-	log.Printf("SD Studio Server starting on port %d (backend: %s)", cfg.Port, cfg.ActiveSD)
+	log.Printf("Imagecaster Server starting on port %d (backend: %s)", cfg.Port, cfg.ActiveSD)
 	log.Printf("Data directory: %s", cfg.DataDir)
 
 	d := initApp(cfg)
@@ -482,7 +482,7 @@ func saveConfig(path string, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	header := []byte("# SD Studio Server Configuration\n\n")
+	header := []byte("# Imagecaster Server Configuration\n\n")
 	return os.WriteFile(path, append(header, data...), 0644)
 }
 
@@ -500,7 +500,7 @@ func setupMux(handlers *Handlers, inst *installer.Installer, mm *models.ModelMan
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			api.WriteJSON(w, map[string]interface{}{
-				"name":    "SD Studio Server",
+				"name":    "Imagecaster Server",
 				"version": "1.0",
 				"status":  "running",
 			})

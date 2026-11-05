@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"sd-studio-server/process"
+	"imagecaster-server/process"
 )
 
 type progressWriter struct {

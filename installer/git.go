@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"sd-studio-server/process"
+	"imagecaster-server/process"
 )
 
 const (

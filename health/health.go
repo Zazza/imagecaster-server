@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"sd-studio-server/config"
+	"imagecaster-server/config"
 )
 
 type HealthResult struct {

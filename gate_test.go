@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"sd-studio-server/config"
-	"sd-studio-server/gpuqueue"
-	"sd-studio-server/models"
+	"imagecaster-server/config"
+	"imagecaster-server/gpuqueue"
+	"imagecaster-server/models"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

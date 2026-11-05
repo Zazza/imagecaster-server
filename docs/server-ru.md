@@ -1,16 +1,16 @@
 [English](server-en.md) | [Русский](server-ru.md) | [К README](../README-ru.md)
 
-# SD Studio Server
+# Imagecaster Server
 
 Автономный Go-сервис для оркестрации AI-компонентов — Stable Diffusion WebUI, Ollama — с автоматической установкой, управлением жизненным циклом, мониторингом здоровья, GPU-оптимизацией и терминальным дашбордом.
 
 ## Обзор
 
-SD Studio Server избавляет от ручной настройки AI-сервисов. Он устанавливает, запускает, мониторит и управляет всеми компонентами через единый конфигурационный файл, доступный через HTTP API или интерактивный TUI.
+Imagecaster Server избавляет от ручной настройки AI-сервисов. Он устанавливает, запускает, мониторит и управляет всеми компонентами через единый конфигурационный файл, доступный через HTTP API или интерактивный TUI.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              SD Studio Server                     │
+│               Imagecaster Server                │
 ├──────────┬───────────┬───────────┬──────────────┤
 │ Process  │    GPU    │  Health   │     TUI      │
 │ Manager  │ Monitor   │ Monitor   │  Dashboard   │
@@ -27,7 +27,7 @@ SD Studio Server избавляет от ручной настройки AI-се
 ### Сборка из исходников
 
 ```bash
-go build -o sd-studio-server .
+go build -o imagecaster-server .
 ```
 
 ### Docker
@@ -40,16 +40,16 @@ docker compose up --build
 
 ```bash
 # Первый запуск — интерактивный мастер настройки
-./sd-studio-server --data ~/sd-studio-server
+./imagecaster-server --data ~/imagecaster-server
 
 # Без TUI (headless-режим)
-./sd-studio-server --headless
+./imagecaster-server --headless
 
 # Кастомный порт
-./sd-studio-server --port 9090
+./imagecaster-server --port 9090
 
 # Кастомный конфиг
-./sd-studio-server --config /path/to/server-config.yaml
+./imagecaster-server --config /path/to/server-config.yaml
 ```
 
 При первом запуске мастер настройки проведёт через:
@@ -61,11 +61,11 @@ docker compose up --build
 
 | Режим | Команда | Описание |
 |-------|---------|----------|
-| TUI (интерактивный) | `./sd-studio-server` | Терминальный дашборд со статусом сервисов и управлением |
-| Attach (удалённый) | `./sd-studio-server attach [host[:port]]` | Подключить TUI-дашборд к работающему демону (по умолчанию `127.0.0.1:8080`) |
-| Headless | `./sd-studio-server --headless` | Только лог-вывод, без TUI — для серверов и Docker |
-| Кастомный порт | `./sd-studio-server --port 9090` | Переопределить порт HTTP API |
-| Кастомный конфиг | `./sd-studio-server --config path.yaml` | Использовать конкретный файл конфигурации |
+| TUI (интерактивный) | `./imagecaster-server` | Терминальный дашборд со статусом сервисов и управлением |
+| Attach (удалённый) | `./imagecaster-server attach [host[:port]]` | Подключить TUI-дашборд к работающему демону (по умолчанию `127.0.0.1:8080`) |
+| Headless | `./imagecaster-server --headless` | Только лог-вывод, без TUI — для серверов и Docker |
+| Кастомный порт | `./imagecaster-server --port 9090` | Переопределить порт HTTP API |
+| Кастомный конфиг | `./imagecaster-server --config path.yaml` | Использовать конкретный файл конфигурации |
 
 ### Режим attach
 
@@ -73,8 +73,8 @@ docker compose up --build
 (обычно `--headless` под systemd) через его REST API — например, с десктопа:
 
 ```bash
-./sd-studio-server attach 192.168.1.184        # порт 8080 по умолчанию
-./sd-studio-server attach 192.168.1.184:8080
+./imagecaster-server attach 192.168.1.184        # порт 8080 по умолчанию
+./imagecaster-server attach 192.168.1.184:8080
 ```
 
 - Тот же дашборд, что и локальный TUI: сервисы, health, GPU/VRAM, строка
@@ -92,7 +92,7 @@ docker compose up --build
 
 ```yaml
 port: 8080
-data_dir: ~/sd-studio-server
+data_dir: ~/imagecaster-server
 active_sd: forge
 mdns: true
 detected_vram_mb: 8192
@@ -270,7 +270,7 @@ proxy:
 
 Обнаружение сервисов в локальной сети.
 
-- Рекламирует сервис `_sd-studio._tcp`
+- Рекламирует сервис `_imagecaster._tcp`
 - Десктопные приложения могут автоматически находить сервер
 - Настраивается через `mdns: true/false` в конфиге
 
@@ -417,12 +417,12 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 ```yaml
 # docker-compose.yml
 services:
-  sd-studio-server:
+  imagecaster-server:
     build: .
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/root/sd-studio-server
+      - ./data:/root/imagecaster-server
     deploy:
       resources:
         reservations:

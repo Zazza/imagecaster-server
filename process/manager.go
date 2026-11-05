@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"sd-studio-server/config"
+	"imagecaster-server/config"
 )
 
 type Installer interface {

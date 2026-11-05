@@ -20,8 +20,8 @@ func (m *MDNSService) Register() error {
 	}
 
 	server, err := zeroconf.Register(
-		"SD Studio Server",
-		"_sd-studio._tcp",
+		"Imagecaster Server",
+		"_imagecaster._tcp",
 		"local.",
 		m.port,
 		[]string{"version=1.0"},

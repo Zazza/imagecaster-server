@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"sd-studio-server/api"
+	"imagecaster-server/api"
 )
 
 type API struct {

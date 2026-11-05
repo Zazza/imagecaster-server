@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"sd-studio-server/config"
+	"imagecaster-server/config"
 )
 
 func TestToolPathDirs_emptyDataDir(t *testing.T) {
