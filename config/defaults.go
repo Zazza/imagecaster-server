@@ -6,55 +6,52 @@ import (
 	"runtime"
 )
 
+const (
+	NeoBackendKey = "forge-neo"
+	NeoVersion    = "2.31"
+	neoDir        = "sd-webui-forge-neo"
+)
+
 var InstallDefaultsBackends map[string]InstallConfig
 var InstallDefaultsProcesses map[string]InstallConfig
 
 func init() {
 	InstallDefaultsBackends = map[string]InstallConfig{
-		"forge": {
-			Method:  InstallZip,
-			URL:     "https://github.com/lllyasviel/stable-diffusion-webui-forge/archive/refs/heads/main.zip",
-			Target:  "stable-diffusion-webui-forge",
-			Version: "main",
-		},
+		NeoBackendKey: neoInstall(),
 	}
 	InstallDefaultsProcesses = map[string]InstallConfig{
 		"ollama": {},
-		"python": {
-			Method: InstallTgz,
-			URL:    pythonArchiveURL(),
-			Target: "python",
-		},
 	}
 }
 
-func PythonArchiveURL() string {
-	return pythonArchiveURL()
-}
-
-func pythonArchiveURL() string {
-	switch runtime.GOOS + "/" + runtime.GOARCH {
-	case "darwin/arm64":
-		return "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.10.15%2B20241016-aarch64-apple-darwin-install_only.tar.gz"
-	case "darwin/amd64":
-		return "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.10.15%2B20241016-x86_64-apple-darwin-install_only.tar.gz"
-	case "linux/amd64":
-		return "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.10.15%2B20241016-x86_64-unknown-linux-gnu-install_only.tar.gz"
-	case "linux/arm64":
-		return "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.10.15%2B20241016-aarch64-unknown-linux-gnu-install_only.tar.gz"
-	case "windows/amd64":
-		return "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.10.15%2B20241016-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
-	case "windows/arm64":
-		return "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.10.15%2B20241016-aarch64-pc-windows-msvc-shared-install_only.tar.gz"
+func neoInstall() InstallConfig {
+	return InstallConfig{
+		Method:  InstallZip,
+		URL:     "https://github.com/Haoming02/sd-webui-forge-classic/archive/refs/tags/" + NeoVersion + ".zip",
+		Target:  neoDir,
+		Version: NeoVersion,
 	}
-	return ""
 }
 
-func DefaultForgeBinary() string {
+func neoBinary() string {
 	if runtime.GOOS == "windows" {
-		return "python/python.exe"
+		return neoDir + "/venv/Scripts/python.exe"
 	}
-	return "python/bin/python3"
+	return neoDir + "/venv/bin/python"
+}
+
+func sdEnv() map[string]string {
+	env := map[string]string{
+		"PYTORCH_CUDA_ALLOC_CONF":         "expandable_segments:True",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM": "1",
+		"GIT_CONFIG_COUNT":                "1",
+		"GIT_CONFIG_KEY_0":                "safe.directory",
+		"GIT_CONFIG_VALUE_0":              "*",
+	}
+	if runtime.GOOS == "darwin" {
+		env["TORCH_COMMAND"] = "pip install torch==2.12.0 torchvision==0.27.0"
+	}
+	return env
 }
 
 const (
@@ -87,7 +84,7 @@ func NewDefault() Config {
 		Port:     8080,
 		MDNS:     true,
 		DataDir:  "",
-		ActiveSD: "forge",
+		ActiveSD: NeoBackendKey,
 		GPU: GPUConfig{
 			TotalBudgetMB:     0,
 			ReserveMB:         500,
@@ -99,11 +96,6 @@ func NewDefault() Config {
 			GuardPorts:        true,
 		},
 		Processes: map[string]ProcessConfig{
-			"python": {
-				Name:      "Python 3.10",
-				AutoStart: false,
-				Category:  "utility",
-			},
 			"sd": {
 				Name:         "Stable Diffusion",
 				HealthURL:    "http://localhost:7860/sdapi/v1/options",
@@ -113,13 +105,7 @@ func NewDefault() Config {
 				AutoStart:    true,
 				Restart:      true,
 				MaxRestart:   5,
-				Env: map[string]string{
-					"PYTORCH_CUDA_ALLOC_CONF":         "expandable_segments:True",
-					"GIT_DISCOVERY_ACROSS_FILESYSTEM": "1",
-					"GIT_CONFIG_COUNT":                "1",
-					"GIT_CONFIG_KEY_0":                "safe.directory",
-					"GIT_CONFIG_VALUE_0":              "*",
-				},
+				Env:          sdEnv(),
 			},
 			"ollama": {
 				Name:   "Ollama",
@@ -143,23 +129,17 @@ func NewDefault() Config {
 			},
 		},
 		Backends: map[string]BackendConfig{
-			"forge": {
-				Name:         "Stable Diffusion Forge",
+			NeoBackendKey: {
+				Name:         "Stable Diffusion Forge Neo",
 				ProcessKey:   "sd",
-				Binary:       DefaultForgeBinary(),
-				Args:         []string{"launch.py", "--listen", "--api", "--xformers", "--medvram-sdxl"},
-				AutoOptimize: true,
-				WorkDir:      "stable-diffusion-webui-forge",
-				ModelsDir:    "stable-diffusion-webui-forge/models/Stable-diffusion",
-				LoraDir:      "stable-diffusion-webui-forge/models/Lora",
-				VaeDir:       "stable-diffusion-webui-forge/models/VAE",
-				EmbeddingDir: "stable-diffusion-webui-forge/embeddings",
-				Install: InstallConfig{
-					Method:  InstallZip,
-					URL:     "https://github.com/lllyasviel/stable-diffusion-webui-forge/archive/refs/heads/main.zip",
-					Target:  "stable-diffusion-webui-forge",
-					Version: "main",
-				},
+				Binary:       neoBinary(),
+				Args:         []string{"launch.py", "--listen", "--api", "--uv"},
+				WorkDir:      neoDir,
+				ModelsDir:    neoDir + "/models/Stable-diffusion",
+				LoraDir:      neoDir + "/models/Lora",
+				VaeDir:       neoDir + "/models/VAE",
+				EmbeddingDir: neoDir + "/embeddings",
+				Install:      neoInstall(),
 			},
 		},
 	}

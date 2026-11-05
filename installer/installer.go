@@ -23,12 +23,13 @@ type InstallStatus struct {
 }
 
 type Installer struct {
-	config     *config.Config
-	mu         sync.RWMutex
-	statuses   map[string]*InstallStatus
-	logs       map[string]*process.RingBuffer
-	installMu  map[string]*sync.Mutex
-	OnProgress func(key, progress string)
+	config       *config.Config
+	mu           sync.RWMutex
+	statuses     map[string]*InstallStatus
+	logs         map[string]*process.RingBuffer
+	installMu    map[string]*sync.Mutex
+	backendSetup func(target string, lb *process.RingBuffer) error
+	OnProgress   func(key, progress string)
 }
 
 var _ process.Installer = (*Installer)(nil)
@@ -47,11 +48,12 @@ func NewInstaller(cfg *config.Config) *Installer {
 		logs:      make(map[string]*process.RingBuffer),
 		installMu: make(map[string]*sync.Mutex),
 	}
+	inst.backendSetup = inst.setupBackend
 
 	for key, bc := range cfg.Backends {
-		if bc.Install.Method != "" {
+		if bc.Install.Method != "" && key == cfg.ActiveSD {
 			s := &InstallStatus{Key: key}
-			s.Installed = inst.checkInstalled(bc.Install)
+			s.Installed = inst.checkInstalled(bc.Install) && fileExists(bc.Binary)
 			if s.Installed {
 				s.Version = bc.Install.Version
 			}
@@ -94,7 +96,7 @@ func (inst *Installer) IsInstalled(key string) bool {
 func (inst *Installer) installPlan() []string {
 	var plan []string
 	if inst.backendAutoStarts() {
-		plan = append(plan, "python", inst.config.ActiveSD)
+		plan = append(plan, inst.config.ActiveSD)
 	}
 	if pc, ok := inst.config.Processes["ollama"]; ok && pc.AutoStart {
 		plan = append(plan, "ollama")
@@ -165,6 +167,10 @@ func (inst *Installer) EnsureAllInstalled() {
 			}
 			continue
 		}
+		if key == inst.config.ActiveSD && inst.backendBinaryExists() {
+			log.Printf("[%s] backend binary present, skipping install", key)
+			continue
+		}
 		ic := inst.getConfig(key)
 		if ic == nil {
 			continue
@@ -180,6 +186,22 @@ func (inst *Installer) EnsureAllInstalled() {
 	}
 }
 
+func (inst *Installer) backendBinaryExists() bool {
+	backend, ok := inst.config.Backends[inst.config.ActiveSD]
+	if !ok {
+		return false
+	}
+	binary := backend.Binary
+	if pc, ok := inst.config.Processes[backend.ProcessKey]; ok && pc.Binary != "" {
+		binary = pc.Binary
+	}
+	if binary == "" || !filepath.IsAbs(binary) {
+		return false
+	}
+	_, err := os.Stat(binary)
+	return err == nil
+}
+
 func (inst *Installer) EnsureInstalled(key, binary string) error {
 	if binary != "" {
 		if strings.ContainsRune(binary, '/') {
@@ -193,9 +215,6 @@ func (inst *Installer) EnsureInstalled(key, binary string) error {
 		}
 	}
 	if inst.isBackendProcess(key) {
-		if err := inst.ensureConfigured("python"); err != nil {
-			return fmt.Errorf("python: %w", err)
-		}
 		if inst.getConfig(inst.config.ActiveSD) != nil {
 			key = inst.config.ActiveSD
 		}
@@ -321,15 +340,13 @@ func (inst *Installer) doInstall(key string, ic config.InstallConfig, lb *proces
 	switch ic.Method {
 	case config.InstallZip:
 		return inst.installZip(key, ic, lb)
-	case config.InstallTgz:
-		return inst.installTgz(key, ic, lb)
 	}
 	return fmt.Errorf("unknown install method: %s", ic.Method)
 }
 
 func (inst *Installer) checkInstalled(ic config.InstallConfig) bool {
 	switch ic.Method {
-	case config.InstallZip, config.InstallTgz:
+	case config.InstallZip:
 		if ic.Target == "" {
 			return false
 		}
@@ -350,4 +367,12 @@ func (inst *Installer) setProgress(key string, progress string) {
 	if inst.OnProgress != nil {
 		inst.OnProgress(key, progress)
 	}
+}
+
+func fileExists(p string) bool {
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
 }

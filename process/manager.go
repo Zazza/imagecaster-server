@@ -20,7 +20,6 @@ import (
 
 type Installer interface {
 	EnsureInstalled(key, binary string) error
-	PreStartForge()
 }
 
 type ProcessManager struct {
@@ -101,10 +100,6 @@ func (pm *ProcessManager) start(name string) error {
 				return nil
 			}
 		}
-	}
-
-	if name == "sd" && pm.installer != nil {
-		pm.installer.PreStartForge()
 	}
 
 	if pm.installer != nil && !mp.InstallFailed {

@@ -122,22 +122,23 @@ func (m InstallModel) View() string {
 }
 
 func installOrder(statuses map[string]ComponentInstallStatus) []string {
-	var middle []string
+	var order []string
 	for k := range statuses {
-		if k != "python" && k != "ollama" {
-			middle = append(middle, k)
+		if k != "ollama" {
+			order = append(order, k)
 		}
 	}
-	sort.Strings(middle)
-	order := []string{"python"}
-	order = append(order, middle...)
-	return append(order, "ollama")
+	sort.Strings(order)
+	if _, ok := statuses["ollama"]; ok {
+		order = append(order, "ollama")
+	}
+	return order
 }
 
 func componentLabel(key string) string {
 	switch key {
-	case "python":
-		return "Python"
+	case "forge-neo":
+		return "Forge Neo"
 	case "forge":
 		return "Forge"
 	case "ollama":

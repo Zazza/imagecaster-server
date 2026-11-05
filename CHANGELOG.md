@@ -6,7 +6,10 @@
 - Port guard (`gpu.guard_ports`, on by default): the server listens on the standard Forge `:7860` and Ollama `:11434` ports and moves the services it starts to loopback `127.0.0.1:7861` / `:11435`, so requests from any LAN program pass the same GPU budget queue as `/api/sd/` and `/api/llm/`. Only services with `autostart` are guarded, and only when the public port is free; a busy port is left alone with a warning in the queue status. Internal ports: `internal_port` per process
 
 ### Changed
-- First-run wizard: unticking Forge or Ollama now really disables it (it used to be undone by install defaults; the Forge key didn't match its process; Ollama was always installed). The Python checkbox is gone — Python is installed with the SD backend. Startup installs only components that autostart; a disabled one is installed on its first manual start
+- SD backend is **Forge Neo** 2.31 (`forge-neo`, Haoming02/sd-webui-forge-classic) — the one Imagecaster needs. Its venv is created with a bundled `uv` 0.12.19 (checksum-pinned, in `<data>/bin`) and Python 3.13 (in `<data>/python`); Neo installs PyTorch itself on first start (`--uv`, into the same venv, uv cache in `<data>/uv-cache`). An existing backend whose binary is already in place is never reinstalled; if setup failed after download, the next start only finishes the setup
+- Ollama: the one already installed in the system is used; otherwise it is installed into `<data>/ollama`. On Windows this is now the standalone zip instead of `OllamaSetup.exe`, so nothing is installed system-wide and nothing autostarts; on macOS without Homebrew the universal `ollama-darwin.tgz` is used (the per-arch name was a 404)
+- First-run wizard asks only for the data folder (Neo is required, Ollama is detected) and warns about the C: drive on Windows. Startup installs only components that autostart
+- Interface language Russian or English, chosen from the system language (`IMAGECASTER_LANG` or `lang:` in config override it)
 - Installs of one component never run twice at once (startup install and a manual start wait for each other); the SD backend has a single install status
 - `/` and mDNS report the real build version; new `--version` flag
 - Ollama default env no longer sets `OLLAMA_DEBUG=1`
@@ -15,7 +18,8 @@
 - Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist
 
 ### Removed
-- Install methods `pip`, `binary`, `archive` (unused by any default; Forge installs from zip, Python from tgz, git and Ollama have per-OS code)
+- Classic Forge backend (an old config with `active_sd: forge` switches to Forge Neo; the old Forge folder is left on disk — move its models to `sd-webui-forge-neo/models`) and the separate Python 3.10 component (python-build-standalone, base packages, venv pre-install of torch/deps)
+- Install methods `pip`, `binary`, `archive`, `tgz` (no default uses them)
 - Docker files and the stale `server-config.yaml` shipped in release archives (config is generated in the data dir on first run)
 - Legacy standalone GPU proxy `gpuproxy` and the `proxy:` config section (superseded by the port guard; an old `proxy:` section is ignored), and the internal `X-SD-Studio` header
 - GPU lease kind `yue`: no client ever used it; `POST /api/gpu/lease` now accepts `sd` and `llm` only (`yue` → 400 `invalid kind`)

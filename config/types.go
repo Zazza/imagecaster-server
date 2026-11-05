@@ -4,12 +4,12 @@ type InstallMethod string
 
 const (
 	InstallZip InstallMethod = "zip"
-	InstallTgz InstallMethod = "tgz"
 )
 
 type Config struct {
 	Port           int                      `yaml:"port"`
 	MDNS           bool                     `yaml:"mdns"`
+	Lang           string                   `yaml:"lang,omitempty"`
 	DataDir        string                   `yaml:"data_dir"`
 	ActiveSD       string                   `yaml:"active_sd"`
 	DetectedVRAMMB int                      `yaml:"detected_vram_mb"`

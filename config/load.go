@@ -41,6 +41,7 @@ func Load(path string) (*Config, error) {
 	cfg.ApplyEnvOverrides()
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
+	cfg.migrateLegacy()
 	return &cfg, nil
 }
 
@@ -78,6 +79,7 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 	cfg.ApplyEnvOverrides()
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
+	cfg.migrateLegacy()
 	return &cfg, nil
 }
 

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"imagecaster-server/process"
 )
@@ -21,9 +20,13 @@ func findOllamaBinary(dataDir string) string {
 		if runtime.GOOS == "windows" {
 			binName = "ollama.exe"
 		}
-		p := filepath.Join(dataDir, "ollama", "bin", binName)
-		if _, err := os.Stat(p); err == nil {
-			return p
+		for _, p := range []string{
+			filepath.Join(dataDir, "ollama", "bin", binName),
+			filepath.Join(dataDir, "ollama", binName),
+		} {
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
 		}
 	}
 	if runtime.GOOS == "windows" {
@@ -111,60 +114,7 @@ func (inst *Installer) installOllamaSystem(lb *process.RingBuffer) error {
 }
 
 func (inst *Installer) installOllamaWindows(lb *process.RingBuffer) error {
-	setupURL := "https://ollama.com/download/OllamaSetup.exe"
-
-	lb.Write("Downloading Ollama installer...")
-	log.Printf("[ollama] downloading %s", setupURL)
-
-	resp, err := http.Get(setupURL)
-	if err != nil {
-		return fmt.Errorf("download installer: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
-	}
-
-	tmpFile, err := os.CreateTemp("", "ollama-setup-*.exe")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	size, err := io.Copy(tmpFile, resp.Body)
-	tmpFile.Close()
-	if err != nil {
-		return fmt.Errorf("save installer: %w", err)
-	}
-
-	lb.Write(fmt.Sprintf("Downloaded %s, installing silently...", FormatBytes(size)))
-	log.Printf("[ollama] running silent install (%s downloaded)", FormatBytes(size))
-
-	cmd := exec.Command(tmpPath, "/S")
-	output, err := cmd.CombinedOutput()
-	if len(output) > 0 {
-		for _, line := range strings.Split(string(output), "\n") {
-			if line != "" {
-				lb.Write(line)
-			}
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("installer failed: %w", err)
-	}
-
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		if findOllamaBinary(inst.config.DataDir) != "" {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-
-	lb.Write("Ollama installed successfully")
-	return nil
+	return inst.downloadOllamaBinary(lb, "windows")
 }
 
 func (inst *Installer) installOllamaLinux(lb *process.RingBuffer) error {
@@ -204,10 +154,16 @@ func (inst *Installer) downloadOllamaBinary(lb *process.RingBuffer, goos string)
 	}
 
 	ext := ".tgz"
-	if goos == "linux" {
+	switch goos {
+	case "linux":
 		ext = ".tar.zst"
+	case "windows":
+		ext = ".zip"
 	}
 	url := fmt.Sprintf("https://ollama.com/download/ollama-%s-%s%s", goos, arch, ext)
+	if goos == "darwin" {
+		url = "https://ollama.com/download/ollama-darwin.tgz"
+	}
 	targetDir := filepath.Join(inst.config.DataDir, "ollama")
 
 	inst.setProgress("ollama", "downloading")
@@ -250,27 +206,43 @@ func (inst *Installer) downloadOllamaBinary(lb *process.RingBuffer, goos string)
 	inst.setProgress("ollama", "extracting")
 	lb.Write(fmt.Sprintf("Downloaded %s, extracting...", FormatBytes(size)))
 
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	partDir := targetDir + ".part"
+	if err := os.RemoveAll(partDir); err != nil {
+		return fmt.Errorf("clean partial dir: %w", err)
+	}
+	if err := os.MkdirAll(partDir, 0755); err != nil {
 		return fmt.Errorf("create target dir: %w", err)
 	}
+	defer os.RemoveAll(partDir)
 
 	switch {
 	case strings.HasSuffix(ext, ".tar.zst"):
-		err = extractOllamaTarZst(tmpPath, targetDir, lb)
+		err = extractOllamaTarZst(tmpPath, partDir, lb)
 	case strings.HasSuffix(ext, ".tgz"):
-		err = extractOllamaTgz(tmpPath, targetDir, lb)
+		err = extractOllamaTgz(tmpPath, partDir, lb)
+	case ext == ".zip":
+		err = extractZipFlat(tmpPath, partDir)
 	default:
 		return fmt.Errorf("unsupported archive format: %s", ext)
 	}
 	if err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
-
-	binName := "ollama"
-	if runtime.GOOS == "windows" {
-		binName = "ollama.exe"
+	if err := os.RemoveAll(targetDir); err != nil {
+		return fmt.Errorf("remove old target: %w", err)
 	}
-	if err := os.Chmod(filepath.Join(targetDir, "bin", binName), 0755); err != nil {
+	if err := os.Rename(partDir, targetDir); err != nil {
+		return fmt.Errorf("move to target: %w", err)
+	}
+
+	bin := filepath.Join(targetDir, "bin", "ollama")
+	switch goos {
+	case "windows":
+		bin = filepath.Join(targetDir, "ollama.exe")
+	case "darwin":
+		bin = filepath.Join(targetDir, "ollama")
+	}
+	if err := os.Chmod(bin, 0755); err != nil {
 		return fmt.Errorf("chmod: %w", err)
 	}
 
@@ -292,5 +264,9 @@ func extractOllamaTarZst(archivePath, targetDir string, lb *process.RingBuffer) 
 }
 
 func extractOllamaTgz(archivePath, targetDir string, lb *process.RingBuffer) error {
-	return extractTgz(archivePath, targetDir)
+	out, err := exec.Command("tar", "-xzf", archivePath, "-C", targetDir).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tar extract: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }

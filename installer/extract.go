@@ -1,9 +1,7 @@
 package installer
 
 import (
-	"archive/tar"
 	"archive/zip"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
@@ -67,86 +65,6 @@ func extractZip(zipPath, targetDir string) error {
 		_, err = io.Copy(outFile, rc)
 		outFile.Close()
 		rc.Close()
-		if err != nil {
-			return err
-		}
-	}
-
-	if err := os.RemoveAll(targetDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove old target: %w", err)
-	}
-
-	if err := renameOrCopy(tmpDir, targetDir); err != nil {
-		return fmt.Errorf("move to target: %w", err)
-	}
-
-	success = true
-	return nil
-}
-
-func extractTgz(tgzPath, targetDir string) error {
-	f, err := os.Open(tgzPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-
-	tmpDir, err := os.MkdirTemp("", "sd-extract-*")
-	if err != nil {
-		return err
-	}
-
-	success := false
-	defer func() {
-		if !success {
-			os.RemoveAll(tmpDir)
-		}
-	}()
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		parts := strings.SplitN(hdr.Name, "/", 2)
-		if len(parts) < 2 || parts[1] == "" {
-			continue
-		}
-		relPath := parts[1]
-
-		destPath := filepath.Join(tmpDir, relPath)
-
-		if hdr.Typeflag == tar.TypeDir {
-			os.MkdirAll(destPath, os.FileMode(hdr.Mode))
-			continue
-		}
-
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return err
-		}
-
-		outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY, os.FileMode(hdr.Mode))
-		if err != nil {
-			return err
-		}
-
-		_, err = io.Copy(outFile, tr)
-		outFile.Close()
 		if err != nil {
 			return err
 		}
@@ -230,4 +148,52 @@ func matchBinaryName(name, target string) bool {
 		return true
 	}
 	return false
+}
+
+func extractZipFlat(zipPath, targetDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	root, err := filepath.Abs(targetDir)
+	if err != nil {
+		return err
+	}
+	for _, f := range r.File {
+		dest := filepath.Join(root, filepath.FromSlash(f.Name))
+		if dest != root && !strings.HasPrefix(dest, root+string(os.PathSeparator)) {
+			return fmt.Errorf("zip entry escapes target: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(dest, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		if err := extractZipEntry(f, dest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractZipEntry(f *zip.File, dest string) error {
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, rc); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

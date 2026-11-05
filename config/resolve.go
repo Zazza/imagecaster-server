@@ -117,7 +117,62 @@ func (c *Config) ApplyBackendToProcess(gpu GPUOptimizer) {
 	if proc.Install.Method == "" && backend.Install.Method != "" {
 		proc.Install = backend.Install
 	}
+	proc.Env = c.uvRuntimeEnv(proc.Env, backend.Binary)
 	c.Processes[backend.ProcessKey] = proc
+}
+
+func (c *Config) uvRuntimeEnv(env map[string]string, binary string) map[string]string {
+	out := make(map[string]string, len(env)+3)
+	for k, v := range env {
+		out[k] = v
+	}
+	set := func(k, v string) {
+		if _, ok := out[k]; !ok && v != "" {
+			out[k] = v
+		}
+	}
+	set("VIRTUAL_ENV", venvOf(binary))
+	if c.DataDir != "" {
+		set("UV_CACHE_DIR", filepath.Join(c.DataDir, "uv-cache"))
+		set("UV_PYTHON_INSTALL_DIR", filepath.Join(c.DataDir, "python"))
+	}
+	return out
+}
+
+func venvOf(binary string) string {
+	if !filepath.IsAbs(binary) {
+		return ""
+	}
+	switch strings.ToLower(filepath.Base(binary)) {
+	case "python", "python.exe", "python3", "python3.exe":
+	default:
+		return ""
+	}
+	dir := filepath.Dir(binary)
+	switch strings.ToLower(filepath.Base(dir)) {
+	case "bin", "scripts":
+	default:
+		return ""
+	}
+	root := filepath.Dir(dir)
+	switch strings.ToLower(filepath.Base(root)) {
+	case "venv", ".venv":
+		return root
+	}
+	if _, err := os.Stat(filepath.Join(root, "pyvenv.cfg")); err == nil {
+		return root
+	}
+	return ""
+}
+
+func (c *Config) migrateLegacy() {
+	delete(c.Processes, "python")
+	if c.ActiveSD == "forge" {
+		delete(c.Backends, "forge")
+	}
+	if _, ok := c.Backends[c.ActiveSD]; !ok {
+		c.ActiveSD = NeoBackendKey
+	}
 }
 
 type PortGuard struct {

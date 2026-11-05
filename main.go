@@ -22,6 +22,7 @@ import (
 	sdgpu "imagecaster-server/gpu"
 	"imagecaster-server/gpuqueue"
 	sdhealth "imagecaster-server/health"
+	"imagecaster-server/i18n"
 	"imagecaster-server/installer"
 	"imagecaster-server/models"
 	"imagecaster-server/process"
@@ -73,6 +74,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	i18n.Set(cfg.Lang)
 
 	if *port != 0 {
 		cfg.Port = *port
@@ -109,7 +111,6 @@ func initApp(cfg *config.Config) *appDeps {
 	guardSpecs, guardWarns := applyPortGuard(cfg)
 
 	inst := installer.NewInstaller(cfg)
-	inst.EnsurePythonBasePackages()
 	pm := process.NewProcessManager(cfg, inst, cfg.DataDir)
 	hm := sdhealth.NewHealthMonitor(cfg)
 	gm := sdgpu.NewGPUMonitor()
@@ -235,26 +236,6 @@ func runHeadless(cfg *config.Config) {
 	}
 }
 
-func applyWizardComponents(cfg *config.Config, components map[string]bool) {
-	for key, active := range components {
-		if active {
-			continue
-		}
-		procKey := key
-		if key == "forge" {
-			backend := cfg.GetActiveBackend()
-			if backend == nil {
-				continue
-			}
-			procKey = backend.ProcessKey
-		}
-		if proc, ok := cfg.Processes[procKey]; ok {
-			proc.AutoStart = false
-			cfg.Processes[procKey] = proc
-		}
-	}
-}
-
 func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
 	logCapture := process.NewLogCapture(300)
 	log.SetOutput(logCapture)
@@ -271,8 +252,6 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
 
 		freshCfg := config.NewDefault()
 		freshCfg.DataDir = result.DataDir
-
-		applyWizardComponents(&freshCfg, result.Components)
 
 		gpuOpt := sdgpu.NewOptimizerAdapter()
 		freshCfg.ApplyBackendToProcess(gpuOpt)
