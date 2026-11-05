@@ -45,7 +45,7 @@ Nothing starts with the system; there are no services, registry entries or launc
 | Window + tray | `imagecaster-server.exe` (Windows build) | setup window, then tray |
 | Terminal UI | `imagecaster-server`, `imagecaster-server-console.exe` | dashboard: services, health, GPU, queue, logs |
 | Attach | `imagecaster-server attach [host[:port]]` | dashboard of an already running server (default `127.0.0.1:8080`) |
-| Headless | `imagecaster-server --headless` | no UI, log to stdout (systemd); also used when stdin is not a terminal |
+| Headless | `imagecaster-server --headless` | no UI, log to stdout (systemd); also used when stdin is not a terminal. The API is up at once, install runs in the background (`/api/server/install/status`) |
 
 Flags: `--data DIR`, `--config FILE` (default `<data>/server-config.yaml`), `--port N`, `--headless`, `--version`. The Windows window build ignores the UI and starts the window unless `--headless` is given.
 

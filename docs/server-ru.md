@@ -45,7 +45,7 @@ Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama дл�
 | Окно + трей | `imagecaster-server.exe` (сборка для Windows) | окно установки, затем трей |
 | Терминальный интерфейс | `imagecaster-server`, `imagecaster-server-console.exe` | панель: сервисы, состояние, GPU, очередь, журналы |
 | Подключение | `imagecaster-server attach [host[:port]]` | панель уже запущенного сервера (по умолчанию `127.0.0.1:8080`) |
-| Без интерфейса | `imagecaster-server --headless` | без интерфейса, журнал в stdout (systemd); так же работает, когда stdin не терминал |
+| Без интерфейса | `imagecaster-server --headless` | без интерфейса, журнал в stdout (systemd); так же работает, когда stdin не терминал. API доступен сразу, установка идёт в фоне (`/api/server/install/status`) |
 
 Флаги: `--data DIR`, `--config FILE` (по умолчанию `<data>/server-config.yaml`), `--port N`, `--headless`, `--version`. Оконная сборка для Windows не запускает терминальный интерфейс и открывает окно, если не указан `--headless`.
 

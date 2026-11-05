@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -215,16 +216,26 @@ func runHeadless(cfg *config.Config) {
 	log.Printf("Imagecaster Server starting on port %d (backend: %s)", cfg.Port, cfg.ActiveSD)
 	log.Printf("Data directory: %s", cfg.DataDir)
 
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	if err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+
 	d := initApp(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	d.ensureInstalled()
-	d.pm.StartAll()
-	d.startMonitors(ctx)
-
 	srv := d.newServer()
 	mdns := d.registerMDNS()
+
+	go func() {
+		d.ensureInstalled()
+		if ctx.Err() != nil {
+			return
+		}
+		d.pm.StartAll()
+		d.startMonitors(ctx)
+	}()
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -245,7 +256,7 @@ func runHeadless(cfg *config.Config) {
 	}()
 
 	log.Printf("HTTP server listening on :%d", cfg.Port)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
 }

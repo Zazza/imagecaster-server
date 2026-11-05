@@ -13,10 +13,10 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if writeErr := WriteTemplate(path); writeErr != nil {
+			cfg.DataDir = DefaultDataDir()
+			if writeErr := WriteTemplate(path, cfg.DataDir); writeErr != nil {
 				return nil, fmt.Errorf("create default config: %w", writeErr)
 			}
-			cfg.DataDir = DefaultDataDir()
 			cfg.ApplyEnvOverrides()
 			cfg.ApplyInstallDefaults()
 			cfg.ResolvePaths()
@@ -52,7 +52,7 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if writeErr := WriteTemplate(path); writeErr != nil {
+			if writeErr := WriteTemplate(path, dataDir); writeErr != nil {
 				return nil, fmt.Errorf("create default config: %w", writeErr)
 			}
 			cfg.ApplyEnvOverrides()
@@ -109,9 +109,9 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func WriteTemplate(path string) error {
+func WriteTemplate(path, dataDir string) error {
 	cfg := NewDefault()
-	cfg.DataDir = DefaultDataDir()
+	cfg.DataDir = dataDir
 	data, err := yaml.Marshal(&cfg)
 	if err != nil {
 		return err
