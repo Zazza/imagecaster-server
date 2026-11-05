@@ -20,6 +20,9 @@
 - mDNS service type is now `_imagecaster._tcp` (instance "Imagecaster Server") — the one Imagecaster 1.0 browses; LAN auto-discovery works again
 - Default data dir is `~/imagecaster-server`; an existing `~/sd-studio-server` is still used when the new one doesn't exist. A folder chosen in the wizard or the setup window is remembered (`<user config dir>/imagecaster-server/data-dir`) and its config is written there (it used to land in the default folder)
 
+### Changed (docs)
+- README, README-ru and docs/server-en/ru rewritten: install per OS, data folder, Forge Neo/Ollama setup, current config, port guard, real API list, limitations
+
 ### Removed
 - Classic Forge backend (an old config with `active_sd: forge` switches to Forge Neo; the old Forge folder is left on disk — move its models to `sd-webui-forge-neo/models`) and the separate Python 3.10 component (python-build-standalone, base packages, venv pre-install of torch/deps)
 - Install methods `pip`, `binary`, `archive`, `tgz` (no default uses them)

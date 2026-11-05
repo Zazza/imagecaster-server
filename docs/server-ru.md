@@ -1,474 +1,271 @@
-[English](server-en.md) | [Русский](server-ru.md) | [К README](../README-ru.md)
+# Imagecaster Server — документация
 
-# Imagecaster Server
+[English](server-en.md) · [README](../README-ru.md)
 
-Автономный Go-сервис для оркестрации AI-компонентов — Stable Diffusion WebUI, Ollama — с автоматической установкой, управлением жизненным циклом, мониторингом здоровья, GPU-оптимизацией и терминальным дашбордом.
+Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama для приложения Imagecaster на компьютере с видеокартой. Он ставит их в одну папку данных, запускает и перезапускает, проверяет их работу, пропускает все запросы к GPU через одну очередь с бюджетом видеопамяти и сообщает о себе в локальной сети через mDNS.
 
-## Обзор
+## Содержание
 
-Imagecaster Server избавляет от ручной настройки AI-сервисов. Он устанавливает, запускает, мониторит и управляет всеми компонентами через единый конфигурационный файл, доступный через HTTP API или интерактивный TUI.
+- [Установка и первый запуск](#установка-и-первый-запуск)
+- [Режимы работы](#режимы-работы)
+- [Папка данных](#папка-данных)
+- [Что устанавливается](#что-устанавливается)
+- [Настройка](#настройка)
+- [Очередь GPU и сторож портов](#очередь-gpu-и-сторож-портов)
+- [API](#api)
+- [Компоненты](#компоненты)
+- [Ограничения и что не проверено](#ограничения-и-что-не-проверено)
+
+## Установка и первый запуск
+
+Архивы релизов (GitHub Releases, тег `v*`):
+
+| Система | Архив | Внутри |
+|--------|---------|--------|
+| Windows amd64/arm64 | `.zip` | `imagecaster-server.exe` (окно установки + трей), `imagecaster-server-console.exe` (терминальный интерфейс) |
+| Linux amd64/arm64 | `.tar.gz` | `imagecaster-server` |
+| macOS amd64/arm64 | `.tar.gz` | `imagecaster-server`, `Imagecaster Server.command` |
+
+Рядом с каждым архивом лежит файл `.sha256`.
+
+**Windows.** `imagecaster-server.exe` открывает окно установки. Шаги: приветствие (видеокарта по данным `nvidia-smi`), папка данных (со свободным местом), ход установки (Forge Neo, Ollama, первый запуск Forge Neo со скачиванием PyTorch), готово (адрес для приложения). Дальше сервер работает со значком в трее. После нажатия **Установить** окно можно закрыть в любой момент: установка продолжится, а трей покажет состояние. При следующих запусках сервер сразу уходит в трей, если всё установлено, или открывает шаг установки, если она не закончена. Второй запуск с той же папкой покажет «уже запущен». Если порт 8080 занят, будет понятная ошибка. Дочерние процессы работают без окон консоли и останавливаются вместе с сервером (через объект задания Windows).
+
+Меню трея: состояние Forge Neo и Ollama, адрес (по щелчку копируется), открыть Forge Neo в браузере (`http://127.0.0.1:7860`), **Панель управления** (запускает `imagecaster-server-console.exe attach` в консоли), журнал (`<data>/logs/server.log` в Блокноте), **Выход** (сначала спросит, если в очереди GPU есть задачи).
+
+**Linux.** `./imagecaster-server` — при первом запуске спросит папку данных (Enter оставляет папку по умолчанию), всё установит и покажет панель.
+
+**macOS.** `Imagecaster Server.command` снимает атрибут карантина с вложенного бинарника и запускает его в Терминале (в первый раз: правый щелчок → Открыть).
+
+Ничего не запускается вместе с системой: нет служб, записей в реестре и агентов запуска.
+
+## Режимы работы
+
+| Режим | Команда | Что это |
+|------|---------|------------|
+| Окно + трей | `imagecaster-server.exe` (сборка для Windows) | окно установки, затем трей |
+| Терминальный интерфейс | `imagecaster-server`, `imagecaster-server-console.exe` | панель: сервисы, состояние, GPU, очередь, журналы |
+| Подключение | `imagecaster-server attach [host[:port]]` | панель уже запущенного сервера (по умолчанию `127.0.0.1:8080`) |
+| Без интерфейса | `imagecaster-server --headless` | без интерфейса, журнал в stdout (systemd); так же работает, когда stdin не терминал |
+
+Флаги: `--data DIR`, `--config FILE` (по умолчанию `<data>/server-config.yaml`), `--port N`, `--headless`, `--version`. Оконная сборка для Windows не запускает терминальный интерфейс и открывает окно, если не указан `--headless`.
+
+### Клавиши терминального интерфейса
+
+| Экран | Клавиши |
+|--------|------|
+| Главный | `j`/`k` выбор, `s` запуск/остановка, `r` перезапуск, `l` журнал сервиса, `g` очередь GPU, `t` журнал сервера, `q` выход (при подключении — отключиться) |
+| Журналы / журнал сервера | `j`/`k`, `pgup`/`pgdn`, `g`/`G` прокрутка, `q`/`esc` назад |
+| Очередь GPU | `j`/`k` выбор, `u`/`d` приоритет, `x` отменить/освободить, `q`/`esc` назад |
+
+### Подключение
+
+Подключает панель к работающему серверу через его REST API, например с настольного компьютера к компьютеру с GPU. Опрашивает сервер раз в 3 с. Если связь пропала, на экране остаётся последнее состояние и плашка о переподключении (интервал растёт до 30 с). `q` закрывает только клиент.
+
+### Язык
+
+Английский или русский. Порядок выбора: `IMAGECASTER_LANG=ru|en` → `lang:` в конфиге → в Windows язык интерфейса пользователя (`GetUserDefaultUILanguage`) → `LC_ALL`/`LC_MESSAGES`/`LANG` → английский.
+
+## Папка данных
+
+Всё лежит в одной папке:
 
 ```
-┌─────────────────────────────────────────────────┐
-│               Imagecaster Server                │
-├──────────┬───────────┬───────────┬──────────────┤
-│ Process  │    GPU    │  Health   │     TUI      │
-│ Manager  │ Monitor   │ Monitor   │  Dashboard   │
-├──────────┴───────────┴───────────┴──────────────┤
-│         GPU Proxy (очередь с приоритетами,       │
-│         контроль VRAM)                           │
-├─────────────────────────────────────────────────┤
-│    HTTP API + mDNS discovery + Reverse Proxy     │
-└─────────────────────────────────────────────────┘
+<data>/
+  server-config.yaml
+  sd-webui-forge-neo/        Forge Neo (venv/ inside, models/ for checkpoints, LoRA, VAE)
+  python/                    Python 3.13 managed by uv
+  bin/uv(.exe)               uv 0.12.19
+  uv-cache/                  uv package cache (PyTorch wheels)
+  ollama/                    Ollama when it isn't installed in the system
+  models/ollama/             Ollama models
+  logs/server.log            server log (Windows window build)
+  imagecaster-server.lock    one server per folder (Windows window build)
 ```
 
-## Установка
+Какая папка: `--data` → папка, выбранная при первом запуске (запоминается в `<user config dir>/imagecaster-server/data-dir`) → `~/imagecaster-server` → существующая `~/sd-studio-server` (старое название). `SD_DATA_DIR` важнее значения из конфига.
 
-### Сборка из исходников
+## Что устанавливается
 
-```bash
-go build -o imagecaster-server .
-```
+**Forge Neo** 2.31 (`forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip-архив тега). После распаковки ставятся git (если его нет), uv (закреплённая версия, контрольная сумма проверяется) и выполняется `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo запускается командой `launch.py --listen --api --uv` и при первом запуске сам ставит PyTorch и свои зависимости (по умолчанию сборка под CUDA 13; на macOS `TORCH_COMMAND` ставит обычный torch). Сервер задаёт для него `VIRTUAL_ENV` и папки кэша и Python для uv. Если настройка сорвалась после скачивания, следующий запуск только доделает её. Бэкенд, у которого бинарник уже есть, никогда не переустанавливается.
 
-### Docker
+**Ollama**: если Ollama уже есть в системе (или уже работает на 11434), используется она. Иначе она ставится в `<data>/ollama`: Windows — отдельный zip (без установки в систему и без автозапуска), Linux — архив `.tar.zst`, macOS — Homebrew или универсальный `ollama-darwin.tgz`. Распаковка идёт сначала во временную папку, поэтому прерванная установка выполняется заново.
 
-```bash
-docker compose up --build
-```
+Старые конфиги: `active_sd: forge` (классический Forge) переключается на Forge Neo. Старая папка Forge остаётся на диске — перенесите её модели в `sd-webui-forge-neo/models`. Старая запись процесса `python` удаляется.
 
-## Быстрый старт
+## Настройка
 
-```bash
-# Первый запуск — интерактивный мастер настройки
-./imagecaster-server --data ~/imagecaster-server
-
-# Без TUI (headless-режим)
-./imagecaster-server --headless
-
-# Кастомный порт
-./imagecaster-server --port 9090
-
-# Кастомный конфиг
-./imagecaster-server --config /path/to/server-config.yaml
-```
-
-При первом запуске мастер настройки проведёт через:
-- Выбор компонентов для установки (SD WebUI, Ollama)
-- Выбор директории данных
-- Настройку GPU-бэкенда (Forge / A1111)
-
-## Режимы запуска
-
-| Режим | Команда | Описание |
-|-------|---------|----------|
-| TUI (интерактивный) | `./imagecaster-server` | Терминальный дашборд со статусом сервисов и управлением |
-| Attach (удалённый) | `./imagecaster-server attach [host[:port]]` | Подключить TUI-дашборд к работающему демону (по умолчанию `127.0.0.1:8080`) |
-| Headless | `./imagecaster-server --headless` | Только лог-вывод, без TUI — для серверов и Docker |
-| Кастомный порт | `./imagecaster-server --port 9090` | Переопределить порт HTTP API |
-| Кастомный конфиг | `./imagecaster-server --config path.yaml` | Использовать конкретный файл конфигурации |
-
-### Режим attach
-
-`attach` подключает интерактивный TUI-дашборд к **уже работающему** демону
-(обычно `--headless` под systemd) через его REST API — например, с десктопа:
-
-```bash
-./imagecaster-server attach 192.168.1.184        # порт 8080 по умолчанию
-./imagecaster-server attach 192.168.1.184:8080
-```
-
-- Тот же дашборд, что и локальный TUI: сервисы, health, GPU/VRAM, строка
-  GPU-очереди и экран управления (`g`: приоритеты, cancel/release), логи
-  процессов (`l`), старт/стоп/рестарт (`s`/`r`)
-- Бары CPU/RAM показывают **хост демона** (блок `sys` в `/api/server/status`)
-- Поллинг раз в 3с; при обрыве связи снапшот замораживается и появляется
-  жёлтый баннер `reconnecting` (backoff до 30с) — клиент сам не выходит
-- `q` / Ctrl+C завершает **только клиент**; демон продолжает работать
-- Нужен TTY на stdin; недоступный демон → сразу ошибка, exit 1
-
-## Конфигурация
-
-Конфигурация хранится в `{data-dir}/server-config.yaml`:
+`<data>/server-config.yaml`. Если поле не указано, остаётся значение по умолчанию. Запись в словаре (`processes.sd`, `backends.forge-neo`), указанная в файле, заменяет запись по умолчанию целиком.
 
 ```yaml
 port: 8080
-data_dir: ~/imagecaster-server
-active_sd: forge
 mdns: true
-detected_vram_mb: 8192
+lang: ""                      # "", "ru" или "en"
+data_dir: /home/user/imagecaster-server
+active_sd: forge-neo
 
 gpu:
-  total_budget_mb: 0        # 0 = авто: detected_vram_mb - reserve_mb; итог <= 0 отключает очередь
-  reserve_mb: 500           # резерв под ОС/драйвер (только авто-режим)
-  max_wait_seconds: 120     # лимит ожидания бюджета -> 503 + Retry-After
-  lease_ttl_seconds: 90     # TTL аренды без heartbeat
-  sd_default_weight_mb: 11000   # вес SD-джобы при неизвестном чекпоинте
-  sd_overhead_mb: 4500      # вес = размер файла чекпоинта + этот overhead
-  llm_weight_mb: 11000      # вес LLM-генерации (qwen-14b)
+  total_budget_mb: 0          # 0 = найденная видеопамять - reserve_mb; <= 0 выключает очередь
+  reserve_mb: 500
+  max_wait_seconds: 120       # ждать бюджет, затем 503 + Retry-After
+  lease_ttl_seconds: 90
+  sd_default_weight_mb: 11000 # вес задачи SD, когда чекпоинт неизвестен
+  sd_overhead_mb: 4500        # вес SD = размер файла чекпоинта + это
+  llm_weight_mb: 11000
+  guard_ports: true           # сторож портов, см. ниже
 
 processes:
-  python:
-    name: "Python 3.10"
-    autostart: false
-    category: utility
-
   sd:
-    name: "Stable Diffusion"
-    health_url: "http://localhost:7860/sdapi/v1/options"
-    target_url: "http://localhost:7860"
-    proxy_path: "/api/sd/"
+    name: Stable Diffusion
+    health_url: http://localhost:7860/sdapi/v1/options
+    target_url: http://localhost:7860
+    proxy_path: /api/sd/
+    internal_port: 7861
     autostart: true
     restart: true
     max_restart: 5
-    env:
-      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
-
   ollama:
-    name: "Ollama"
-    binary: "ollama"
-    args: ["serve"]
-    health_url: "http://localhost:11434/api/tags"
-    target_url: "http://localhost:11434"
-    proxy_path: "/api/llm/"
+    name: Ollama
+    binary: ollama
+    args: [serve]
+    env:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MODELS: models/ollama
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: "2"
+      OLLAMA_NUM_GPU: "-1"
+    health_url: http://localhost:11434/api/tags
+    target_url: http://localhost:11434
+    proxy_path: /api/llm/
+    internal_port: 11435
     autostart: true
     restart: true
     max_restart: 5
 
 backends:
-  forge:
-    name: "Stable Diffusion Forge"
-    process_key: "sd"
-    binary: "python/bin/python3"
-    args: ["launch.py", "--listen", "--api", "--xformers", "--medvram-sdxl"]
-    auto_optimize: true
-    workdir: "stable-diffusion-webui-forge"
-    models_dir: "stable-diffusion-webui-forge/models/Stable-diffusion"
-    lora_dir: "stable-diffusion-webui-forge/models/Lora"
-    vae_dir: "stable-diffusion-webui-forge/models/VAE"
-    embedding_dir: "stable-diffusion-webui-forge/embeddings"
+  forge-neo:
+    name: Stable Diffusion Forge Neo
+    process_key: sd
+    binary: sd-webui-forge-neo/venv/bin/python     # Windows: venv/Scripts/python.exe
+    args: [launch.py, --listen, --api, --uv]
+    workdir: sd-webui-forge-neo
+    models_dir: sd-webui-forge-neo/models/Stable-diffusion
+    lora_dir: sd-webui-forge-neo/models/Lora
+    vae_dir: sd-webui-forge-neo/models/VAE
+    embedding_dir: sd-webui-forge-neo/embeddings
     install:
       method: zip
-      url: "https://github.com/lllyasviel/stable-diffusion-webui-forge/archive/refs/heads/main.zip"
-      target: "stable-diffusion-webui-forge"
-      version: main
-
-proxy:
-  enabled: true
-  gpu_slots: 1
-  studio_header: "X-SD-Studio"
-  endpoints:
-    sd:
-      listen_addr: ":7860"
-      target_url: "http://localhost:7860"
-    ollama:
-      listen_addr: ":11434"
-      target_url: "http://localhost:11434"
+      url: https://github.com/Haoming02/sd-webui-forge-classic/archive/refs/tags/2.31.zip
+      target: sd-webui-forge-neo
+      version: "2.31"
 ```
 
-### Конфигурация процессов
+Относительные пути считаются от папки данных.
 
-| Поле | Описание |
-|------|----------|
-| `name` | Отображаемое имя |
-| `binary` | Путь к исполняемому файлу (относительно data dir или абсолютный) |
-| `args` | Аргументы командной строки |
-| `env` | Переменные окружения |
-| `workdir` | Рабочая директория |
-| `health_url` | HTTP-эндпоинт для проверки здоровья |
-| `target_url` | Целевой URL для обратного прокси |
-| `proxy_path` | API-префикс для маршрутизации прокси |
-| `autostart` | Автоматический старт при запуске сервера |
-| `restart` | Автоматический перезапуск при сбое |
-| `max_restart` | Максимальное количество перезапусков |
-| `category` | Категория (пусто = основной, `utility` = вспомогательный) |
+**Поля процесса**: `name`, `binary`, `args`, `env`, `workdir`, `health_url`, `target_url`, `proxy_path`, `internal_port` (локальный порт за сторожем портов; по умолчанию публичный + 1), `autostart`, `restart`, `max_restart`, `install`, `category` (`utility` — показывается отдельным блоком на панели).
 
-### Конфигурация установки
+**Поля бэкенда**: `name`, `process_key` (какой процесс его запускает), `binary`, `args`, `workdir`, `models_dir`, `lora_dir`, `vae_dir`, `embedding_dir`, `auto_optimize` (подбирать флаги памяти по объёму видеопамяти), `install` (`method: zip`, `url`, `target`, `version`).
 
-| Поле | Описание |
-|------|----------|
-| `method` | Метод установки: `zip`, `binary`, `pip`, `archive`, `tgz` |
-| `url` | URL для скачивания |
-| `target` | Целевая директория или имя пакета |
-| `version` | Тег версии |
+Переопределение через переменные окружения: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
-### Конфигурация бэкендов
+## Очередь GPU и сторож портов
 
-| Поле | Описание |
-|------|----------|
-| `name` | Отображаемое имя |
-| `process_key` | Ссылка на процесс в карте `processes` |
-| `binary` | Переопределение бинарника для данного бэкенда |
-| `args` | Аргументы запуска |
-| `workdir` | Рабочая директория |
-| `models_dir` | Директория SD-чекпоинтов |
-| `lora_dir` | Директория LoRA-моделей |
-| `vae_dir` | Директория VAE-моделей |
-| `embedding_dir` | Директория текстуальных инверсий |
-| `auto_optimize` | Автоматическая подстройка флагов на основе обнаруженного VRAM |
+### Очередь
 
-## Основные компоненты
-
-### Менеджер процессов (`process/`)
-
-Управляет жизненным циклом AI-сервисов как дочерних процессов.
-
-- Запуск, остановка, перезапуск через API или TUI
-- Автоматический перезапуск при сбое (настраиваемое число попыток)
-- Захват и получение логов
-- Отслеживание статуса (starting, running, stopped, failed)
-- Корректное завершение с пересылкой сигналов
-
-### GPU-монитор (`gpu/`)
-
-Мониторинг GPU в реальном времени через nvidia-smi.
-
-- Опрос каждые 5 секунд
-- Отслеживает: имя GPU, память всего/использовано/свободно, утилизация %
-- Предоставляет `OptimizerAdapter` для автоматической оптимизации флагов запуска SD на основе VRAM:
-  - `--medvram-sdxl` для GPU с 8 ГБ
-  - `--medvram` для GPU с 6 ГБ
-  - `--lowvram` для GPU с 4 ГБ
-- Корректно работает при отсутствии nvidia-smi
-
-### GPU-прокси (`gpuproxy/`)
-
-Обратный прокси с приоритетной очередью и управлением GPU-слотами.
-
-- **Приоритетная очередь** — запросы с заголовком `X-SD-Studio` получают высокий приоритет
-- **Ограничение GPU-слотов** — настраиваемое число параллельных GPU-задач
-- **VRAM cooldown** — после завершения каждой задачи ожидает >= 50% свободной VRAM перед выдачей следующего слота (предотвращает OOM на GPU с малым VRAM)
-- **Таймаут** — 30 секунд fallback для избежания вечной блокировки
-- **Несколько эндпоинтов** — отдельные порты прокси для SD и Ollama
-
-```
-Клиент → Прокси (:7860) → Очередь → Слот → SD WebUI
-Клиент → Прокси (:11434) → Очередь → Слот → Ollama
-                    ↑
-         Приоритет + контроль VRAM
-```
-
-### Монитор здоровья (`health/`)
-
-Периодические HTTP-проверки всех настроенных сервисов.
-
-- Настраиваемый интервал проверок
-- Измерение задержки
-- Отслеживание статуса (healthy/unhealthy)
-- Результаты доступны через API и TUI
-
-### Установщик (`installer/`)
-
-Автоматическая установка всех компонентов.
-
-- Скачивание и распаковка SD WebUI Forge
-- Установка Python 3.10 standalone (платформо-зависимая)
-- Проверка доступности бинарника Ollama
-- Отчёт о прогрессе через коллбэки
-- Отслеживание статуса установки
-
-### mDNS-обнаружение (`mdns.go`)
-
-Обнаружение сервисов в локальной сети.
-
-- Рекламирует сервис `_imagecaster._tcp`
-- Десктопные приложения могут автоматически находить сервер
-- Настраивается через `mdns: true/false` в конфиге
-
-### TUI-дашборд (`tui/`)
-
-Интерактивный терминальный интерфейс на bubbletea.
-
-- Обзор статуса сервисов с индикаторами здоровья
-- Управление запуском/остановкой/перезапуском
-- Панель GPU-информации (память, утилизация)
-- Просмотр логов с прокруткой
-- Отслеживание прогресса установки
-- Мастер настройки первого запуска
-
-## API-справочник
-
-### Статус сервера
-
-```
-GET /api/server/status
-```
-
-Возвращает статус всех управляемых процессов:
-
-```json
-{
-  "processes": {
-    "sd": { "name": "Stable Diffusion", "status": "running", "pid": 12345, "uptime": "2h30m" },
-    "ollama": { "name": "Ollama", "status": "running", "pid": 12340, "uptime": "2h30m" }
-  }
-}
-```
-
-### Управление процессами
-
-```
-POST /api/server/start/{name}
-POST /api/server/stop/{name}
-POST /api/server/restart/{name}
-GET  /api/server/logs/{name}?lines=100
-```
-
-### Информация о GPU
-
-Информация о GPU — часть ответа статуса сервера (поле `"gpu"`):
-
-```
-GET /api/server/status
-```
-
-```json
-{
-  "name": "NVIDIA GeForce RTX 3060",
-  "memory_total_mb": 12288,
-  "memory_used_mb": 4096,
-  "memory_free_mb": 8192,
-  "utilization_percent": 45,
-  "available": true
-}
-```
-
-### Модели
-
-```
-GET  /api/models                # Список доступных SD-моделей
-POST /api/models/download       # Скачать модель по URL
-DELETE /api/models/{name}       # Удалить модель
-```
-
-### Бэкенды
-
-```
-GET  /api/backends              # Список доступных бэкендов
-POST /api/backends/switch       # Переключить активный бэкенд
-```
-
-### Здоровье
-
-```
-GET /api/health                 # Результаты проверки здоровья всех сервисов
-```
-
-### Маршруты прокси
-
-```
-/api/sd/*    → Stable Diffusion WebUI
-/api/llm/*   → Ollama / LLM-сервис
-```
-
-## GPU-очередь
-
-### Обзор
-
-`gpuqueue` сериализует GPU-тяжёлую работу между службами (SD, LLM, внешними
-воркерами) через взвешенный бюджет VRAM: джоба выполняется только когда
-свободный бюджет ≥ её веса, иначе ждёт в FIFO-очереди (с ручным приоритетом).
-Защищает от трэша/OOM VRAM при одновременной загрузке моделей Forge, Ollama
-и внешних воркеров.
-
-- **Взвешенный admission**: тяжёлые пути прокси приобретают бюджет до проброса;
-  лёгкие пути (options, progress, tags, ps) проходят свободно
-- **Аренды с TTL + heartbeat**: истёкшая аренда освобождает бюджет автоматически
-  (защита от мёртвого воркера); прокси-аренды продлеваются сами
-- **fail-open**: любая внутренняя ошибка очереди = запрос проходит + warning в статусе
-- **Ограниченное ожидание**: свыше `max_wait_seconds` → `503` + `Retry-After`
-- Состояние in-memory: рестарт сервера = чистый лист
-- Управление GPU-очередью: экран TUI по клавише `g` (локально и в attach)
-
-### Веса
+`gpuqueue` выполняет тяжёлые для GPU запросы, только пока в бюджете видеопамяти есть для них место. Остальные ждут в очереди по порядку (FIFO) с ручным приоритетом. Так Forge Neo и Ollama не загружают модели одновременно и не исчерпывают видеопамять.
 
 | Путь | Метод | Вес |
-|------|-------|-----|
-| `/api/sd/sdapi/v1/txt2img`, `img2img`, `interrogate` | POST | размер файла чекпоинта + `sd_overhead_mb` (чекпоинт трекается снифом `POST .../options`; неизвестен → `sd_default_weight_mb`); кламп до бюджета |
+|------|--------|--------|
+| `/api/sd/sdapi/v1/txt2img`, `img2img`, `interrogate` | POST | размер файла чекпоинта + `sd_overhead_mb` (чекпоинт отслеживается по `POST .../options`; если неизвестен — `sd_default_weight_mb`), не больше бюджета |
 | `/api/llm/api/generate`, `/api/llm/api/chat` | POST | `llm_weight_mb` |
-| всё прочее (options, progress, samplers, tags, ps, embeddings) | * | 0 (проходит свободно) |
+| всё остальное | * | 0 — проходит свободно |
 
-### Lease-API (внешние GPU-потребители)
+- У аренд есть срок жизни (TTL), он продлевается, пока идёт запрос. Аренда упавшего клиента освобождается сама.
+- При внутренней ошибке очереди запрос пропускается, а в статус добавляется предупреждение (fail-open).
+- Ожидание дольше `max_wait_seconds` → `503` с `Retry-After`.
+- Состояние хранится в памяти. После перезапуска сервера очередь пустая.
+- Управление — на панели (`g`), локально и при подключении.
+
+### Сторож портов
+
+При `gpu.guard_ports: true` (по умолчанию) сервер сам слушает публичный порт Forge `7860` и порт Ollama `11434`, а запускаемые им сервисы переносит на `127.0.0.1:7861` / `127.0.0.1:11435`. Любая программа в локальной сети, которая обращается к Forge или Ollama напрямую, проходит через ту же очередь, что и `/api/sd/` и `/api/llm/`.
+
+- Сторож работает только для сервисов с `autostart` и локальным `target_url`.
+- Занятый публичный порт (например, Ollama, уже запущенная в системе) не трогается. В статусе очереди появляется предупреждение, а этот сервис используется как есть.
+- Для Forge сервер заменяет `--listen/--port/--server-name` на `--port <internal>`, для Ollama задаёт `OLLAMA_HOST=127.0.0.1:<internal>`.
+
+### Lease API (внешние потребители GPU)
 
 ```
 POST   /api/gpu/lease                 {kind: sd|llm, client, weight_mb, priority?, wait_seconds?}
        -> 200 {id, acquired: true, ttl_seconds}
        -> 202 {id, acquired: false, position}
-       -> 503 {"error": "gpu queue timeout"} + Retry-After (ожидание истекло)
-       -> 503 {"error": "gpu queue full"}                     (очередь заполнена, 100)
+       -> 503 {"error": "gpu queue timeout"} + Retry-After
+       -> 503 {"error": "gpu queue full"}          (100 waiting)
 GET    /api/gpu/lease/{id}            -> {status: active|queued|unknown, position, lease_deadline}
-POST   /api/gpu/lease/{id}/heartbeat  -> 200 (только active) | 404
-DELETE /api/gpu/lease/{id}            -> release/cancel -> 200 | 404
+POST   /api/gpu/lease/{id}/heartbeat  -> 200 | 404
+DELETE /api/gpu/lease/{id}            -> 200 | 404
 PATCH  /api/gpu/queue/{id}            {"move": "up"|"down"} -> 200 {position} | 400 | 404
 GET    /api/gpu/status                -> {enabled, budget, running[], queue[], warnings[]}
 ```
 
-Лимит тела 1 МБ; `client` обрезается до 32 символов; `wait_seconds` клампится
-до `max_wait_seconds`.
+Тело запроса — не больше 1 МБ. `client` обрезается до 32 символов. `wait_seconds` не может быть больше `max_wait_seconds`.
 
-### Граница доверия
+## API
 
-Сервер только для LAN by design: без авторизации. ID аренд предсказуемы и без
-проверки владельца — любой LAN-клиент может продлевать/отменять любую аренду.
-`/api/gpu/status` раскрывает client-строки (из User-Agent). Не выставлять API
-за пределы доверенной LAN.
+Всё по адресу `http://<host>:8080`. Авторизации нет — сервер рассчитан только на доверенную локальную сеть.
 
-## Деплой через Docker
+| Эндпоинт | Метод | Что делает |
+|----------|--------|--------------|
+| `/` | GET | `{name, version, status}` |
+| `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, процессор и память компьютера `sys` |
+| `/api/server/start/{name}` | POST | запустить процесс |
+| `/api/server/stop/{name}` | POST | остановить процесс |
+| `/api/server/restart/{name}` | POST | перезапустить процесс |
+| `/api/server/logs/{name}` | GET | журнал процесса, `?lines=100` |
+| `/api/server/install/status` | GET | состояние установки всех компонентов |
+| `/api/server/install/status/{key}` | GET | состояние установки одного компонента |
+| `/api/server/install/{key}` | POST | установить компонент |
+| `/api/server/install/logs/{key}` | GET | журнал установки |
+| `/api/server/backends/active` | GET | активный бэкенд `{key, name, process}` |
+| `/api/server/models/sd` | GET / POST | список чекпоинтов / скачать `{url, filename}` |
+| `/api/server/models/lora` | GET / POST | то же для LoRA |
+| `/api/server/models/vae` | GET / POST | то же для VAE |
+| `/api/server/models/llm` | GET / POST | список моделей Ollama / скачать модель |
+| `/api/server/models/llm/pull` | GET | скачать модель Ollama с ходом загрузки в потоке, `?name=` |
+| `/api/server/models/download/stream` | GET | скачать модель с ходом загрузки в потоке, `?type=sd\|lora\|vae&url=&filename=` |
+| `/api/server/models/delete/{sd,lora,vae,llm}/{name}` | DELETE | удалить модель |
+| `/api/gpu/*` | | очередь и аренды, см. выше |
+| `/api/sd/*` | * | прокси к Forge Neo (через очередь) |
+| `/api/llm/*` | * | прокси к Ollama (через очередь) |
 
-```yaml
-# docker-compose.yml
-services:
-  imagecaster-server:
-    build: .
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/root/imagecaster-server
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-```
+mDNS: сервис `_imagecaster._tcp`, экземпляр «Imagecaster Server», TXT `version=<version>`. `mdns: false` выключает объявление.
 
-```bash
-docker compose up --build -d
-```
-
-## Структура проекта
+## Компоненты
 
 ```
-.
-├── main.go              # Entrypoint (режимы TUI / headless / attach)
-├── attach/              # Удалённый TUI-клиент (демон по REST)
-├── handlers.go          # HTTP API-обработчики
-├── proxy.go             # Обработчик обратного прокси
-├── backends.go          # Логика переключения бэкендов
-├── mdns.go              # mDNS-обнаружение сервисов
-├── config/
-│   ├── types.go         # Config, ProcessConfig, BackendConfig
-│   ├── defaults.go      # Значения конфигурации по умолчанию
-│   └── resolve.go       # Разрешение путей
-├── gpu/
-│   └── gpu.go           # Мониторинг GPU через nvidia-smi
-├── gpuproxy/
-│   ├── config.go        # Конфигурация прокси
-│   ├── proxy.go         # Прокси с VRAM cooldown
-│   ├── handler.go       # Обработчик reverse proxy на эндпоинт
-│   └── queue.go         # Приоритетная очередь с управлением слотами
-├── health/
-│   └── monitor.go       # HTTP-проверки здоровья
-├── installer/
-│   └── installer.go     # Установка компонентов
-├── models/
-│   └── manager.go       # Управление SD/LLM моделями
-├── process/
-│   ├── manager.go       # Управление жизненным циклом процессов
-│   └── types.go         # Типы статусов процессов
-└── tui/
-    ├── model.go         # Корневая модель bubbletea
-    ├── dashboard.go     # Основной вид дашборда
-    ├── wizard.go        # Мастер настройки первого запуска
-    └── styles.go        # Стили TUI
+main.go            modes: window+tray / TUI / headless / attach; wiring
+desktop/           Windows setup window (Wails) and tray (systray); state rules shared with tests
+desktop_windows.go engine of the window build (reuses the headless start path)
+portguard.go       port guard listeners
+gate.go, proxy.go  GPU gate and reverse proxy for /api/sd/ and /api/llm/
+handlers.go        /api/server/* handlers
+mdns.go            mDNS announcement
+attach/            remote dashboard client over REST
+config/            config types, defaults, loading, migration of old configs, data folder
+gpu/               nvidia-smi monitor, launch flags by VRAM
+gpuqueue/          VRAM budget queue and Lease API
+health/            HTTP health checks
+hide/              start child processes without console windows on Windows
+i18n/              English/Russian strings and language detection
+installer/         Forge Neo (zip + uv venv), uv, git, Ollama
+models/            checkpoints, LoRA, VAE, Ollama models
+process/           process lifecycle, logs, restarts
+tui/               terminal dashboard (Bubble Tea)
 ```
+
+## Ограничения и что не проверено
+
+- Веб-интерфейс Forge, открытый напрямую на `:7860`, проходит через сторож, но не все его запросы на генерацию взвешиваются очередью (только пути API из таблицы).
+- На реальном железе пока не проверены: окно и трей в Windows, запуск на macOS и Forge Neo на macOS. PyTorch под CUDA 13 требует свежий драйвер NVIDIA (какой минимальный — не проверено).
+- Около 20 ГБ без моделей — это оценка (PyTorch с библиотеками CUDA, кэш uv, Ollama).
+- Авторизации нет: не открывайте API за пределы доверенной локальной сети. Идентификаторы аренд не привязаны к владельцу — любой клиент в сети может продлить или отменить любую аренду.

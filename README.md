@@ -2,126 +2,103 @@
 
 [Русский](README-ru.md)
 
-Standalone Go service that orchestrates AI components — Stable Diffusion WebUI, Ollama — with installation, lifecycle management, health monitoring, GPU optimization, and a terminal dashboard.
+Runs image generation (**Stable Diffusion Forge Neo**) and the text model (**Ollama**) on a computer with a graphics card for the [Imagecaster](https://github.com/Zazza/imagecaster) app. It installs everything itself into one folder, starts and restarts the services, and puts every GPU request through one queue so the card doesn't run out of memory. Imagecaster finds the server on the local network by itself (mDNS).
 
-> **Note:** Rembg support was removed in v1.1.0 — Imagecaster (formerly SD Studio) no longer uses it.
-> The last release with Rembg support is [v0.5.0](https://github.com/Zazza/imagecaster-server/releases/tag/v0.5.0).
+- Windows, Linux, macOS — no WSL, no Docker
+- Forge Neo is installed automatically (with its own Python 3.13 and PyTorch); Ollama is used if it is already installed, otherwise it is installed into the same folder
+- Nothing is registered in the system and nothing starts with it: you start the server when you need it
+- Interface in English or Russian, chosen from the system language
 
-## Overview
+## Install
 
-```
-┌─────────────────────────────────────────────────┐
-│               Imagecaster Server                │
-├──────────┬───────────┬───────────┬──────────────┤
-│ Process  │    GPU    │  Health   │     TUI      │
-│ Manager  │ Monitor   │ Monitor   │  Dashboard   │
-├──────────┴───────────┴───────────┴──────────────┤
-│         GPU Proxy (priority queue, VRAM guard)   │
-├─────────────────────────────────────────────────┤
-│    HTTP API + mDNS discovery + Reverse Proxy     │
-└─────────────────────────────────────────────────┘
-```
+Download the archive for your system from [Releases](https://github.com/Zazza/imagecaster-server/releases) and unpack it anywhere. The first start downloads Forge Neo, Python, PyTorch and Ollama — about 20 GB without models, so it takes a while.
 
-## Quick Start
+### Windows
+
+1. Start `imagecaster-server.exe`.
+2. In the setup window choose the data folder (a drive with free space; not necessarily C:) and press **Install**.
+3. When it says **Ready**, the window can be closed: the server keeps running, its icon is in the tray (by the clock).
+
+The tray menu shows the state of Forge Neo and Ollama and has: the address for the app (click to copy), open Forge Neo in the browser, **Dashboard** (console with services, logs and the GPU queue), the log, and **Exit** — it stops everything. Next time just start `imagecaster-server.exe` again.
+
+The setup window can be closed during installation — it continues in the background. A second start with the same folder only says that the server is already running.
+
+`imagecaster-server-console.exe` is the same server with the terminal interface (see below).
+
+### Linux
 
 ```bash
-# Build
+tar xzf imagecaster-server-*-linux-amd64.tar.gz
+cd imagecaster-server-*-linux-amd64
+./imagecaster-server
+```
+
+The first start asks for the data folder (Enter — default `~/imagecaster-server`) and installs everything. Then the terminal dashboard is shown. `--headless` runs without it (for a systemd service).
+
+### macOS
+
+Unpack the archive and open `Imagecaster Server.command` (the first time: right click → Open). It removes the download quarantine from the server and starts it in Terminal; the rest is the same as on Linux.
+
+> Forge Neo on macOS runs on Apple Silicon without CUDA; this setup has not been tested on a Mac yet.
+
+## Requirements
+
+- NVIDIA graphics card with a recent driver (Forge Neo installs PyTorch for CUDA 13). Without one, generation is very slow or does not work.
+- Free disk space: about 20 GB plus models (an SDXL checkpoint is ~6.5 GB).
+- Internet for the first start.
+
+## Terminal interface
+
+| Key | Main screen |
+|-----|-------------|
+| `j`/`k` | select a service |
+| `s` / `r` | start/stop, restart |
+| `l` | service log |
+| `g` | GPU queue: priority `u`/`d`, cancel `x` |
+| `t` | server log |
+| `q` | quit (in sub-screens: back) |
+
+`imagecaster-server attach [host[:port]]` opens the same dashboard for a server that is already running — locally or on another computer; `q` closes only the dashboard.
+
+## Command line
+
+| Flag | Meaning |
+|------|---------|
+| `--data DIR` | data folder (default: the one chosen at the first start, otherwise `~/imagecaster-server`) |
+| `--config FILE` | config file (default `<data>/server-config.yaml`) |
+| `--port N` | HTTP API port (default 8080) |
+| `--headless` | no interface, log to stdout |
+| `--version` | print the version |
+
+Environment: `IMAGECASTER_LANG=ru|en` — interface language; `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND` override the config.
+
+## How it works
+
+```
+ Imagecaster / any program in the LAN
+        │                     │
+   :8080 /api/sd/  /api/llm/  │ :7860 (Forge)  :11434 (Ollama)
+        └──────────┬──────────┘
+           Imagecaster Server ── GPU queue (VRAM budget)
+             │            │
+     Forge Neo :7861   Ollama :11435   (loopback only)
+```
+
+The server takes the standard Forge (`7860`) and Ollama (`11434`) ports and moves the services to loopback ports, so every request — from Imagecaster or any other program — goes through the same GPU queue. Details: [docs/server-en.md](docs/server-en.md).
+
+## Development
+
+```bash
 go build -o imagecaster-server .
-
-# First run — interactive setup wizard
-./imagecaster-server --data ~/imagecaster-server
-
-# Headless mode (no TUI)
-./imagecaster-server --headless
-
-# Custom port
-./imagecaster-server --port 9090
+go test ./... -count=1 -timeout 120s
+go vet ./...
+make build-windows   # imagecaster-server.exe (window + tray) and imagecaster-server-console.exe
 ```
 
-## Running Modes
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| TUI (interactive) | `./imagecaster-server` | Terminal dashboard with real-time status |
-| Attach (remote) | `./imagecaster-server attach 192.168.1.184` | Connect a TUI dashboard to a running headless daemon; `q` detaches, the daemon keeps running |
-| Headless | `./imagecaster-server --headless` | Log output only — for servers and Docker |
-| Custom port | `./imagecaster-server --port 9090` | Override HTTP API port |
-| Custom config | `./imagecaster-server --config path.yaml` | Use specific config file |
-
-## Configuration
-
-Stored in `{data-dir}/server-config.yaml`. Key fields:
-
-```yaml
-port: 8080
-data_dir: ~/imagecaster-server
-active_sd: forge
-mdns: true
-```
-
-See [docs/server-en.md](docs/server-en.md) for full configuration reference.
-
-## Core Components
-
-| Component | Package | Description |
-|-----------|---------|-------------|
-| Process Manager | `process/` | Lifecycle management of AI services as child processes |
-| GPU Monitor | `gpu/` | Real-time GPU monitoring via nvidia-smi |
-| GPU Queue | `gpuqueue/` | Weighted VRAM budget with FIFO queue, leases, Lease-API |
-| GPU Proxy | `gpuproxy/` | Legacy standalone priority proxy with VRAM guard (off by default) |
-| Health Monitor | `health/` | Periodic HTTP health checks |
-| Installer | `installer/` | Automated component installation |
-| mDNS Discovery | `mdns.go` | Service discovery on local network |
-| TUI Dashboard | `tui/` | Interactive terminal interface (bubbletea) |
-
-## API Reference
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/server/status` | GET | Status of all managed processes + GPU info |
-| `/api/server/start/{name}` | POST | Start a process |
-| `/api/server/stop/{name}` | POST | Stop a process |
-| `/api/server/restart/{name}` | POST | Restart a process |
-| `/api/server/logs/{name}` | GET | Process logs (`?lines=100`) |
-| `/api/gpu/status` | GET | GPU queue status (budget, running, queue, warnings) |
-| `/api/gpu/lease` | POST | Acquire GPU lease for external workers |
-| `/api/models` | GET | List available SD models |
-| `/api/models/download` | POST | Download model by URL |
-| `/api/models/{name}` | DELETE | Delete model |
-| `/api/backends` | GET | List available backends |
-| `/api/backends/switch` | POST | Switch active backend |
-| `/api/health` | GET | Health check results |
-| `/api/sd/*` | * | Proxy → Stable Diffusion WebUI |
-| `/api/llm/*` | * | Proxy → Ollama |
-
-## Docker
-
-```bash
-docker compose up --build -d
-```
-
-## Project Structure
-
-```
-.
-├── main.go              # Entrypoint (TUI / headless / attach modes)
-├── attach/              # Remote TUI client (connects to a daemon over REST)
-├── handlers.go          # HTTP API handlers
-├── proxy.go             # Reverse proxy handler
-├── backends.go          # Backend switching logic
-├── mdns.go              # mDNS service discovery
-├── config/              # Configuration types and defaults
-├── gpu/                 # GPU monitoring via nvidia-smi
-├── gpuproxy/            # Legacy standalone priority proxy (off by default)
-├── gpuqueue/            # GPU budget queue (weighted semaphore, leases)
-├── health/              # HTTP health checks
-├── installer/           # Component installation
-├── models/              # SD/LLM model management
-├── process/             # Process lifecycle management
-└── tui/                 # Terminal dashboard (bubbletea)
-```
+The Windows window/tray build uses `-tags desktop,production -ldflags -H windowsgui` (Wails + systray, no cgo). Releases are built by `.github/workflows/release.yml` on a `v*` tag.
 
 ## Documentation
 
 - [Full documentation (English)](docs/server-en.md)
 - [Полная документация (Русский)](docs/server-ru.md)
+- [Changelog](CHANGELOG.md)
