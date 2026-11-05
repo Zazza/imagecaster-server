@@ -99,7 +99,9 @@ func (g *Gate) weight(r *http.Request) int {
 			switch {
 			case strings.HasSuffix(rest, "/txt2img"),
 				strings.HasSuffix(rest, "/img2img"),
-				strings.HasSuffix(rest, "/interrogate"):
+				strings.HasSuffix(rest, "/interrogate"),
+				strings.HasSuffix(rest, "/extra-single-image"),
+				strings.HasSuffix(rest, "/extra-batch-images"):
 				_, w := g.sdw.current()
 				return g.clampWeight(w)
 			}
@@ -111,7 +113,8 @@ func (g *Gate) weight(r *http.Request) int {
 			return 0
 		}
 		switch strings.TrimPrefix(p, "/api/llm/") {
-		case "api/generate", "api/chat":
+		case "api/generate", "api/chat", "api/embed", "api/embeddings",
+			"v1/chat/completions", "v1/completions", "v1/embeddings":
 			return g.clampWeight(g.cfg.LLMWeightMB)
 		}
 	}

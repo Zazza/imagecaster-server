@@ -55,7 +55,7 @@ func TestToolPathDirs_withBinDir(t *testing.T) {
 	}
 }
 
-func TestToolPathDirs_withPythonDir(t *testing.T) {
+func TestToolPathDirs_withPythonDirExcluded(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -75,15 +75,10 @@ func TestToolPathDirs_withPythonDir(t *testing.T) {
 
 	dirs := pm.toolPathDirs()
 
-	found := false
 	for _, d := range dirs {
 		if d == pythonBinDir {
-			found = true
-			break
+			t.Errorf("toolPathDirs() = %v, must not contain legacy python dir %q", dirs, pythonBinDir)
 		}
-	}
-	if !found {
-		t.Errorf("toolPathDirs() = %v, want to contain %q", dirs, pythonBinDir)
 	}
 }
 
@@ -150,12 +145,26 @@ func TestToolPathDirs_allDirs(t *testing.T) {
 
 	dirs := pm.toolPathDirs()
 
-	expectedMin := 2
+	want := []string{binDir}
 	if runtime.GOOS == "windows" {
-		expectedMin = 3
+		want = append(want, gitCmdDir)
 	}
-	if len(dirs) < expectedMin {
-		t.Errorf("toolPathDirs() returned %d entries, expected at least %d: %v", len(dirs), expectedMin, dirs)
+	for _, w := range want {
+		found := false
+		for _, d := range dirs {
+			if d == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("toolPathDirs() = %v, want to contain %q", dirs, w)
+		}
+	}
+	for _, d := range dirs {
+		if d == pythonBinDir {
+			t.Errorf("toolPathDirs() = %v, must not contain legacy python dir %q", dirs, pythonBinDir)
+		}
 	}
 }
 
@@ -253,6 +262,33 @@ func TestFindBinary_inBinDir(t *testing.T) {
 	}
 	if result != binaryPath {
 		t.Errorf("FindBinary = %q, want %q", result, binaryPath)
+	}
+}
+
+func TestFindBinary_notInLegacyPythonDir(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	pythonBinDir := filepath.Join(tmpDir, "python", "bin")
+	binaryName := "imagecaster_legacy_tool_xyz_98765"
+	fileName := binaryName
+	if runtime.GOOS == "windows" {
+		pythonBinDir = filepath.Join(tmpDir, "python", "Scripts")
+		fileName = binaryName + ".exe"
+	}
+	if err := os.MkdirAll(pythonBinDir, 0755); err != nil {
+		t.Fatalf("failed to create python bin dir: %v", err)
+	}
+	f, err := os.OpenFile(filepath.Join(pythonBinDir, fileName), os.O_CREATE|os.O_WRONLY, 0755)
+	if err != nil {
+		t.Fatalf("failed to create mock binary: %v", err)
+	}
+	f.Close()
+
+	result := FindBinary(tmpDir, binaryName)
+	if result != "" {
+		t.Errorf("FindBinary = %q, want empty: legacy python dir must not be searched", result)
 	}
 }
 

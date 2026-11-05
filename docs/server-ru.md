@@ -175,8 +175,8 @@ backends:
 
 | Путь | Метод | Вес |
 |------|--------|--------|
-| `/api/sd/sdapi/v1/txt2img`, `img2img`, `interrogate` | POST | размер файла чекпоинта + `sd_overhead_mb` (чекпоинт отслеживается по `POST .../options`; если неизвестен — `sd_default_weight_mb`), не больше бюджета |
-| `/api/llm/api/generate`, `/api/llm/api/chat` | POST | `llm_weight_mb` |
+| `/api/sd/sdapi/v1/txt2img`, `img2img`, `interrogate`, `extra-single-image`, `extra-batch-images` | POST | размер файла чекпоинта + `sd_overhead_mb` (чекпоинт отслеживается по `POST .../options`; если неизвестен — `sd_default_weight_mb`), не больше бюджета |
+| `/api/llm/api/generate`, `api/chat`, `api/embed`, `api/embeddings`, `v1/chat/completions`, `v1/completions`, `v1/embeddings` | POST | `llm_weight_mb` |
 | всё остальное | * | 0 — проходит свободно |
 
 - У аренд есть срок жизни (TTL), он продлевается, пока идёт запрос. Аренда упавшего клиента освобождается сама.

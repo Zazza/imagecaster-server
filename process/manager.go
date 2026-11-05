@@ -416,20 +416,8 @@ func (pm *ProcessManager) notifyChange() {
 	}
 }
 
-func pythonScriptsDir(pythonDir string) string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(pythonDir, "Scripts")
-	}
-	return filepath.Join(pythonDir, "bin")
-}
-
 func (pm *ProcessManager) toolPathDirs() []string {
 	var dirs []string
-	pythonDir := filepath.Join(pm.dataDir, "python")
-	pythonBinDir := pythonScriptsDir(pythonDir)
-	if _, err := os.Stat(pythonBinDir); err == nil {
-		dirs = append(dirs, pythonBinDir)
-	}
 	binDir := filepath.Join(pm.dataDir, "bin")
 	if _, err := os.Stat(binDir); err == nil {
 		dirs = append(dirs, binDir)
@@ -446,8 +434,6 @@ func (pm *ProcessManager) toolPathDirs() []string {
 func FindBinary(dataDir, name string) string {
 	if runtime.GOOS == "windows" {
 		for _, dir := range []string{
-			filepath.Join(dataDir, "python", "Scripts"),
-			filepath.Join(dataDir, "python"),
 			filepath.Join(dataDir, "bin"),
 		} {
 			candidate := filepath.Join(dir, name+".exe")
@@ -457,7 +443,6 @@ func FindBinary(dataDir, name string) string {
 		}
 	} else {
 		for _, dir := range []string{
-			filepath.Join(dataDir, "python", "bin"),
 			filepath.Join(dataDir, "bin"),
 		} {
 			candidate := filepath.Join(dir, name)

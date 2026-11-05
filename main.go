@@ -75,6 +75,14 @@ func main() {
 	_, configErr := os.Stat(cfgFile)
 	firstRun := configErr != nil
 
+	isTerminal := term.IsTerminal(int(os.Stdin.Fd()))
+	useTUI := !*headless && isTerminal
+
+	if useTUI && firstRun {
+		runTUI(&config.Config{DataDir: dir}, cfgFile, true, *port)
+		return
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		log.Fatalf("Failed to create data directory %s: %v", dir, err)
 	}
@@ -89,11 +97,8 @@ func main() {
 		cfg.Port = *port
 	}
 
-	isTerminal := term.IsTerminal(int(os.Stdin.Fd()))
-	useTUI := !*headless && isTerminal
-
 	if useTUI {
-		runTUI(cfg, cfgFile, firstRun)
+		runTUI(cfg, cfgFile, false, *port)
 	} else {
 		runHeadless(cfg)
 	}
@@ -245,7 +250,7 @@ func runHeadless(cfg *config.Config) {
 	}
 }
 
-func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
+func runTUI(cfg *config.Config, cfgFile string, firstRun bool, port int) {
 	logCapture := process.NewLogCapture(300)
 	log.SetOutput(logCapture)
 
@@ -267,6 +272,9 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool) {
 			log.Fatalf("Failed to save config: %v", err)
 		}
 		*cfg = *freshCfg
+		if port != 0 {
+			cfg.Port = port
+		}
 	}
 
 	d := initApp(cfg)

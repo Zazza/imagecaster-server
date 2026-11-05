@@ -175,8 +175,8 @@ Environment overrides: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 | Path | Method | Weight |
 |------|--------|--------|
-| `/api/sd/sdapi/v1/txt2img`, `img2img`, `interrogate` | POST | checkpoint file size + `sd_overhead_mb` (the checkpoint is tracked from `POST .../options`; unknown → `sd_default_weight_mb`), capped by the budget |
-| `/api/llm/api/generate`, `/api/llm/api/chat` | POST | `llm_weight_mb` |
+| `/api/sd/sdapi/v1/txt2img`, `img2img`, `interrogate`, `extra-single-image`, `extra-batch-images` | POST | checkpoint file size + `sd_overhead_mb` (the checkpoint is tracked from `POST .../options`; unknown → `sd_default_weight_mb`), capped by the budget |
+| `/api/llm/api/generate`, `api/chat`, `api/embed`, `api/embeddings`, `v1/chat/completions`, `v1/completions`, `v1/embeddings` | POST | `llm_weight_mb` |
 | everything else | * | 0 — passes freely |
 
 - Leases have a TTL and are renewed while the request runs; a lease of a dead client frees itself.
