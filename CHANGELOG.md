@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-05
+
 ### Added
 - Windows: install with clicks, like the Partscaster worker. The release zip has `imagecaster-server.exe` — a setup window (data folder, graphics card, free space, install progress) and then a tray icon (Forge Neo and Ollama status, address for the app, open Forge Neo, dashboard, log, exit) — and `imagecaster-server-console.exe` (the TUI, also opened from the tray as the dashboard). No console windows for child processes; quitting stops all of them. A second start with the same folder only says it is already running. Nothing starts with Windows
 - macOS: release archive has `Imagecaster Server.command` that clears the download quarantine and starts the server in Terminal
