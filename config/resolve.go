@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,6 +56,11 @@ func (c *Config) ResolvePaths() {
 		bc.LoraDir = resolveDirPath(c.DataDir, bc.LoraDir)
 		bc.VaeDir = resolveDirPath(c.DataDir, bc.VaeDir)
 		bc.EmbeddingDir = resolveDirPath(c.DataDir, bc.EmbeddingDir)
+		bc.TextEncoderDir = resolveDirPath(c.DataDir, bc.TextEncoderDir)
+		bc.UpscalerDir = resolveDirPath(c.DataDir, bc.UpscalerDir)
+		bc.TokenizerDir = resolveDirPath(c.DataDir, bc.TokenizerDir)
+		bc.PoseModelsDir = resolveDirPath(c.DataDir, bc.PoseModelsDir)
+		bc.OnnxRuntimeLib = resolveRelPath(c.DataDir, bc.OnnxRuntimeLib)
 		bc.Install.Target = resolveInstallTarget(c.DataDir, bc.Install)
 		c.Backends[key] = bc
 	}
@@ -105,7 +111,11 @@ func (c *Config) ApplyBackendToProcess(gpu GPUOptimizer) {
 		return
 	}
 	proc.Binary = backend.Binary
-	if backend.AutoOptimize {
+	if backend.Kind == KindSDCpp {
+		args := withDirFlag(backend.Args, "--lora-model-dir", backend.LoraDir)
+		args = withDirFlag(args, "--hires-upscalers-dir", backend.UpscalerDir)
+		proc.Args = sdcppArgsOnPort(args, targetPort(proc.TargetURL, 7860))
+	} else if backend.AutoOptimize {
 		vram := gpu.DetectGPU()
 		c.DetectedVRAMMB = vram
 		useXformers := gpu.CheckXformersCompat(proc.Binary, backend.WorkDir)
@@ -167,6 +177,7 @@ func venvOf(binary string) string {
 
 func (c *Config) migrateLegacy() {
 	delete(c.Processes, "python")
+	delete(c.Processes, "rembg")
 	if c.ActiveSD == "forge" {
 		delete(c.Backends, "forge")
 	}
@@ -245,7 +256,11 @@ func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
 		pc.Env = env
 
 		if pc.ProxyPath == "/api/sd/" {
-			pc.Args = forgeArgsOnPort(pc.Args, internal)
+			if c.SDCppActive(key) {
+				pc.Args = sdcppArgsOnPort(pc.Args, internal)
+			} else {
+				pc.Args = forgeArgsOnPort(pc.Args, internal)
+			}
 		}
 
 		c.Processes[key] = pc
@@ -290,6 +305,49 @@ func forgeArgsOnPort(args []string, port int) []string {
 		}
 	}
 	return append(out, "--port", strconv.Itoa(port))
+}
+
+func (c *Config) SDCppActive(processKey string) bool {
+	b, ok := c.Backends[c.ActiveSD]
+	return ok && b.Kind == KindSDCpp && b.ProcessKey == processKey
+}
+
+func targetPort(raw string, def int) int {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return def
+	}
+	if p, err := strconv.Atoi(u.Port()); err == nil && p > 0 {
+		return p
+	}
+	return def
+}
+
+func withDirFlag(args []string, flag, dir string) []string {
+	if dir == "" {
+		return args
+	}
+	for _, a := range args {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
+			return args
+		}
+	}
+	return append(slices.Clone(args), flag, dir)
+}
+
+func sdcppArgsOnPort(args []string, port int) []string {
+	out := make([]string, 0, len(args)+4)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--listen-ip", a == "-l", a == "--listen-port":
+			i++
+		case strings.HasPrefix(a, "--listen-ip="), strings.HasPrefix(a, "--listen-port="):
+		default:
+			out = append(out, a)
+		}
+	}
+	return append(out, "--listen-ip", "127.0.0.1", "--listen-port", strconv.Itoa(port))
 }
 
 func resolveInstallTarget(baseDir string, ic InstallConfig) string {

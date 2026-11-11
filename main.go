@@ -160,6 +160,10 @@ func initApp(cfg *config.Config) *appDeps {
 	gate := NewGate(q, gateCfg, sdw)
 
 	proxy := NewProxyHandler(pm, cfg, gate)
+	if f := newSDCppHandler(cfg, pm, gm); f != nil {
+		proxy.SetHandler("/api/sd/", f)
+		log.Printf("SD backend: sd.cpp facade on /api/sd/")
+	}
 	handlers := NewHandlers(pm, hm, gm, cfg, inst)
 	mux := setupMux(handlers, inst, mm, bm, proxy)
 	gpuqueue.NewAPI(q).RegisterRoutes(mux)

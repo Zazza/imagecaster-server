@@ -165,6 +165,12 @@ Relative paths are resolved against the data folder.
 
 **Backend fields**: `name`, `process_key` (which process runs it), `binary`, `args`, `workdir`, `models_dir`, `lora_dir`, `vae_dir`, `embedding_dir`, `auto_optimize` (pick memory flags by VRAM), `install` (`method: zip`, `url`, `target`, `version`).
 
+**stable-diffusion.cpp backend** (`kind: sdcpp`). The server runs `sd-server` and answers `/api/sd/` in the Forge format, so clients need no changes. Extra fields:
+- `text_encoder_dir`, `upscaler_dir`, `tokenizer_dir` — model folders;
+- `aliases` — a model name and the files it is assembled from;
+- `pose_models_dir` — folder with `yolox_l.onnx` and `dw-ll_ucoco_384.onnx` for `/controlnet/detect` (`dw_openpose_full`). Default: `<models_dir>/../ControlNetPreprocessor/openpose`;
+- `onnxruntime_lib` — path to the ONNX Runtime library. If unset, the library is looked up next to the server executable (and in an `onnxruntime/` folder next to it), and on Linux also through the system loader. Without the library or the models, `/controlnet/detect` returns 503 and the rest of the server keeps working.
+
 Environment overrides: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 ## GPU queue and port guard

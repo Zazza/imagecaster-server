@@ -13,7 +13,7 @@ import (
 )
 
 type proxyRoute struct {
-	proxy *httputil.ReverseProxy
+	proxy http.Handler
 	gate  *Gate
 }
 
@@ -41,6 +41,16 @@ func NewProxyHandler(pm *process.ProcessManager, cfg *config.Config, gate *Gate)
 	}
 
 	return ph
+}
+
+func (ph *ProxyHandler) SetHandler(proxyPath string, h http.Handler) {
+	ph.mu.Lock()
+	var gate *Gate
+	if rt, ok := ph.routes[proxyPath]; ok {
+		gate = rt.gate
+	}
+	ph.routes[proxyPath] = &proxyRoute{proxy: h, gate: gate}
+	ph.mu.Unlock()
 }
 
 func (ph *ProxyHandler) UpdateRoute(proxyPath, targetURL string) error {

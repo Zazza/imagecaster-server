@@ -165,6 +165,12 @@ backends:
 
 **Поля бэкенда**: `name`, `process_key` (какой процесс его запускает), `binary`, `args`, `workdir`, `models_dir`, `lora_dir`, `vae_dir`, `embedding_dir`, `auto_optimize` (подбирать флаги памяти по объёму видеопамяти), `install` (`method: zip`, `url`, `target`, `version`).
 
+**Бэкенд stable-diffusion.cpp** (`kind: sdcpp`). Сервер запускает `sd-server` и отвечает на `/api/sd/` в формате Forge, поэтому клиентам ничего менять не нужно. Дополнительные поля:
+- `text_encoder_dir`, `upscaler_dir`, `tokenizer_dir` — папки моделей;
+- `aliases` — имя модели и файлы, из которых она собирается;
+- `pose_models_dir` — папка с `yolox_l.onnx` и `dw-ll_ucoco_384.onnx` для `/controlnet/detect` (`dw_openpose_full`). По умолчанию `<models_dir>/../ControlNetPreprocessor/openpose`;
+- `onnxruntime_lib` — путь к библиотеке ONNX Runtime. Если не указан, библиотека ищется рядом с исполняемым файлом сервера (и в папке `onnxruntime/` рядом с ним), а в Linux ещё и системным загрузчиком. Если библиотеки или моделей нет, `/controlnet/detect` отвечает 503, остальной сервер работает.
+
 Переопределение через переменные окружения: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 ## Очередь GPU и сторож портов

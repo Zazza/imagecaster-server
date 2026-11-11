@@ -68,18 +68,27 @@ type ProcessConfig struct {
 	Category     string            `yaml:"category"`
 }
 
+const KindSDCpp = "sdcpp"
+
 type BackendConfig struct {
-	Name         string        `yaml:"name"`
-	ProcessKey   string        `yaml:"process_key"`
-	Binary       string        `yaml:"binary"`
-	Args         []string      `yaml:"args"`
-	WorkDir      string        `yaml:"workdir"`
-	ModelsDir    string        `yaml:"models_dir"`
-	LoraDir      string        `yaml:"lora_dir"`
-	VaeDir       string        `yaml:"vae_dir"`
-	EmbeddingDir string        `yaml:"embedding_dir"`
-	AutoOptimize bool          `yaml:"auto_optimize"`
-	Install      InstallConfig `yaml:"install"`
+	Name           string              `yaml:"name"`
+	Kind           string              `yaml:"kind,omitempty"`
+	TextEncoderDir string              `yaml:"text_encoder_dir,omitempty"`
+	UpscalerDir    string              `yaml:"upscaler_dir,omitempty"`
+	TokenizerDir   string              `yaml:"tokenizer_dir,omitempty"`
+	PoseModelsDir  string              `yaml:"pose_models_dir,omitempty"`
+	OnnxRuntimeLib string              `yaml:"onnxruntime_lib,omitempty"`
+	Aliases        map[string][]string `yaml:"aliases,omitempty"`
+	ProcessKey     string              `yaml:"process_key"`
+	Binary         string              `yaml:"binary"`
+	Args           []string            `yaml:"args"`
+	WorkDir        string              `yaml:"workdir"`
+	ModelsDir      string              `yaml:"models_dir"`
+	LoraDir        string              `yaml:"lora_dir"`
+	VaeDir         string              `yaml:"vae_dir"`
+	EmbeddingDir   string              `yaml:"embedding_dir"`
+	AutoOptimize   bool                `yaml:"auto_optimize"`
+	Install        InstallConfig       `yaml:"install"`
 }
 
 func (c *Config) GetActiveBackend() *BackendConfig {

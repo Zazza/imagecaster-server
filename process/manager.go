@@ -359,6 +359,10 @@ func (pm *ProcessManager) Watch(ctx context.Context) {
 					go func(n string, m *ManagedProcess) {
 						time.Sleep(delay)
 						pm.Mu.Lock()
+						if m.Status != "crashed" {
+							pm.Mu.Unlock()
+							return
+						}
 						m.Restarts++
 						pm.processes[n] = m
 						pm.Mu.Unlock()
