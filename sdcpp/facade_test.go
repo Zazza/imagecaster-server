@@ -766,10 +766,8 @@ func TestGeneration_BadRequest400(t *testing.T) {
 		path string
 		body map[string]any
 	}{
-		{"unknown lora", "/sdapi/v1/txt2img", map[string]any{"prompt": "a <lora:missing:1> cat"}},
 		{"unknown sampler", "/sdapi/v1/txt2img", map[string]any{"prompt": "a cat", "sampler_name": "Definitely Not A Sampler"}},
 		{"unknown scheduler", "/sdapi/v1/txt2img", map[string]any{"prompt": "a cat", "scheduler": "Definitely Not A Scheduler"}},
-		{"img2img unknown lora", "/sdapi/v1/img2img", map[string]any{"prompt": "<lora:missing:0.5>", "init_images": []string{"AAAA"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

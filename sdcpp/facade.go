@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -564,7 +565,8 @@ func (f *Facade) extractLoras(ctx context.Context, prompt string) (string, []map
 			}
 		}
 		if path == "" {
-			return "", nil, errf(http.StatusBadRequest, "LoRA %q not found", name)
+			log.Printf("[sdcpp] LoRA %q not found, skipped", name)
+			continue
 		}
 		out = append(out, map[string]any{"path": path, "multiplier": mult})
 	}
