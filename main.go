@@ -266,6 +266,7 @@ func runHeadless(cfg *config.Config) {
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
+	select {}
 }
 
 func runTUI(cfg *config.Config, cfgFile string, firstRun bool, port int) {
