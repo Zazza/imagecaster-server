@@ -81,8 +81,15 @@ func (c *Config) ApplyEnvOverrides() {
 }
 
 func (c *Config) ApplyInstallDefaults() {
+	if bc, ok := c.Backends[SDCppBackendKey]; ok && bc.Install.Method == InstallRelease {
+		bc.Install.Version = SDCppVersion
+		c.Backends[SDCppBackendKey] = bc
+	}
 	for key, def := range InstallDefaultsBackends {
 		if bc, ok := c.Backends[key]; ok && bc.Install.Method == "" {
+			if key == SDCppBackendKey && bc.Binary != "" && bc.Binary != sdcppBackend().Binary {
+				continue
+			}
 			bc.Install = def
 			c.Backends[key] = bc
 		}
@@ -173,6 +180,47 @@ func venvOf(binary string) string {
 		return root
 	}
 	return ""
+}
+
+func (c *Config) adoptForgeModels() {
+	sd, ok := c.Backends[SDCppBackendKey]
+	if !ok {
+		return
+	}
+	var forge *BackendConfig
+	for _, key := range []string{c.ActiveSD, NeoBackendKey} {
+		if b, ok := c.Backends[key]; ok && b.Kind != KindSDCpp && dirExists(b.ModelsDir) {
+			forge = &b
+			break
+		}
+	}
+	if forge == nil {
+		return
+	}
+	root := filepath.Dir(forge.ModelsDir)
+	sd.ModelsDir = forge.ModelsDir
+	sd.LoraDir = orDefault(forge.LoraDir, filepath.Join(root, "Lora"))
+	sd.VaeDir = orDefault(forge.VaeDir, filepath.Join(root, "VAE"))
+	sd.TextEncoderDir = filepath.Join(root, "text_encoder")
+	sd.TokenizerDir = sd.TextEncoderDir
+	sd.PoseModelsDir = filepath.Join(root, "ControlNetPreprocessor", "openpose")
+	sd.UpscalerDir = filepath.Join(root, "ESRGAN")
+	c.Backends[SDCppBackendKey] = sd
+}
+
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+func dirExists(p string) bool {
+	if p == "" {
+		return false
+	}
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 func (c *Config) migrateLegacy() {

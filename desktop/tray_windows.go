@@ -28,7 +28,7 @@ func (a *app) trayReady() {
 	systray.SetIcon(trayIcon)
 	systray.SetTooltip("Imagecaster Server")
 
-	mSD := systray.AddMenuItem(serviceText("Forge Neo", ServiceStarting), "")
+	mSD := systray.AddMenuItem(serviceText("Stable Diffusion", ServiceStarting), "")
 	mSD.Disable()
 	mOllama := systray.AddMenuItem(serviceText("Ollama", ServiceStarting), "")
 	mOllama.Disable()
@@ -45,10 +45,10 @@ func (a *app) trayReady() {
 
 	refresh := func() Snapshot {
 		s := e.Snapshot()
-		mSD.SetTitle(serviceText("Forge Neo", sdTrayState(s)))
+		mSD.SetTitle(serviceText("Stable Diffusion", sdTrayState(s)))
 		mOllama.SetTitle(serviceText("Ollama", s.Ollama))
 		mAddr.SetTitle(i18n.T("desktop.tray.addr") + " " + s.Addr)
-		systray.SetTooltip("Imagecaster Server — " + serviceText("Forge Neo", sdTrayState(s)))
+		systray.SetTooltip("Imagecaster Server — " + serviceText("Stable Diffusion", sdTrayState(s)))
 		return s
 	}
 	refresh()

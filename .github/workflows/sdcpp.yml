@@ -1,0 +1,62 @@
+name: sd.cpp engine
+
+# Linux-сборки stable-diffusion.cpp для установщика (installer/release.go, ownBase): релиз sdcpp-<коммит>
+# с файлами sdcpp-linux-x86_64-{cuda,vulkan,cpu}.tar.gz и .sha256. Коммит — COMMIT в tools/sdcpp-build.sh.
+# Уже есть в релизе — шаг пропускается. Windows и macOS установщик берёт из релизов upstream.
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - .github/workflows/sdcpp.yml
+      - tools/sdcpp-build.sh
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cuda, vulkan, cpu]
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Уже собрано?
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          commit="$(sed -nE 's/^COMMIT="([0-9a-f]+)".*/\1/p' tools/sdcpp-build.sh)"
+          [[ -n "$commit" ]] || { echo "COMMIT не найден в tools/sdcpp-build.sh" >&2; exit 1; }
+          tag="sdcpp-$commit"
+          name="sdcpp-linux-x86_64-${{ matrix.variant }}.tar.gz"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | grep -qx "$name"; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=0" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Место на диске под образ CUDA
+        if: steps.pin.outputs.have != '1' && matrix.variant == 'cuda'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Сборка
+        if: steps.pin.outputs.have != '1'
+        run: tools/sdcpp-build.sh ${{ matrix.variant }}
+      - name: В релиз
+        if: steps.pin.outputs.have != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.pin.outputs.tag }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
+              --notes "stable-diffusion.cpp Linux builds for the installer" || \
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "dist/sdcpp-linux-x86_64-${{ matrix.variant }}.tar.gz" \
+            "dist/sdcpp-linux-x86_64-${{ matrix.variant }}.tar.gz.sha256"

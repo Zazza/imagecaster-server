@@ -8,9 +8,14 @@ import (
 )
 
 const (
-	NeoBackendKey = "forge-neo"
-	NeoVersion    = "2.31"
-	neoDir        = "sd-webui-forge-neo"
+	NeoBackendKey   = "forge-neo"
+	NeoVersion      = "2.31"
+	neoDir          = "sd-webui-forge-neo"
+	SDCppBackendKey = "sdcpp"
+	SDCppVersion    = "master-1086-465adf3"
+	OnnxVersion     = "1.31.1"
+	sdcppDir        = "engines/sd-cpp"
+	onnxDir         = "engines/onnxruntime"
 )
 
 var InstallDefaultsBackends map[string]InstallConfig
@@ -18,7 +23,8 @@ var InstallDefaultsProcesses map[string]InstallConfig
 
 func init() {
 	InstallDefaultsBackends = map[string]InstallConfig{
-		NeoBackendKey: neoInstall(),
+		NeoBackendKey:   neoInstall(),
+		SDCppBackendKey: sdcppInstall(),
 	}
 	InstallDefaultsProcesses = map[string]InstallConfig{
 		"ollama": {},
@@ -31,6 +37,61 @@ func neoInstall() InstallConfig {
 		URL:     "https://github.com/Haoming02/sd-webui-forge-classic/archive/refs/tags/" + NeoVersion + ".zip",
 		Target:  neoDir,
 		Version: NeoVersion,
+	}
+}
+
+func SDCppSupported(goos, goarch string) bool {
+	switch goos + "/" + goarch {
+	case "windows/amd64", "linux/amd64", "darwin/arm64":
+		return true
+	}
+	return false
+}
+
+func defaultActiveSD(goos, goarch string) string {
+	if SDCppSupported(goos, goarch) {
+		return SDCppBackendKey
+	}
+	return NeoBackendKey
+}
+
+func sdcppInstall() InstallConfig {
+	return InstallConfig{Method: InstallRelease, Target: sdcppDir, Version: SDCppVersion}
+}
+
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
+func onnxLibName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "onnxruntime.dll"
+	case "darwin":
+		return "libonnxruntime." + OnnxVersion + ".dylib"
+	}
+	return "libonnxruntime.so." + OnnxVersion
+}
+
+func sdcppBackend() BackendConfig {
+	return BackendConfig{
+		Name:           "stable-diffusion.cpp",
+		Kind:           KindSDCpp,
+		ProcessKey:     "sd",
+		Binary:         sdcppDir + "/sd-server" + exeSuffix(),
+		WorkDir:        sdcppDir,
+		ModelsDir:      "models/checkpoints",
+		LoraDir:        "models/loras",
+		VaeDir:         "models/vae",
+		TextEncoderDir: "models/text_encoders",
+		TokenizerDir:   "models/text_encoders",
+		UpscalerDir:    "models/upscalers",
+		PoseModelsDir:  "models/openpose",
+		OnnxRuntimeLib: onnxDir + "/lib/" + onnxLibName(),
+		Install:        sdcppInstall(),
 	}
 }
 
@@ -121,7 +182,7 @@ func NewDefault() Config {
 		Port:     8080,
 		MDNS:     true,
 		DataDir:  "",
-		ActiveSD: NeoBackendKey,
+		ActiveSD: defaultActiveSD(runtime.GOOS, runtime.GOARCH),
 		GPU: GPUConfig{
 			TotalBudgetMB:     0,
 			ReserveMB:         500,
@@ -166,6 +227,7 @@ func NewDefault() Config {
 			},
 		},
 		Backends: map[string]BackendConfig{
+			SDCppBackendKey: sdcppBackend(),
 			NeoBackendKey: {
 				Name:         "Stable Diffusion Forge Neo",
 				ProcessKey:   "sd",

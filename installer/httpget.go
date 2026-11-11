@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -23,11 +24,18 @@ func newDownloadTransport() *http.Transport {
 var errStalled = errors.New("download stalled: no data received")
 
 func HTTPGet(url string) (*http.Response, error) {
+	return HTTPGetFrom(url, 0)
+}
+
+func HTTPGetFrom(url string, offset int64) (*http.Response, error) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		cancel(nil)
 		return nil, err
+	}
+	if offset > 0 {
+		req.Header.Set("Range", "bytes="+strconv.FormatInt(offset, 10)+"-")
 	}
 	resp, err := downloadClient.Do(req)
 	if err != nil {

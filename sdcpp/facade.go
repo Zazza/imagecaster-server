@@ -322,7 +322,7 @@ func (f *Facade) modelArgs(s state) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if usesSingleFile(args) {
+	if usesSingleFile(args) && !slices.Contains(args, "--vae") {
 		switch v := strings.TrimSpace(s.VAE); v {
 		case "", "Automatic", "None":
 		default:

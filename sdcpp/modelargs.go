@@ -97,7 +97,8 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 		return append([]string(nil), a...), nil
 	}
 	lower := strings.ToLower(stem(name))
-	if strings.Contains(lower, "z-image") || strings.Contains(lower, "zimage") || strings.Contains(lower, "z_image") {
+	zimage := strings.Contains(lower, "z-image") || strings.Contains(lower, "zimage") || strings.Contains(lower, "z_image")
+	if zimage && (len(modules) == 0 || strings.Contains(lower, "aio")) {
 		return nil, fmt.Errorf("model %q: sd.cpp cannot load the Forge all-in-one Z-Image file; add an alias with a GGUF diffusion model, text encoder and VAE", name)
 	}
 	path, err := checkpointPath(cfg, name)
@@ -106,34 +107,68 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 	}
 	klein := strings.Contains(lower, "klein")
 	moss := strings.Contains(lower, "moss")
-	if !klein && !moss {
+	if len(modules) == 0 && !klein && !moss {
 		return []string{"--model", path}, nil
 	}
-	var vae, llm string
+	var vae, llm, tokenizer, clipL, t5 string
 	for _, m := range modules {
 		mp := m
 		if !filepath.IsAbs(mp) {
 			if cfg.VAEDir != "" && fileExists(filepath.Join(cfg.VAEDir, mp)) {
 				mp = filepath.Join(cfg.VAEDir, mp)
+			} else if cfg.TextEncoderDir != "" && fileExists(filepath.Join(cfg.TextEncoderDir, mp)) {
+				mp = filepath.Join(cfg.TextEncoderDir, mp)
+			} else if cfg.TokenizerDir != "" && fileExists(filepath.Join(cfg.TokenizerDir, mp)) {
+				mp = filepath.Join(cfg.TokenizerDir, mp)
 			} else if cfg.TextEncoderDir != "" {
 				mp = filepath.Join(cfg.TextEncoderDir, mp)
 			}
 		}
-		if !within(mp, cfg.VAEDir, cfg.TextEncoderDir, cfg.ModelsDir) {
+		if !within(mp, cfg.VAEDir, cfg.TextEncoderDir, cfg.TokenizerDir, cfg.ModelsDir) {
 			return nil, fmt.Errorf("module %q is outside the VAE, text encoder and model folders", m)
 		}
-		if isVAEModule(cfg, mp) {
+		base := strings.ToLower(filepath.Base(mp))
+		switch {
+		case strings.EqualFold(filepath.Ext(mp), ".json"):
+			tokenizer = mp
+		case strings.Contains(base, "clip_l") || strings.Contains(base, "clip-l"):
+			clipL = mp
+		case strings.Contains(base, "t5xxl"):
+			t5 = mp
+		case isVAEModule(cfg, mp):
 			vae = mp
-		} else {
+		default:
 			llm = mp
 		}
+	}
+	if (clipL != "" || t5 != "") && llm == "" && !klein && !moss {
+		if vae == "" {
+			return nil, fmt.Errorf("model %q needs a VAE module next to clip_l/t5xxl, got %v", name, modules)
+		}
+		args := []string{"--diffusion-model", path}
+		if clipL != "" {
+			args = append(args, "--clip_l", clipL)
+		}
+		if t5 != "" {
+			args = append(args, "--t5xxl", t5)
+		}
+		return append(args, "--vae", vae), nil
+	}
+	if llm == "" && !klein && !moss {
+		if vae == "" {
+			return nil, fmt.Errorf("model %q: modules %v have neither a VAE nor a text encoder", name, modules)
+		}
+		return []string{"--model", path, "--vae", vae}, nil
 	}
 	if vae == "" || llm == "" {
 		return nil, fmt.Errorf("model %q needs a VAE and a text encoder in forge_additional_modules, got %v", name, modules)
 	}
 	args := []string{"--diffusion-model", path, "--llm", llm, "--vae", vae}
-	if moss {
-		args = append(args, "--tokenizer", filepath.Join(cfg.TokenizerDir, "moss.tokenizer.json"))
+	if tokenizer == "" && moss {
+		tokenizer = filepath.Join(cfg.TokenizerDir, "moss.tokenizer.json")
+	}
+	if tokenizer != "" {
+		args = append(args, "--tokenizer", tokenizer)
 	}
 	return args, nil
 }

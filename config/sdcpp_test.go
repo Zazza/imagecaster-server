@@ -32,6 +32,7 @@ func TestSDCppBackendListensOnInternalPort(t *testing.T) {
 
 func TestForgeBackendKeepsForgePortArgs(t *testing.T) {
 	cfg := NewDefault()
+	cfg.ActiveSD = NeoBackendKey
 	cfg.ApplyBackendToProcess(noGPU{})
 	cfg.ApplyPortGuard()
 	args := cfg.Processes["sd"].Args
@@ -55,4 +56,17 @@ func TestSDCppBackendPassesLoraAndUpscalerDirs(t *testing.T) {
 	}
 	cfg.ApplyBackendToProcess(noGPU{})
 	assert.Equal(t, []string{"--lora-model-dir=/other", "--listen-ip", "127.0.0.1", "--listen-port", "7860"}, cfg.Processes["sd"].Args)
+}
+
+func TestDefaultActiveSDByPlatform(t *testing.T) {
+	for _, tc := range []struct{ goos, goarch, want string }{
+		{"linux", "amd64", SDCppBackendKey},
+		{"windows", "amd64", SDCppBackendKey},
+		{"darwin", "arm64", SDCppBackendKey},
+		{"linux", "arm64", NeoBackendKey},
+		{"darwin", "amd64", NeoBackendKey},
+		{"windows", "arm64", NeoBackendKey},
+	} {
+		assert.Equal(t, tc.want, defaultActiveSD(tc.goos, tc.goarch), tc.goos+"/"+tc.goarch)
+	}
 }

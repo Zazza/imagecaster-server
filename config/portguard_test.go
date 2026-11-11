@@ -292,6 +292,7 @@ func (fakeOptimizer) ForgeArgsForVRAM(int, bool) []string {
 func TestApplyPortGuard_AfterBackendArgs(t *testing.T) {
 	for _, auto := range []bool{false, true} {
 		cfg := NewDefault()
+		cfg.ActiveSD = NeoBackendKey
 		b := cfg.Backends["forge"]
 		b.AutoOptimize = auto
 		cfg.Backends["forge"] = b

@@ -43,8 +43,10 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 		dir = backend.LoraDir
 	case "vae":
 		dir = backend.VaeDir
+	case "text_encoder":
+		dir = textEncoderDir(backend)
 	default:
-		api.WriteError(w, "invalid type: must be sd, lora or vae", http.StatusBadRequest)
+		api.WriteError(w, "invalid type: must be sd, lora, vae or text_encoder", http.StatusBadRequest)
 		return
 	}
 
@@ -53,7 +55,11 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	filename = filepath.Base(filename)
+	filename, err := safeFilename(filename)
+	if err != nil {
+		api.WriteError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

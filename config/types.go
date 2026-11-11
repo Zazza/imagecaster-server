@@ -8,7 +8,8 @@ import (
 type InstallMethod string
 
 const (
-	InstallZip InstallMethod = "zip"
+	InstallZip     InstallMethod = "zip"
+	InstallRelease InstallMethod = "release"
 )
 
 type Config struct {

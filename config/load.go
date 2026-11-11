@@ -42,6 +42,9 @@ func Load(path string) (*Config, error) {
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
 	cfg.migrateLegacy()
+	if !fileHasBackend(data, SDCppBackendKey) {
+		cfg.adoptForgeModels()
+	}
 	return &cfg, nil
 }
 
@@ -80,7 +83,21 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
 	cfg.migrateLegacy()
+	if !fileHasBackend(data, SDCppBackendKey) {
+		cfg.adoptForgeModels()
+	}
 	return &cfg, nil
+}
+
+func fileHasBackend(data []byte, key string) bool {
+	var raw struct {
+		Backends map[string]yaml.Node `yaml:"backends"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+	_, ok := raw.Backends[key]
+	return ok
 }
 
 func (c *Config) Validate() error {

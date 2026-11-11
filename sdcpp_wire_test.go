@@ -35,6 +35,7 @@ func TestProxySetHandlerKeepsGateAndStripsPrefix(t *testing.T) {
 
 func TestNewSDCppFacadeOnlyForSDCppBackend(t *testing.T) {
 	cfg := config.NewDefault()
+	cfg.ActiveSD = config.NeoBackendKey
 	assert.Nil(t, newSDCppFacade(&cfg, nil, nil))
 	cfg.ActiveSD = "sdcpp"
 	cfg.Backends["sdcpp"] = config.BackendConfig{Kind: config.KindSDCpp, ProcessKey: "sd"}

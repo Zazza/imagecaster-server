@@ -25,16 +25,17 @@ type InstallStatus struct {
 }
 
 type Installer struct {
-	config       *config.Config
-	mu           sync.RWMutex
-	statuses     map[string]*InstallStatus
-	logs         map[string]*process.RingBuffer
-	installMu    map[string]*sync.Mutex
-	backendSetup func(target string, lb *process.RingBuffer) error
-	OnProgress   func(key, progress string)
-	ctx          context.Context
-	cancel       context.CancelFunc
-	running      sync.Mutex
+	config           *config.Config
+	mu               sync.RWMutex
+	statuses         map[string]*InstallStatus
+	logs             map[string]*process.RingBuffer
+	installMu        map[string]*sync.Mutex
+	backendSetup     func(target string, lb *process.RingBuffer) error
+	ReleaseArtifacts func() ([]Artifact, error)
+	OnProgress       func(key, progress string)
+	ctx              context.Context
+	cancel           context.CancelFunc
+	running          sync.Mutex
 }
 
 var _ process.Installer = (*Installer)(nil)
@@ -173,7 +174,7 @@ func (inst *Installer) EnsureAllInstalled() {
 			}
 			continue
 		}
-		if key == inst.config.ActiveSD && inst.backendBinaryExists() {
+		if key == inst.config.ActiveSD && !inst.isRelease(key) && inst.backendBinaryExists() {
 			log.Printf("[%s] backend binary present, skipping install", key)
 			continue
 		}
@@ -209,7 +210,12 @@ func (inst *Installer) backendBinaryExists() bool {
 }
 
 func (inst *Installer) EnsureInstalled(key, binary string) error {
-	if binary != "" {
+	if inst.isBackendProcess(key) {
+		if inst.getConfig(inst.config.ActiveSD) != nil {
+			key = inst.config.ActiveSD
+		}
+	}
+	if binary != "" && !inst.isRelease(key) {
 		if strings.ContainsRune(binary, '/') {
 			if _, err := os.Stat(binary); err == nil {
 				return nil
@@ -218,11 +224,6 @@ func (inst *Installer) EnsureInstalled(key, binary string) error {
 			if _, err := exec.LookPath(binary); err == nil {
 				return nil
 			}
-		}
-	}
-	if inst.isBackendProcess(key) {
-		if inst.getConfig(inst.config.ActiveSD) != nil {
-			key = inst.config.ActiveSD
 		}
 	}
 	return inst.ensureConfigured(key)
@@ -356,6 +357,8 @@ func (inst *Installer) doInstall(key string, ic config.InstallConfig, lb *proces
 	switch ic.Method {
 	case config.InstallZip:
 		return inst.installZip(key, ic, lb)
+	case config.InstallRelease:
+		return inst.installRelease(key, ic, lb)
 	}
 	return fmt.Errorf("unknown install method: %s", ic.Method)
 }
@@ -369,8 +372,15 @@ func (inst *Installer) checkInstalled(ic config.InstallConfig) bool {
 		target := inst.resolveTarget(ic.Target)
 		st, err := os.Stat(target)
 		return err == nil && st.IsDir()
+	case config.InstallRelease:
+		return ic.Target != "" && inst.releaseInstalled(ic)
 	}
 	return false
+}
+
+func (inst *Installer) isRelease(key string) bool {
+	ic := inst.getConfig(key)
+	return ic != nil && ic.Method == config.InstallRelease
 }
 
 func (inst *Installer) setProgress(key string, progress string) {

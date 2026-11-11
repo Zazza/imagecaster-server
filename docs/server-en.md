@@ -28,9 +28,9 @@ Release archives (GitHub Releases, tag `v*`):
 
 Every archive has a `.sha256` file next to it.
 
-**Windows.** `imagecaster-server.exe` opens the setup window: welcome (graphics card from `nvidia-smi`), data folder (with free space), install progress (Forge Neo, Ollama, first start of Forge Neo with the PyTorch download), ready (address for the app). Then the server runs with a tray icon. The window may be closed at any time after **Install** — installing continues, the tray shows the state. Next starts go straight to the tray if everything is installed, or to the install step if it isn't finished. A second start with the same folder shows "already running"; a busy port 8080 shows a clear error. Child processes run without console windows and are stopped together with the server (a Windows job object).
+**Windows.** `imagecaster-server.exe` opens the setup window: welcome (graphics card from `nvidia-smi`), data folder (with free space), install progress (stable-diffusion.cpp, Ollama, first start), ready (address for the app). Then the server runs with a tray icon. The window may be closed at any time after **Install** — installing continues, the tray shows the state. Next starts go straight to the tray if everything is installed, or to the install step if it isn't finished. A second start with the same folder shows "already running"; a busy port 8080 shows a clear error. Child processes run without console windows and are stopped together with the server (a Windows job object).
 
-Tray menu: Forge Neo and Ollama state, address (click copies it), open Forge Neo in the browser (`http://127.0.0.1:7860`), **Dashboard** (starts `imagecaster-server-console.exe attach` in a console), log (`<data>/logs/server.log` in Notepad), **Exit** (asks first if the GPU queue has jobs).
+Tray menu: Stable Diffusion and Ollama state, address (click copies it), open Stable Diffusion in the browser (`http://127.0.0.1:7860`), **Dashboard** (starts `imagecaster-server-console.exe attach` in a console), log (`<data>/logs/server.log` in Notepad), **Exit** (asks first if the GPU queue has jobs).
 
 **Linux.** `./imagecaster-server` — the first start asks for the data folder (Enter keeps the default), installs everything and shows the dashboard.
 
@@ -72,7 +72,13 @@ Everything lives in one folder:
 ```
 <data>/
   server-config.yaml
-  sd-webui-forge-neo/        Forge Neo (venv/ inside, models/ for checkpoints, LoRA, VAE)
+  engines/sd-cpp/            stable-diffusion.cpp (sd-server) and CUDA libraries
+  engines/onnxruntime/       ONNX Runtime for pose detection
+  models/checkpoints/        single-file models
+  models/text_encoders/      text encoders and tokenizers
+  models/vae/, models/loras/, models/upscalers/
+  models/openpose/           yolox_l.onnx, dw-ll_ucoco_384.onnx
+  sd-webui-forge-neo/        Forge Neo, only when rolled back to it
   python/                    Python 3.13 managed by uv
   bin/uv(.exe)               uv 0.12.19
   uv-cache/                  uv package cache (PyTorch wheels)
@@ -86,7 +92,21 @@ Which folder: `--data` → the folder chosen at the first start (remembered in `
 
 ## What gets installed
 
-**Forge Neo** 2.31 (`forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip of the tag). After unpacking: git (if missing), uv (pinned version, checksum checked), `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo starts with `launch.py --listen --api --uv` and installs PyTorch and its requirements itself on the first start (CUDA 13 build by default; on macOS `TORCH_COMMAND` installs the plain torch). The server sets `VIRTUAL_ENV` and the uv cache/python folders for it. If setup fails after the download, the next start only finishes the setup. A backend whose binary already exists is never reinstalled.
+**stable-diffusion.cpp** (`sdcpp`, default). The server downloads a ready `sd-server` build of version `master-1086-465adf3` for the OS and graphics card and checks the sha256 of every file:
+
+| OS | NVIDIA card (`nvidia-smi -L`) | Other card with Vulkan | No graphics card |
+|---|---|---|---|
+| Windows x64 | upstream CUDA 12 build + CUDA libraries (~0.9 GB) | upstream Vulkan build (`System32\vulkan-1.dll` present) | upstream CPU build |
+| Linux x64 | own CUDA 12.8 build (`sdcpp-linux-x86_64-cuda.tar.gz` from release `sdcpp-465adf3` of this repository) | own Vulkan build (`/dev/dri/renderD*` and `libvulkan.so.1` present) | own CPU build |
+| macOS arm64 | upstream build (Metal) | | |
+
+Own Linux builds are needed because upstream builds require glibc 2.43 (Ubuntu 26.04) and do not start on Debian 13 or Ubuntu 24.04. They are built by `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). Linux arm64, Intel macOS and Windows arm64 are not supported: Forge Neo is the default there.
+
+ONNX Runtime 1.31.1 (into `engines/onnxruntime`) and the DWPose models from Hugging Face (`yzd-v/DWPose`, into `pose_models_dir`) are installed with the engine. A cut download resumes where it stopped; a file already in place with the right checksum is not downloaded. A finished install is marked by `engines/sd-cpp/.installed` with the version. The engine version is set by the server, not the config: a newer server with a newer sd.cpp installs the engine again over the old one (`install.version` in the config is replaced on load). The installer does not download image models — Imagecaster does.
+
+If an old config has no `sdcpp` section and the Forge models folder exists, `sdcpp` uses its folders as they are (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), copying nothing. `active_sd` of an old config is not changed: switch with `active_sd: sdcpp`.
+
+**Forge Neo** 2.31 (`forge-neo`, rollback option: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip of the tag). After unpacking: git (if missing), uv (pinned version, checksum checked), `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo starts with `launch.py --listen --api --uv` and installs PyTorch and its requirements itself on the first start (CUDA 13 build by default; on macOS `TORCH_COMMAND` installs the plain torch). The server sets `VIRTUAL_ENV` and the uv cache/python folders for it. If setup fails after the download, the next start only finishes the setup. A backend whose binary already exists is never reinstalled.
 
 **Ollama**: an Ollama already in the system (or already running on 11434) is used. Otherwise it is installed into `<data>/ollama`: Windows — the standalone zip (no system install, no autostart), Linux — the `.tar.zst` archive, macOS — Homebrew, or the universal `ollama-darwin.tgz`. Extraction goes into a temporary folder first, so an interrupted install is redone.
 
@@ -167,6 +187,7 @@ Relative paths are resolved against the data folder.
 
 **stable-diffusion.cpp backend** (`kind: sdcpp`). The server runs `sd-server` and answers `/api/sd/` in the Forge format, so clients need no changes. Extra fields:
 - `text_encoder_dir`, `upscaler_dir`, `tokenizer_dir` — model folders;
+- a model made of several files also loads without an alias: when `forge_additional_modules` contains a text encoder, the server runs `--diffusion-model <model> --llm <encoder> --vae <VAE>`, a `.json` module goes to `--tokenizer`; a VAE alone gives `--model <model> --vae <VAE>`. Bare names are looked up in `vae_dir`, `text_encoder_dir`, then `tokenizer_dir`;
 - `aliases` — a model name and the files it is assembled from;
 - `pose_models_dir` — folder with `yolox_l.onnx` and `dw-ll_ucoco_384.onnx` for `/controlnet/detect` (`dw_openpose_full`). Default: `<models_dir>/../ControlNetPreprocessor/openpose`;
 - `onnxruntime_lib` — path to the ONNX Runtime library. If unset, the library is looked up next to the server executable (and in an `onnxruntime/` folder next to it), and on Linux also through the system loader. Without the library or the models, `/controlnet/detect` returns 503 and the rest of the server keeps working.
@@ -236,10 +257,11 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 | `/api/server/models/sd` | GET / POST | list checkpoints / download `{url, filename}` |
 | `/api/server/models/lora` | GET / POST | the same for LoRA |
 | `/api/server/models/vae` | GET / POST | the same for VAE |
+| `/api/server/models/text_encoder` | GET / POST | the same for text encoders and tokenizers (`.json`); for Forge the `models/text_encoder` folder |
 | `/api/server/models/llm` | GET / POST | list Ollama models / pull one |
 | `/api/server/models/llm/pull` | GET | pull an Ollama model with streamed progress, `?name=` |
-| `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae&url=&filename=` |
-| `/api/server/models/delete/{sd,lora,vae,llm}/{name}` | DELETE | delete a model |
+| `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae\|text_encoder&url=&filename=` |
+| `/api/server/models/delete/{sd,lora,vae,text_encoder,llm}/{name}` | DELETE | delete a model |
 | `/api/gpu/*` | | queue and leases, see above |
 | `/api/sd/*` | * | proxy to Forge Neo (through the queue) |
 | `/api/llm/*` | * | proxy to Ollama (through the queue) |
@@ -263,7 +285,7 @@ gpuqueue/          VRAM budget queue and Lease API
 health/            HTTP health checks
 hide/              start child processes without console windows on Windows
 i18n/              English/Russian strings and language detection
-installer/         Forge Neo (zip + uv venv), uv, git, Ollama
+installer/         stable-diffusion.cpp, ONNX Runtime, DWPose (release.go), Forge Neo (zip + uv venv), uv, git, Ollama
 models/            checkpoints, LoRA, VAE, Ollama models
 process/           process lifecycle, logs, restarts
 tui/               terminal dashboard (Bubble Tea)
@@ -273,5 +295,6 @@ tui/               terminal dashboard (Bubble Tea)
 
 - The Forge web UI opened directly at `:7860` passes the guard, but its generation requests are not all weighted by the queue (only the API paths in the table are).
 - Not tested on real hardware yet: the Windows window and tray, the macOS launcher and Forge Neo on macOS. CUDA 13 PyTorch needs a recent NVIDIA driver (not checked which minimum).
-- About 20 GB without models is an estimate (PyTorch with CUDA libraries, the uv cache, Ollama).
+- About 8 GB without models is an estimate: sd.cpp with CUDA libraries, ONNX Runtime and DWPose — up to 3 GB, Ollama — about 4 GB (1.6 GB archive plus unpacking; the unpacked size is not measured). Forge Neo takes about 20 GB.
+- The minimum NVIDIA driver for the CUDA 12 builds is not verified; with an old driver sd-server will not start — update the driver or switch to Forge Neo.
 - No authorization; don't expose the API outside a trusted LAN. Lease IDs are not tied to their owner — any LAN client can renew or cancel any lease.

@@ -2,8 +2,8 @@ package i18n
 
 var dict = map[string]pair{
 	"wizard.title":              {"Imagecaster Server — Setup", "Imagecaster Server — установка"},
-	"wizard.datadir":            {"Data folder (Forge Neo, models, Ollama — tens of GB):", "Папка данных (Forge Neo, модели, Ollama — десятки ГБ):"},
-	"wizard.components":         {"Installs Stable Diffusion Forge Neo; Ollama only if it isn't in the system yet.", "Будет установлен Stable Diffusion Forge Neo; Ollama — только если её ещё нет в системе."},
+	"wizard.datadir":            {"Data folder (image engine, models, Ollama — tens of GB):", "Папка данных (движок картинок, модели, Ollama — десятки ГБ):"},
+	"wizard.components":         {"Installs stable-diffusion.cpp (about 1 GB) and pose detection; Ollama only if it isn't in the system yet. Models are downloaded from Imagecaster.", "Будет установлен stable-diffusion.cpp (около 1 ГБ) и распознавание позы; Ollama — только если её ещё нет в системе. Модели скачиваются из Imagecaster."},
 	"wizard.cdrive":             {"  Drive C: — make sure it has enough free space", "  Диск C: — проверьте, что на нём хватит места"},
 	"wizard.help":               {"Enter — install  •  Ctrl+C — quit", "Enter — установить  •  Ctrl+C — выход"},
 	"common.loading":            {"Loading...", "Загрузка..."},
@@ -75,11 +75,11 @@ var dict = map[string]pair{
 	"desktop.svc.installing":    {"installing…", "устанавливается…"},
 	"desktop.tray.addr":         {"Address:", "Адрес:"},
 	"desktop.tray.copy_hint":    {"Copy the address for the Imagecaster app", "Скопировать адрес для приложения Imagecaster"},
-	"desktop.tray.open_forge":   {"Open Forge Neo in the browser", "Открыть Forge Neo в браузере"},
+	"desktop.tray.open_forge":   {"Open Stable Diffusion in the browser", "Открыть Stable Diffusion в браузере"},
 	"desktop.tray.console":      {"Dashboard", "Панель управления"},
 	"desktop.tray.console_hint": {"Services, logs and the GPU queue in a console window", "Сервисы, логи и очередь GPU в окне консоли"},
 	"desktop.tray.log":          {"Log", "Журнал"},
 	"desktop.tray.quit":         {"Exit", "Выход"},
-	"desktop.tray.quit_hint":    {"Stop Forge Neo, Ollama and the server", "Остановить Forge Neo, Ollama и сервер"},
+	"desktop.tray.quit_hint":    {"Stop Stable Diffusion, Ollama and the server", "Остановить Stable Diffusion, Ollama и сервер"},
 	"desktop.tray.quit_busy":    {"The GPU is busy with a job — stop it and exit?", "Видеокарта занята задачей — прервать её и выйти?"},
 }

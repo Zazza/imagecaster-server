@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	desktopNeedGB   = 20
+	desktopNeedGB   = 8
 	desktopForgeURL = "http://127.0.0.1:7860"
 	consoleExeName  = "imagecaster-server-console.exe"
 )
@@ -299,6 +299,8 @@ func componentName(key string) string {
 	switch key {
 	case config.NeoBackendKey:
 		return "Forge Neo"
+	case config.SDCppBackendKey:
+		return "stable-diffusion.cpp"
 	case "ollama":
 		return "Ollama"
 	}

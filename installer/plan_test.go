@@ -14,9 +14,9 @@ func TestInstallPlan(t *testing.T) {
 		mutate func(c *config.Config)
 		want   []string
 	}{
-		{"default", func(c *config.Config) {}, []string{config.NeoBackendKey, "ollama"}},
+		{"default", func(c *config.Config) {}, []string{config.SDCppBackendKey, "ollama"}},
 		{"sd off", func(c *config.Config) { setAuto(c, "sd", false) }, []string{"ollama"}},
-		{"ollama off", func(c *config.Config) { setAuto(c, "ollama", false) }, []string{config.NeoBackendKey}},
+		{"ollama off", func(c *config.Config) { setAuto(c, "ollama", false) }, []string{config.SDCppBackendKey}},
 		{"both off", func(c *config.Config) { setAuto(c, "sd", false); setAuto(c, "ollama", false) }, nil},
 		{"custom backend", func(c *config.Config) {
 			b := c.Backends[config.NeoBackendKey]
@@ -54,15 +54,16 @@ func TestInstallPlan(t *testing.T) {
 	}
 }
 
-func TestDefaultConfigHasOnlyNeoBackend(t *testing.T) {
+func TestDefaultConfigBackends(t *testing.T) {
 	cfg := config.NewDefault()
 	assert.Equal(t, "forge-neo", config.NeoBackendKey)
 	assert.Equal(t, "2.31", config.NeoVersion)
-	assert.Equal(t, config.NeoBackendKey, cfg.ActiveSD)
-	assert.Len(t, cfg.Backends, 1)
+	assert.Equal(t, config.SDCppBackendKey, cfg.ActiveSD)
+	assert.Len(t, cfg.Backends, 2)
 	b, ok := cfg.Backends[config.NeoBackendKey]
 	assert.True(t, ok)
 	assert.Equal(t, config.InstallZip, b.Install.Method)
+	assert.Equal(t, config.InstallRelease, cfg.Backends[config.SDCppBackendKey].Install.Method)
 	assert.NotContains(t, cfg.Processes, "python")
 	assert.NotContains(t, cfg.Backends, "forge")
 }

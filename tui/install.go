@@ -141,6 +141,8 @@ func componentLabel(key string) string {
 		return "Forge Neo"
 	case "forge":
 		return "Forge"
+	case "sdcpp":
+		return "stable-diffusion.cpp"
 	case "ollama":
 		return "Ollama"
 	default:

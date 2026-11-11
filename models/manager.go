@@ -22,7 +22,13 @@ func NewModelManager(cfg *config.Config) *ModelManager {
 	return &ModelManager{config: cfg}
 }
 
+var modelFileExts = map[string]bool{".safetensors": true, ".ckpt": true, ".pt": true, ".bin": true, ".pth": true, ".gguf": true}
+
 func (m *ModelManager) ListModels(dir string) ([]ModelInfo, error) {
+	return m.listFiles(dir, modelFileExts)
+}
+
+func (m *ModelManager) listFiles(dir string, exts map[string]bool) ([]ModelInfo, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("directory not configured")
 	}
@@ -45,7 +51,7 @@ func (m *ModelManager) ListModels(dir string) ([]ModelInfo, error) {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".safetensors" && ext != ".ckpt" && ext != ".pt" && ext != ".bin" && ext != ".pth" {
+		if !exts[ext] {
 			continue
 		}
 		models = append(models, ModelInfo{
@@ -61,6 +67,13 @@ func (m *ModelManager) DownloadModel(url, targetDir, filename string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if targetDir == "" {
+		return fmt.Errorf("directory not configured")
+	}
+	filename, err := safeFilename(filename)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
@@ -105,8 +118,22 @@ func (m *ModelManager) DownloadModel(url, targetDir, filename string) error {
 	return nil
 }
 
+func safeFilename(name string) (string, error) {
+	base := filepath.Base(filepath.Clean(name))
+	if name == "" || base == "." || base == ".." || base == string(filepath.Separator) {
+		return "", fmt.Errorf("invalid filename %q", name)
+	}
+	return base, nil
+}
+
 func (m *ModelManager) DeleteModel(dir, filename string) error {
-	filename = filepath.Base(filename)
+	if dir == "" {
+		return fmt.Errorf("directory not configured")
+	}
+	filename, err := safeFilename(filename)
+	if err != nil {
+		return err
+	}
 	path := filepath.Join(dir, filename)
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("delete model: %w", err)

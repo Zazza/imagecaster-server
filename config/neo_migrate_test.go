@@ -97,6 +97,7 @@ func venvBinary(root string) string {
 func neoCfgWithBinary(t *testing.T, binary string) Config {
 	t.Helper()
 	cfg := NewDefault()
+	cfg.ActiveSD = NeoBackendKey
 	cfg.DataDir = t.TempDir()
 	b := cfg.Backends[NeoBackendKey]
 	b.Binary = binary
