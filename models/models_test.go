@@ -353,6 +353,11 @@ type mockFlusher struct {
 
 func (m *mockFlusher) Flush() {}
 
+func newTestProgressWriter(w io.Writer, total int64, f *trackingFlusher) *countingWriter {
+	rep := &sseReporter{w: f, flusher: f, name: "test"}
+	return &countingWriter{w: w, total: total, report: rep.progress}
+}
+
 type trackingFlusher struct {
 	http.ResponseWriter
 	flushCount int
@@ -367,12 +372,7 @@ func TestSSEProgressWriter_SmallWrite(t *testing.T) {
 	flusher := &trackingFlusher{ResponseWriter: rec}
 
 	var fileBuf bytes.Buffer
-	pw := &sseProgressWriter{
-		w:       &fileBuf,
-		total:   1024 * 1024,
-		writer:  flusher,
-		flusher: flusher,
-	}
+	pw := newTestProgressWriter(&fileBuf, 1024*1024, flusher)
 
 	chunk := make([]byte, 512)
 	for i := range chunk {
@@ -382,7 +382,7 @@ func TestSSEProgressWriter_SmallWrite(t *testing.T) {
 	n, err := pw.Write(chunk)
 	assert.NoError(t, err)
 	assert.Equal(t, 512, n)
-	assert.Equal(t, int64(512), pw.written)
+	assert.Equal(t, int64(512), pw.done)
 	assert.Equal(t, 512, fileBuf.Len())
 }
 
@@ -392,12 +392,7 @@ func TestSSEProgressWriter_LargeWrite_FlushesProgress(t *testing.T) {
 
 	var fileBuf bytes.Buffer
 	total := int64(5 * 1024 * 1024)
-	pw := &sseProgressWriter{
-		w:       &fileBuf,
-		total:   total,
-		writer:  flusher,
-		flusher: flusher,
-	}
+	pw := newTestProgressWriter(&fileBuf, total, flusher)
 
 	chunk := make([]byte, 2*1024*1024)
 	for i := range chunk {
@@ -432,12 +427,7 @@ func TestSSEProgressWriter_CompleteWrite_SendsFinalProgress(t *testing.T) {
 
 	var fileBuf bytes.Buffer
 	total := int64(1024)
-	pw := &sseProgressWriter{
-		w:       &fileBuf,
-		total:   total,
-		writer:  flusher,
-		flusher: flusher,
-	}
+	pw := newTestProgressWriter(&fileBuf, total, flusher)
 
 	data := bytes.Repeat([]byte("Z"), 1024)
 	n, err := pw.Write(data)
@@ -466,12 +456,7 @@ func TestSSEProgressWriter_WriteError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	flusher := &trackingFlusher{ResponseWriter: rec}
 
-	pw := &sseProgressWriter{
-		w:       &errorWriter{},
-		total:   1024,
-		writer:  flusher,
-		flusher: flusher,
-	}
+	pw := newTestProgressWriter(&errorWriter{}, 1024, flusher)
 
 	_, err := pw.Write([]byte("data"))
 	assert.Error(t, err)

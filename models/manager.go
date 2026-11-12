@@ -1,21 +1,20 @@
 package models
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"imagecaster-server/config"
-	"imagecaster-server/installer"
 )
 
 type ModelManager struct {
 	config *config.Config
 	mu     sync.Mutex
+	active map[string]bool
 }
 
 func NewModelManager(cfg *config.Config) *ModelManager {
@@ -63,10 +62,7 @@ func (m *ModelManager) listFiles(dir string, exts map[string]bool) ([]ModelInfo,
 	return models, nil
 }
 
-func (m *ModelManager) DownloadModel(url, targetDir, filename string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *ModelManager) DownloadModel(ctx context.Context, url, targetDir, filename, sha string) error {
 	if targetDir == "" {
 		return fmt.Errorf("directory not configured")
 	}
@@ -74,48 +70,12 @@ func (m *ModelManager) DownloadModel(url, targetDir, filename string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-
-	resp, err := installer.HTTPGet(url)
+	want, err := parseSHA256(sha)
 	if err != nil {
-		return fmt.Errorf("download: %w", err)
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: status %d", resp.StatusCode)
-	}
-
-	destPath := filepath.Join(targetDir, filename)
-	tmpPath := destPath + ".downloading"
-	os.Remove(tmpPath)
-
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("write file: %w", err)
-	}
-
-	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("sync file: %w", err)
-	}
-	f.Close()
-
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename file: %w", err)
-	}
-
-	return nil
+	_, err = m.fetch(ctx, url, targetDir, filename, want, fetchEvents{})
+	return err
 }
 
 func safeFilename(name string) (string, error) {

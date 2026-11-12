@@ -135,6 +135,14 @@ func newSDCppHandler(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.G
 	return &sdcppRoutes{facade: f, detect: dwpose.NewHandler(est)}
 }
 
+func sdcppBaseArgs(args []string, vramMB int) []string {
+	out := sdgpu.SDCppArgsForVRAM(args, vramMB)
+	if len(out) != len(args) {
+		log.Printf("[sdcpp] %d MB VRAM: sd-server args %s", vramMB, strings.Join(out[len(args):], " "))
+	}
+	return out
+}
+
 func newSDCppFacade(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GPUMonitor) *sdcpp.Facade {
 	b := cfg.GetActiveBackend()
 	if b == nil || b.Kind != config.KindSDCpp {
@@ -156,7 +164,7 @@ func newSDCppFacade(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GP
 		TextEncoderDir: b.TextEncoderDir,
 		UpscalerDir:    effectiveDir(pc.Args, pc.WorkDir, "--hires-upscalers-dir", b.UpscalerDir),
 		TokenizerDir:   b.TokenizerDir,
-		BaseArgs:       pc.Args,
+		BaseArgs:       sdcppBaseArgs(pc.Args, cfg.DetectedVRAMMB),
 		Aliases:        b.Aliases,
 		StatePath:      state,
 		ReadyTimeout:   110 * time.Second,

@@ -3,11 +3,8 @@ package models
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"imagecaster-server/api"
@@ -61,6 +58,12 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	want, err := parseSHA256(r.URL.Query().Get("sha256"))
+	if err != nil {
+		api.WriteError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		api.WriteError(w, "streaming not supported", http.StatusInternalServerError)
@@ -71,119 +74,70 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		fmt.Fprintf(w, "data: [ERROR] create dir: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	resp, err := installer.HTTPGet(downloadURL)
+	rep := &sseReporter{w: w, flusher: flusher, name: filename}
+	log.Printf("[download] %s -> %s", filename, dir)
+	skipped, err := m.fetch(r.Context(), downloadURL, dir, filename, want, fetchEvents{progress: rep.progress, status: rep.status})
 	if err != nil {
-		fmt.Fprintf(w, "data: [ERROR] download: %s\n\n", err.Error())
+		log.Printf("[download] %s: %v", filename, err)
+		fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(w, "data: [ERROR] download failed: status %d\n\n", resp.StatusCode)
-		flusher.Flush()
-		return
+	if skipped {
+		log.Printf("[download] %s already present, skipped", filename)
+		rep.status("already downloaded")
+	} else {
+		log.Printf("[download] complete: %s (%s)", filename, installer.FormatBytes(rep.done))
 	}
-
-	destPath := filepath.Join(dir, filename)
-	log.Printf("[download] %s -> %s (%s)", filename, dir, installer.FormatBytes(resp.ContentLength))
-
-	tmpPath := destPath + ".downloading"
-	os.Remove(tmpPath)
-
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		fmt.Fprintf(w, "data: [ERROR] create file: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	pw := &sseProgressWriter{
-		w:        f,
-		total:    resp.ContentLength,
-		written:  0,
-		lastTime: 0,
-		writer:   w,
-		flusher:  flusher,
-	}
-
-	if _, err := io.Copy(pw, resp.Body); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
-		fmt.Fprintf(w, "data: [ERROR] write file: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
-		fmt.Fprintf(w, "data: [ERROR] sync file: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-	f.Close()
-
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		os.Remove(tmpPath)
-		fmt.Fprintf(w, "data: [ERROR] rename file: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
-	log.Printf("[download] complete: %s (%s)", filename, installer.FormatBytes(pw.written))
 }
 
-type sseProgressWriter struct {
-	w           io.Writer
-	total       int64
-	written     int64
-	lastWritten int64
-	lastTime    int64
-	lastLog     int64
-	writer      http.ResponseWriter
-	flusher     http.Flusher
+type sseReporter struct {
+	w        http.ResponseWriter
+	flusher  http.Flusher
+	name     string
+	done     int64
+	lastDone int64
+	lastTime int64
+	lastLog  int64
+	started  bool
 }
 
-func (pw *sseProgressWriter) Write(p []byte) (int, error) {
-	n, err := pw.w.Write(p)
-	if err != nil {
-		return n, err
-	}
-	pw.written += int64(n)
+func (s *sseReporter) status(msg string) {
+	fmt.Fprintf(s.w, "data: %s\n\n", msg)
+	s.flusher.Flush()
+}
+
+func (s *sseReporter) progress(done, total int64) {
+	s.done = done
 	now := time.Now().UnixMilli()
-	shouldFlush := pw.written-pw.lastWritten >= 1024*1024 || now-pw.lastTime >= 500
-	if shouldFlush || pw.written == pw.total {
-		pw.lastTime = now
-		pw.lastWritten = pw.written
-		var percent float64
-		if pw.total > 0 {
-			percent = float64(pw.written) / float64(pw.total) * 100
-		}
-		payload, _ := json.Marshal(map[string]interface{}{
-			"downloaded": pw.written,
-			"total":      pw.total,
-			"percent":    percent,
-		})
-		fmt.Fprintf(pw.writer, "data: %s\n\n", payload)
-		pw.flusher.Flush()
-
-		if now-pw.lastLog >= 10000 || pw.written == pw.total {
-			pw.lastLog = now
-			pct := ""
-			if pw.total > 0 {
-				pct = fmt.Sprintf(" (%.0f%%)", percent)
-			}
-			log.Printf("[download] %s / %s%s", installer.FormatBytes(pw.written), installer.FormatBytes(pw.total), pct)
-		}
+	if s.started && done-s.lastDone < 1024*1024 && now-s.lastTime < 500 && done != total {
+		return
 	}
-	return n, nil
+	s.started = true
+	s.lastTime = now
+	s.lastDone = done
+	var percent float64
+	if total > 0 {
+		percent = float64(done) / float64(total) * 100
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"downloaded": done,
+		"total":      total,
+		"percent":    percent,
+	})
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(s.w, "data: %s\n\n", payload)
+	s.flusher.Flush()
+	if now-s.lastLog >= 10000 || done == total {
+		s.lastLog = now
+		pct := ""
+		if total > 0 {
+			pct = fmt.Sprintf(" (%.0f%%)", percent)
+		}
+		log.Printf("[download] %s: %s / %s%s", s.name, installer.FormatBytes(done), installer.FormatBytes(total), pct)
+	}
 }

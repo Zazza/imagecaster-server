@@ -114,6 +114,7 @@ func (m *ModelManager) handleFileDir(w http.ResponseWriter, r *http.Request, dir
 		var req struct {
 			URL      string `json:"url"`
 			Filename string `json:"filename"`
+			SHA256   string `json:"sha256"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			api.WriteError(w, "invalid request body", http.StatusBadRequest)
@@ -128,7 +129,11 @@ func (m *ModelManager) handleFileDir(w http.ResponseWriter, r *http.Request, dir
 			api.WriteError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := m.DownloadModel(req.URL, dir, name); err != nil {
+		if _, err := parseSHA256(req.SHA256); err != nil {
+			api.WriteError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := m.DownloadModel(r.Context(), req.URL, dir, name, req.SHA256); err != nil {
 			api.WriteError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

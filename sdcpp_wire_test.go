@@ -81,3 +81,12 @@ func TestEffectiveDir(t *testing.T) {
 	assert.Equal(t, filepath.Join("/w", "models", "Lora"), effectiveDir([]string{"--lora-model-dir", "models/Lora"}, "/w", "--lora-model-dir", "/cfg"))
 	assert.Equal(t, "models/Lora", effectiveDir([]string{"--lora-model-dir", "models/Lora"}, "", "--lora-model-dir", "/cfg"))
 }
+
+func TestSDCppBaseArgsVRAMTier(t *testing.T) {
+	base := []string{"--listen-ip", "127.0.0.1"}
+	assert.Equal(t, base, sdcppBaseArgs(base, 0))
+	assert.Equal(t, base, sdcppBaseArgs(base, 16376))
+	assert.Equal(t, []string{"--listen-ip", "127.0.0.1", "--max-vram", "-3"}, sdcppBaseArgs(base, 8192))
+	assert.Equal(t, []string{"--max-vram", "4"}, sdcppBaseArgs([]string{"--max-vram", "4"}, 8192))
+	assert.Equal(t, []string{"--listen-ip", "127.0.0.1"}, base)
+}
