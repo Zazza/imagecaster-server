@@ -687,7 +687,7 @@ func (f *Facade) buildNative(ctx context.Context, req forgeReq, img2img bool, s 
 	if req.Height > 0 {
 		n["height"] = req.Height
 	}
-	if req.ClipSkip != nil {
+	if req.ClipSkip != nil && *req.ClipSkip > 1 {
 		n["clip_skip"] = *req.ClipSkip
 	}
 	if img2img {
