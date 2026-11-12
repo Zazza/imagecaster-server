@@ -131,6 +131,7 @@ func (inst *Installer) isBackendProcess(key string) bool {
 }
 
 func (inst *Installer) EnsureAllInstalled() {
+	inst.MigrateEngineDirs()
 	for _, key := range inst.installPlan() {
 		if key == "ollama" {
 			if findOllamaBinary(inst.config.DataDir) != "" {

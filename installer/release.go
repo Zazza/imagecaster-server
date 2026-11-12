@@ -45,18 +45,24 @@ const (
 	ownBase     = "https://github.com/Zazza/imagecaster-server/releases/download/sdcpp-465adf3/"
 	onnxBase    = "https://github.com/microsoft/onnxruntime/releases/download/v" + config.OnnxVersion + "/"
 	dwposeBase  = "https://huggingface.co/yzd-v/DWPose/resolve/main/"
-	sdcppTarget = "engines/sd-cpp"
 	onnxTarget  = "engines/onnxruntime"
 	poseTarget  = "models/openpose"
 	installMark = ".installed"
 )
 
-func sdcppZip(name, sha string, size int64) Artifact {
-	return Artifact{Name: name, URL: sdcppBase + name, SHA256: sha, Size: size, Kind: "zip", Dest: sdcppTarget}
+// sdcppTarget — каталог с суффиксом платформы (общая папка данных у Windows и Linux).
+// sdcppTarget — каталог движка с суффиксом целевой платформы
+// (общая папка данных у Windows и Linux).
+func sdcppTarget(goos string) string {
+	return config.EngineDirFor(config.SDCppDirLegacy, goos)
 }
 
-func ownBuild(name string) Artifact {
-	return Artifact{Name: name, URL: ownBase + name, SHAURL: ownBase + name + ".sha256", Kind: "tgz", Dest: sdcppTarget}
+func sdcppZip(goos, name, sha string, size int64) Artifact {
+	return Artifact{Name: name, URL: sdcppBase + name, SHA256: sha, Size: size, Kind: "zip", Dest: sdcppTarget(goos)}
+}
+
+func ownBuild(goos, name string) Artifact {
+	return Artifact{Name: name, URL: ownBase + name, SHAURL: ownBase + name + ".sha256", Kind: "tgz", Dest: sdcppTarget(goos)}
 }
 
 func onnxArtifact(goos string) Artifact {
@@ -85,21 +91,21 @@ func SDCppArtifacts(goos, goarch string, gpu GPUKind) ([]Artifact, error) {
 	switch {
 	case goos == "windows" && goarch == "amd64" && gpu == GPUNvidia:
 		engine = []Artifact{
-			sdcppZip("sd-master-465adf3-bin-win-cuda12-x64.zip", "d775bff22f7677af664c198d0d978098990bf45525aa538bb7f630f8329ea5ad", 367151447),
-			sdcppZip("cudart-sd-bin-win-cu12-x64.zip", "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d", 563452046),
+			sdcppZip(goos, "sd-master-465adf3-bin-win-cuda12-x64.zip", "d775bff22f7677af664c198d0d978098990bf45525aa538bb7f630f8329ea5ad", 367151447),
+			sdcppZip(goos, "cudart-sd-bin-win-cu12-x64.zip", "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d", 563452046),
 		}
 	case goos == "windows" && goarch == "amd64" && gpu == GPUVulkan:
-		engine = []Artifact{sdcppZip("sd-master-465adf3-bin-win-vulkan-x64.zip", "f468c6c4c1130e7d7facafe2163139e259739f480ef2413d968057e1e691c817", 30023026)}
+		engine = []Artifact{sdcppZip(goos, "sd-master-465adf3-bin-win-vulkan-x64.zip", "f468c6c4c1130e7d7facafe2163139e259739f480ef2413d968057e1e691c817", 30023026)}
 	case goos == "windows" && goarch == "amd64":
-		engine = []Artifact{sdcppZip("sd-master-465adf3-bin-win-cpu-x64.zip", "6988bec67b291b2ad293cb1b69c71fb8793ae107a1c6a14699ab5570e1a7edef", 18256679)}
+		engine = []Artifact{sdcppZip(goos, "sd-master-465adf3-bin-win-cpu-x64.zip", "6988bec67b291b2ad293cb1b69c71fb8793ae107a1c6a14699ab5570e1a7edef", 18256679)}
 	case goos == "darwin" && goarch == "arm64":
-		engine = []Artifact{sdcppZip("sd-master-465adf3-bin-Darwin-macOS-26.7.2-arm64.zip", "f04c897e127fa1f0afa5cf5a0e182804c84c796df5008f5f2706339afa0ed0c9", 38089008)}
+		engine = []Artifact{sdcppZip(goos, "sd-master-465adf3-bin-Darwin-macOS-26.7.2-arm64.zip", "f04c897e127fa1f0afa5cf5a0e182804c84c796df5008f5f2706339afa0ed0c9", 38089008)}
 	case goos == "linux" && goarch == "amd64" && gpu == GPUNvidia:
-		engine = []Artifact{ownBuild("sdcpp-linux-x86_64-cuda.tar.gz")}
+		engine = []Artifact{ownBuild(goos, "sdcpp-linux-x86_64-cuda.tar.gz")}
 	case goos == "linux" && goarch == "amd64" && gpu == GPUVulkan:
-		engine = []Artifact{ownBuild("sdcpp-linux-x86_64-vulkan.tar.gz")}
+		engine = []Artifact{ownBuild(goos, "sdcpp-linux-x86_64-vulkan.tar.gz")}
 	case goos == "linux" && goarch == "amd64":
-		engine = []Artifact{ownBuild("sdcpp-linux-x86_64-cpu.tar.gz")}
+		engine = []Artifact{ownBuild(goos, "sdcpp-linux-x86_64-cpu.tar.gz")}
 	default:
 		return nil, fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, goos, goarch)
 	}

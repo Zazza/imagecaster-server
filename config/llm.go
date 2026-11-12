@@ -15,10 +15,13 @@ const (
 	LLMOllama          = "ollama"
 	LlamaCppProcessKey = "llm"
 	LlamaCppVersion    = "b12283"
-	LlamaCppDir        = "engines/llama-cpp"
+	LlamaCppDirLegacy  = "engines/llama-cpp"
 	LlamaPresetName    = "llamacpp-models.ini"
 	llamaPublicPort    = 11434
 )
+
+// LlamaCppDir — суффикс платформы, чтобы Windows и Linux держали свои сборки.
+var LlamaCppDir = engineDir(LlamaCppDirLegacy)
 
 type LLMConfig struct {
 	ContextSize int `yaml:"context_size,omitempty"`

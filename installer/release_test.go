@@ -78,7 +78,9 @@ func TestSDCppArtifactsByPlatform(t *testing.T) {
 			arts, err := SDCppArtifacts(tt.goos, tt.goarch, tt.gpu)
 			require.NoError(t, err)
 
-			engine := rtFind(arts, func(a Artifact) bool { return rtInDest("engines/sd-cpp")(a) && rtURLHas(tt.engine...)(a) })
+			engine := rtFind(arts, func(a Artifact) bool {
+				return rtInDest(config.EngineDirFor(config.SDCppDirLegacy, tt.goos))(a) && rtURLHas(tt.engine...)(a)
+			})
 			require.Len(t, engine, 1, "engine artifact")
 			assert.Equal(t, tt.kind, engine[0].Kind)
 			if tt.ownBuild {
@@ -87,7 +89,9 @@ func TestSDCppArtifactsByPlatform(t *testing.T) {
 				assert.True(t, strings.HasSuffix(engine[0].URL, tt.engine[1]), engine[0].URL)
 			}
 			for _, e := range tt.extra {
-				found := rtFind(arts, func(a Artifact) bool { return rtInDest("engines/sd-cpp")(a) && rtURLHas(e)(a) })
+				found := rtFind(arts, func(a Artifact) bool {
+					return rtInDest(config.EngineDirFor(config.SDCppDirLegacy, tt.goos))(a) && rtURLHas(e)(a)
+				})
 				require.Len(t, found, 1, e)
 				assert.Equal(t, "zip", found[0].Kind)
 			}

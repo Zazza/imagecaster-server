@@ -44,9 +44,9 @@ func sddOnnxName() string {
 
 func sddBinary() string {
 	if runtime.GOOS == "windows" {
-		return "engines/sd-cpp/sd-server.exe"
+		return SDCppDir + "/sd-server.exe"
 	}
-	return "engines/sd-cpp/sd-server"
+	return SDCppDir + "/sd-server"
 }
 
 func sddIsolateEnv(t *testing.T) {
@@ -65,7 +65,7 @@ func TestNewDefaultActiveIsSDCpp(t *testing.T) {
 	assert.Equal(t, "sd", b.ProcessKey)
 	assert.Equal(t, InstallMethod("release"), InstallRelease)
 	assert.Equal(t, InstallRelease, b.Install.Method)
-	assert.Equal(t, "engines/sd-cpp", b.Install.Target)
+	assert.Equal(t, SDCppDir, b.Install.Target)
 	assert.NotEmpty(t, SDCppVersion)
 	assert.Equal(t, SDCppVersion, b.Install.Version)
 }
@@ -114,7 +114,7 @@ func TestResolvePathsSDCppInsideDataDir(t *testing.T) {
 	got["Install.Target"] = b.Install.Target
 	want := map[string]string{
 		"Binary":         sddBinary(),
-		"Install.Target": "engines/sd-cpp",
+		"Install.Target": SDCppDir,
 	}
 	for k, v := range sddOwnDirs {
 		want[k] = v

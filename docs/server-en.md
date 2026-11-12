@@ -72,7 +72,7 @@ Everything lives in one folder:
 ```
 <data>/
   server-config.yaml
-  engines/sd-cpp/            stable-diffusion.cpp (sd-server) and CUDA libraries
+  engines/sd-cpp-<OS>/        stable-diffusion.cpp (sd-server) and CUDA libraries (platform suffix: sd-cpp-windows, sd-cpp-linux)
   engines/onnxruntime/       ONNX Runtime for pose detection
   models/checkpoints/        single-file models
   models/text_encoders/      text encoders and tokenizers
@@ -82,7 +82,7 @@ Everything lives in one folder:
   python/                    Python 3.13 managed by uv
   bin/uv(.exe)               uv 0.12.19
   uv-cache/                  uv package cache (PyTorch wheels)
-  engines/llama-cpp/         llama.cpp (llama-server) for text models
+  engines/llama-cpp-<OS>/   llama.cpp (llama-server) for text models (platform suffix, like sd-cpp)
   llamacpp-models.ini        model list for llama-server, written by the server from models/ollama
   ollama/                    Ollama, only for the rollback (active_llm: ollama) when it isn't in the system
   models/ollama/             text models in Ollama format (manifests + blobs), shared by llama.cpp and Ollama
@@ -104,18 +104,18 @@ Which folder: `--data` → the folder chosen at the first start (remembered in `
 
 Own Linux builds are needed because upstream builds require glibc 2.43 (Ubuntu 26.04) and do not start on Debian 13 or Ubuntu 24.04. They are built by `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). Linux arm64, Intel macOS and Windows arm64 are not supported: Forge Neo is the default there.
 
-ONNX Runtime 1.31.1 (into `engines/onnxruntime`) and the DWPose models from Hugging Face (`yzd-v/DWPose`, into `pose_models_dir`) are installed with the engine. A cut download resumes where it stopped; a file already in place with the right checksum is not downloaded. A finished install is marked by `engines/sd-cpp/.installed` with the version. The engine version is set by the server, not the config: a newer server with a newer sd.cpp installs the engine again over the old one (`install.version` in the config is replaced on load). The installer does not download image models — Imagecaster does.
+ONNX Runtime 1.31.1 (into `engines/onnxruntime`) and the DWPose models from Hugging Face (`yzd-v/DWPose`, into `pose_models_dir`) are installed with the engine. A cut download resumes where it stopped; a file already in place with the right checksum is not downloaded. A finished install is marked by `engines/sd-cpp-<OS>/.installed` with the version. The engine version is set by the server, not the config: a newer server with a newer sd.cpp installs the engine again over the old one (`install.version` in the config is replaced on load). The installer does not download image models — Imagecaster does. Engine folders for sd.cpp and llama.cpp get a platform suffix (`sd-cpp-windows`, `llama-cpp-linux`, …): the data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place); paths in old configs are updated automatically.
 
 If an old config has no `sdcpp` section and the Forge models folder exists, `sdcpp` uses its folders as they are (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), copying nothing. If the active backend has no models folder, the folder of the previously active backend is used, then Forge Neo, then any other backend in the config.
 
 **Forge Neo** 2.31 (`forge-neo`, rollback option: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip of the tag). After unpacking: git (if missing), uv (pinned version, checksum checked), `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo starts with `launch.py --listen --api --uv` and installs PyTorch and its requirements itself on the first start (CUDA 13 build by default; on macOS `TORCH_COMMAND` installs the plain torch). The server sets `VIRTUAL_ENV` and the uv cache/python folders for it. If setup fails after the download, the next start only finishes the setup. A backend whose binary already exists is never reinstalled.
 
-**llama.cpp** (`active_llm: llamacpp`, the default for new installs). The server downloads a prebuilt `llama-server` `b12283` into `engines/llama-cpp` and checks sha256:
+**llama.cpp** (`active_llm: llamacpp`, the default for new installs). The server downloads a prebuilt `llama-server` `b12283` into `engines/llama-cpp-<OS>` and checks sha256:
 
 | System | NVIDIA | Vulkan | No GPU |
 |---|---|---|---|
-| Windows x64 | `win-cuda-12.4` (CUDA libraries are taken from `engines/sd-cpp`; if they are not there, `cudart-llama-bin-win-cuda-12.4`, 391 MB, is downloaded) | `win-vulkan` | `win-cpu` |
-| Linux x64 | `ubuntu-cuda-12.8` (CUDA libraries from `engines/sd-cpp`, otherwise `cudart-…-ubuntu-cuda-12.8`, 594 MB) | `ubuntu-vulkan` | `ubuntu-x64` |
+| Windows x64 | `win-cuda-12.4` (CUDA libraries are taken from `engines/sd-cpp-<OS>`; if they are not there, `cudart-llama-bin-win-cuda-12.4`, 391 MB, is downloaded) | `win-vulkan` | `win-cpu` |
+| Linux x64 | `ubuntu-cuda-12.8` (CUDA libraries from `engines/sd-cpp-<OS>`, otherwise `cudart-…-ubuntu-cuda-12.8`, 594 MB) | `ubuntu-vulkan` | `ubuntu-x64` |
 | macOS | `macos-arm64` / `macos-x64` (Metal) | | |
 
 Linux builds need `libssl.so.3` in the system. `llama-server` runs in multi-model (router) mode on `127.0.0.1:11435`; the server itself answers on port `11434` and on `/api/llm/` as Ollama (see "API"). Models are used from `models/ollama` in Ollama format as is, without copying: the model blob and, for image models, the separate projector blob. Models that Ollama packed into its own format (for example `qwen2.5vl:7b`, one blob without a projector) cannot be opened by llama.cpp — requests to them and `/api/pull` answer with a clear error; use GGUF models from hf.co (`hf.co/<user>/<repo>:<quant>`).
@@ -180,7 +180,7 @@ processes:
     max_restart: 5
   llm:                        # llama-server, started only with active_llm: llamacpp
     name: llama.cpp
-    binary: engines/llama-cpp/llama-server
+    binary: engines/llama-cpp-linux/llama-server
     health_url: http://localhost:11434/health
     target_url: http://localhost:11434
     proxy_path: /api/llm/
@@ -188,7 +188,7 @@ processes:
     autostart: true
     restart: true
     max_restart: 5
-    install: {method: release, target: engines/llama-cpp, version: b12283}
+    install: {method: release, target: engines/llama-cpp-linux, version: b12283}
 
 backends:
   forge-neo:

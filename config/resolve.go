@@ -95,12 +95,49 @@ func (c *Config) ApplyInstallDefaults() {
 		}
 	}
 	c.pinLlamaVersion()
+	c.pinEngineDirs()
 	for key, def := range InstallDefaultsProcesses {
 		if pc, ok := c.Processes[key]; ok && pc.Install.Method == "" {
 			pc.Install = def
 			c.Processes[key] = pc
 		}
 	}
+}
+
+// pinEngineDirs — пути движков sd.cpp и llama.cpp в старых конфигах указывают
+// на каталоги без суффикса платформы; обновляем их на суффиксированные,
+// иначе общая папка данных затирается чужой ОС.
+func (c *Config) pinEngineDirs() {
+	if bc, ok := c.Backends[SDCppBackendKey]; ok {
+		bc.Binary = replaceEnginePath(bc.Binary, c.DataDir, SDCppDirLegacy, SDCppDir)
+		bc.WorkDir = replaceEnginePath(bc.WorkDir, c.DataDir, SDCppDirLegacy, SDCppDir)
+		bc.Install.Target = replaceEnginePath(bc.Install.Target, c.DataDir, SDCppDirLegacy, SDCppDir)
+		c.Backends[SDCppBackendKey] = bc
+	}
+	if pc, ok := c.Processes[LlamaCppProcessKey]; ok {
+		pc.Binary = replaceEnginePath(pc.Binary, c.DataDir, LlamaCppDirLegacy, LlamaCppDir)
+		pc.Install.Target = replaceEnginePath(pc.Install.Target, c.DataDir, LlamaCppDirLegacy, LlamaCppDir)
+		c.Processes[LlamaCppProcessKey] = pc
+	}
+}
+
+// replaceEnginePath заменяет путь (относительный или абсолютный внутри dataDir),
+// ведущий в старый каталог движка, на новый; чужие пути не трогает.
+func replaceEnginePath(p, dataDir, legacy, next string) string {
+	if p == "" {
+		return p
+	}
+	clean := filepath.Clean(p)
+	for _, base := range []string{filepath.Clean(legacy), filepath.Clean(filepath.Join(dataDir, legacy))} {
+		if clean == base || strings.HasPrefix(clean, base+string(filepath.Separator)) {
+			tail := strings.TrimPrefix(strings.TrimPrefix(clean, base), string(filepath.Separator))
+			if filepath.IsAbs(clean) {
+				return filepath.Join(dataDir, next, tail)
+			}
+			return filepath.Join(next, tail)
+		}
+	}
+	return p
 }
 
 type GPUOptimizer interface {

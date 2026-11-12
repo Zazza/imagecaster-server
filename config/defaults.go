@@ -14,9 +14,24 @@ const (
 	SDCppBackendKey = "sdcpp"
 	SDCppVersion    = "master-1086-465adf3"
 	OnnxVersion     = "1.31.1"
-	sdcppDir        = "engines/sd-cpp"
+	SDCppDirLegacy  = "engines/sd-cpp"
 	onnxDir         = "engines/onnxruntime"
 )
+
+// Каталоги движков sd.cpp и llama.cpp получают суффикс платформы:
+// папка данных может быть общим томом у Windows и Linux, а сборки
+// движков несовместимы между ОС — каждая держит свою.
+var SDCppDir = engineDir(SDCppDirLegacy)
+
+// EngineDirFor — путь каталога движка с суффиксом указанной ОС.
+func EngineDirFor(dir, goos string) string {
+	return dir + "-" + goos
+}
+
+// engineDir — путь каталога движка с суффиксом текущей ОС.
+func engineDir(dir string) string {
+	return EngineDirFor(dir, runtime.GOOS)
+}
 
 var InstallDefaultsBackends map[string]InstallConfig
 var InstallDefaultsProcesses map[string]InstallConfig
@@ -57,7 +72,7 @@ func defaultActiveSD(goos, goarch string) string {
 }
 
 func sdcppInstall() InstallConfig {
-	return InstallConfig{Method: InstallRelease, Target: sdcppDir, Version: SDCppVersion}
+	return InstallConfig{Method: InstallRelease, Target: SDCppDir, Version: SDCppVersion}
 }
 
 func exeSuffix() string {
@@ -82,8 +97,8 @@ func sdcppBackend() BackendConfig {
 		Name:           "stable-diffusion.cpp",
 		Kind:           KindSDCpp,
 		ProcessKey:     "sd",
-		Binary:         sdcppDir + "/sd-server" + exeSuffix(),
-		WorkDir:        sdcppDir,
+		Binary:         SDCppDir + "/sd-server" + exeSuffix(),
+		WorkDir:        SDCppDir,
 		ModelsDir:      "models/checkpoints",
 		LoraDir:        "models/loras",
 		VaeDir:         "models/vae",

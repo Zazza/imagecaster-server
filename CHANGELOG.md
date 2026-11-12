@@ -4,6 +4,7 @@
 
 ### Changed
 - Upgrading from an old version moves the server to sd.cpp and llama.cpp on the first start: models stay where they are (Forge folders, Ollama store), nothing is downloaded; the old config is kept as `server-config.yaml.bak-before-sdcpp`, Forge Neo and Ollama stay for rollback. Systems without an sd.cpp build (Linux ARM, Intel Mac, Windows ARM) stay on Forge Neo and Ollama
+- Engine folders get a platform suffix: `engines/sd-cpp-windows`, `engines/llama-cpp-linux` and so on. The data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each OS now keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place and its OS reinstalls fresh), and engine paths in old configs are updated automatically
 
 ### Added
 - `GET /` lists `features` (active engines and capabilities), so Imagecaster can tell an old server from a new one

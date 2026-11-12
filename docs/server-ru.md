@@ -72,7 +72,7 @@ Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama дл�
 ```
 <data>/
   server-config.yaml
-  engines/sd-cpp/            stable-diffusion.cpp (sd-server) и библиотеки CUDA
+  engines/sd-cpp-<ОС>/        stable-diffusion.cpp (sd-server) и библиотеки CUDA (суффикс платформы: sd-cpp-windows, sd-cpp-linux)
   engines/onnxruntime/       ONNX Runtime для распознавания позы
   models/checkpoints/        модели из одного файла
   models/text_encoders/      текстовые энкодеры и токенизаторы
@@ -82,7 +82,7 @@ Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama дл�
   python/                    Python 3.13 managed by uv
   bin/uv(.exe)               uv 0.12.19
   uv-cache/                  uv package cache (PyTorch wheels)
-  engines/llama-cpp/         llama.cpp (llama-server) for text models
+  engines/llama-cpp-<ОС>/   llama.cpp (llama-server) для текстовых моделей (суффикс платформы, как у sd-cpp)
   llamacpp-models.ini        model list for llama-server, written by the server from models/ollama
   ollama/                    Ollama, only for the rollback (active_llm: ollama) when it isn't in the system
   models/ollama/             text models in Ollama format (manifests + blobs), shared by llama.cpp and Ollama
@@ -104,18 +104,18 @@ Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama дл�
 
 Свои Linux-сборки нужны потому, что сборки upstream требуют glibc 2.43 (Ubuntu 26.04) и не запускаются на Debian 13 и Ubuntu 24.04. Их собирает `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). Linux arm64, macOS Intel и Windows arm64 не поддерживаются: на них по умолчанию ставится Forge Neo.
 
-Вместе с движком ставятся ONNX Runtime 1.31.1 (в `engines/onnxruntime`) и модели DWPose с Hugging Face (`yzd-v/DWPose`, в `pose_models_dir`). Обрыв загрузки докачивается с того же места, уже лежащий файл с верной контрольной суммой не скачивается. Готовая установка отмечается файлом `engines/sd-cpp/.installed` с версией. Версия движка задаётся сервером, а не конфигом: новая версия сервера с новой версией sd.cpp ставит движок заново поверх (значение `install.version` в конфиге при загрузке заменяется). Модели картинок установщик не качает — их скачивает Imagecaster.
+Вместе с движком ставятся ONNX Runtime 1.31.1 (в `engines/onnxruntime`) и модели DWPose с Hugging Face (`yzd-v/DWPose`, в `pose_models_dir`). Обрыв загрузки докачивается с того же места, уже лежащий файл с верной контрольной суммой не скачивается. Готовая установка отмечается файлом `engines/sd-cpp-<ОС>/.installed` с версией. Версия движка задаётся сервером, а не конфигом: новая версия сервера с новой версией sd.cpp ставит движок заново поверх (значение `install.version` в конфиге при загрузке заменяется). Модели картинок установщик не качает — их скачивает Imagecaster. Каталоги движков sd.cpp и llama.cpp получают суффикс платформы (`sd-cpp-windows`, `llama-cpp-linux`, …): папка данных может быть общим томом у Windows и Linux, а сборки движков несовместимы между ОС — каждая держит свою. Старый каталог без суффикса при первом запуске переносится на новое имя, если в нём лежит бинарник текущей ОС (чужая сборка остаётся на месте), пути в старых конфигах обновляются автоматически.
 
 Если у старого конфига нет секции `sdcpp`, а папка моделей Forge есть на диске, `sdcpp` берёт её папки как есть (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), ничего не копируя. Если папки активного движка нет, берётся папка прежнего активного движка, затем Forge Neo, затем любого другого движка из конфига.
 
 **Forge Neo** 2.31 (`forge-neo`, вариант отката: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip-архив тега). После распаковки ставятся git (если его нет), uv (закреплённая версия, контрольная сумма проверяется) и выполняется `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo запускается командой `launch.py --listen --api --uv` и при первом запуске сам ставит PyTorch и свои зависимости (по умолчанию сборка под CUDA 13; на macOS `TORCH_COMMAND` ставит обычный torch). Сервер задаёт для него `VIRTUAL_ENV` и папки кэша и Python для uv. Если настройка сорвалась после скачивания, следующий запуск только доделает её. Бэкенд, у которого бинарник уже есть, никогда не переустанавливается.
 
-**llama.cpp** (`active_llm: llamacpp`, по умолчанию для новых установок). Сервер скачивает готовую сборку `llama-server` версии `b12283` в `engines/llama-cpp` и проверяет sha256:
+**llama.cpp** (`active_llm: llamacpp`, по умолчанию для новых установок). Сервер скачивает готовую сборку `llama-server` версии `b12283` в `engines/llama-cpp-<ОС>` и проверяет sha256:
 
 | Система | NVIDIA | Vulkan | Без видеокарты |
 |---|---|---|---|
-| Windows x64 | `win-cuda-12.4` (библиотеки CUDA берутся из `engines/sd-cpp`, если их там нет — качается `cudart-llama-bin-win-cuda-12.4`, 391 МБ) | `win-vulkan` | `win-cpu` |
-| Linux x64 | `ubuntu-cuda-12.8` (библиотеки CUDA — из `engines/sd-cpp`, иначе `cudart-…-ubuntu-cuda-12.8`, 594 МБ) | `ubuntu-vulkan` | `ubuntu-x64` |
+| Windows x64 | `win-cuda-12.4` (библиотеки CUDA берутся из `engines/sd-cpp-<ОС>`, если их там нет — качается `cudart-llama-bin-win-cuda-12.4`, 391 МБ) | `win-vulkan` | `win-cpu` |
+| Linux x64 | `ubuntu-cuda-12.8` (библиотеки CUDA — из `engines/sd-cpp-<ОС>`, иначе `cudart-…-ubuntu-cuda-12.8`, 594 МБ) | `ubuntu-vulkan` | `ubuntu-x64` |
 | macOS | `macos-arm64` / `macos-x64` (Metal) | | |
 
 Сборки Linux требуют `libssl.so.3` в системе. `llama-server` работает в режиме нескольких моделей (router) на `127.0.0.1:11435`, а сервер сам отвечает на порту `11434` и на `/api/llm/` как Ollama (см. «API»). Модели берутся из `models/ollama` в формате Ollama как есть, без копирования: блоб модели и, у моделей с картинками, отдельный блоб projector. Модели, которые Ollama собрала в свой формат (например `qwen2.5vl:7b`, один блоб без projector), llama.cpp не открывает — запрос к ним и `/api/pull` отвечают понятной ошибкой; берите GGUF с hf.co (`hf.co/<user>/<repo>:<квант>`).
@@ -180,7 +180,7 @@ processes:
     max_restart: 5
   llm:                        # llama-server, запускается только при active_llm: llamacpp
     name: llama.cpp
-    binary: engines/llama-cpp/llama-server
+    binary: engines/llama-cpp-linux/llama-server
     health_url: http://localhost:11434/health
     target_url: http://localhost:11434
     proxy_path: /api/llm/
@@ -188,7 +188,7 @@ processes:
     autostart: true
     restart: true
     max_restart: 5
-    install: {method: release, target: engines/llama-cpp, version: b12283}
+    install: {method: release, target: engines/llama-cpp-linux, version: b12283}
 
 backends:
   forge-neo:

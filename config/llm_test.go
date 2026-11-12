@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -98,10 +99,10 @@ func TestNewInstallUsesLlamaCpp(t *testing.T) {
 	reloaded.ApplyLLMBackend()
 	llm := reloaded.Processes[LlamaCppProcessKey]
 	assert.True(t, llm.AutoStart)
-	assert.Equal(t, filepath.Join(dir, "engines", "llama-cpp", "llama-server"+exeSuffix()), llm.Binary)
+	assert.Equal(t, filepath.Join(dir, "engines", "llama-cpp-"+runtime.GOOS, "llama-server"+exeSuffix()), llm.Binary)
 	assert.Equal(t, InstallRelease, llm.Install.Method)
 	assert.Equal(t, LlamaCppVersion, llm.Install.Version)
-	assert.Equal(t, filepath.Join(dir, "engines", "llama-cpp"), llm.Install.Target)
+	assert.Equal(t, filepath.Join(dir, "engines", "llama-cpp-"+runtime.GOOS), llm.Install.Target)
 	ol := reloaded.Processes["ollama"]
 	assert.False(t, ol.AutoStart)
 	assert.Empty(t, ol.ProxyPath)
