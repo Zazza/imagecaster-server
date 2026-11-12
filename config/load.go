@@ -25,6 +25,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
+	data, prevSD := migrateEngines(path, data)
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -47,7 +48,7 @@ func Load(path string) (*Config, error) {
 	cfg.ResolvePaths()
 	cfg.migrateLegacy()
 	if !fileHasBackend(data, SDCppBackendKey) {
-		cfg.adoptForgeModels()
+		cfg.adoptForgeModels(prevSD)
 	}
 	return &cfg, nil
 }
@@ -70,6 +71,7 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
+	data, prevSD := migrateEngines(path, data)
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -92,7 +94,7 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 	cfg.ResolvePaths()
 	cfg.migrateLegacy()
 	if !fileHasBackend(data, SDCppBackendKey) {
-		cfg.adoptForgeModels()
+		cfg.adoptForgeModels(prevSD)
 	}
 	return &cfg, nil
 }

@@ -19,7 +19,6 @@ import (
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 
-	"imagecaster-server/api"
 	"imagecaster-server/attach"
 	"imagecaster-server/config"
 	sdgpu "imagecaster-server/gpu"
@@ -556,17 +555,7 @@ func setupMux(handlers *Handlers, inst *installer.Installer, mm *models.ModelMan
 	mux.Handle("/api/sd/", proxy)
 	mux.Handle("/api/llm/", proxy)
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			api.WriteJSON(w, map[string]interface{}{
-				"name":    "Imagecaster Server",
-				"version": version,
-				"status":  "running",
-			})
-			return
-		}
-		http.NotFound(w, r)
-	})
+	mux.HandleFunc("/", handlers.handleRoot)
 
 	return mux
 }

@@ -106,7 +106,7 @@ Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama дл�
 
 Вместе с движком ставятся ONNX Runtime 1.31.1 (в `engines/onnxruntime`) и модели DWPose с Hugging Face (`yzd-v/DWPose`, в `pose_models_dir`). Обрыв загрузки докачивается с того же места, уже лежащий файл с верной контрольной суммой не скачивается. Готовая установка отмечается файлом `engines/sd-cpp/.installed` с версией. Версия движка задаётся сервером, а не конфигом: новая версия сервера с новой версией sd.cpp ставит движок заново поверх (значение `install.version` в конфиге при загрузке заменяется). Модели картинок установщик не качает — их скачивает Imagecaster.
 
-Если у старого конфига нет секции `sdcpp`, а папка моделей Forge есть на диске, `sdcpp` берёт её папки как есть (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), ничего не копируя. `active_sd` старого конфига не меняется: переключение на sd.cpp — `active_sd: sdcpp`.
+Если у старого конфига нет секции `sdcpp`, а папка моделей Forge есть на диске, `sdcpp` берёт её папки как есть (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), ничего не копируя. Если папки активного движка нет, берётся папка прежнего активного движка, затем Forge Neo, затем любого другого движка из конфига.
 
 **Forge Neo** 2.31 (`forge-neo`, вариант отката: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip-архив тега). После распаковки ставятся git (если его нет), uv (закреплённая версия, контрольная сумма проверяется) и выполняется `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo запускается командой `launch.py --listen --api --uv` и при первом запуске сам ставит PyTorch и свои зависимости (по умолчанию сборка под CUDA 13; на macOS `TORCH_COMMAND` ставит обычный torch). Сервер задаёт для него `VIRTUAL_ENV` и папки кэша и Python для uv. Если настройка сорвалась после скачивания, следующий запуск только доделает её. Бэкенд, у которого бинарник уже есть, никогда не переустанавливается.
 
@@ -122,7 +122,7 @@ Imagecaster Server запускает Stable Diffusion Forge Neo и Ollama дл�
 
 **Ollama** — вариант отката (`active_llm: ollama`). По умолчанию не ставится и не запускается. При откате: если Ollama уже есть в системе (или уже работает на 11434), используется она. Иначе она ставится в `<data>/ollama`: Windows — отдельный zip (без установки в систему и без автозапуска), Linux — архив `.tar.zst`, macOS — Homebrew или универсальный `ollama-darwin.tgz`. Распаковка идёт сначала во временную папку, поэтому прерванная установка выполняется заново.
 
-Старые конфиги без поля `active_llm` продолжают работать с Ollama, как раньше: ничего не скачивается и не переключается. Переход на llama.cpp — одна строка `active_llm: llamacpp` и перезапуск сервера; модели остаются те же (`models/ollama`, или папка из `OLLAMA_MODELS` процесса `ollama`).
+**Переход со старой версии.** Конфиг без поля `active_llm` (записан версией до llama.cpp) при первом запуске новой версии переводится на новые движки: `active_sd: sdcpp` и `active_llm: llamacpp`. Только на системах, для которых есть сборка sd.cpp (Windows x64, Linux x64, macOS на Apple Silicon); на остальных конфиг остаётся на Forge Neo и Ollama. Прежний конфиг сохраняется рядом как `server-config.yaml.bak-before-sdcpp` (уже существующая копия не перезаписывается), комментарии в конфиге остаются. Модели не копируются и не качаются: sd.cpp берёт папки Forge (см. выше), llama.cpp — хранилище Ollama (`models/ollama`, или папка из `OLLAMA_MODELS` процесса `ollama`). Forge Neo и Ollama не удаляются. Если конфиг нельзя записать, переход действует только на этот запуск, причина пишется в журнал. Откат — вернуть копию конфига (пока копия `.bak-before-sdcpp` лежит рядом, конфиг без `active_llm` повторно не переводится и работает на Forge Neo и Ollama) или поменять одну из строк на `active_sd: forge-neo` / `active_llm: ollama`. Конфиг, где `active_llm` уже есть, не трогается; папки моделей при следующих запусках берутся у того же прежнего движка, что и в первый раз.
 
 Старые конфиги: `active_sd: forge` (классический Forge) переключается на Forge Neo. Старая папка Forge остаётся на диске — перенесите её модели в `sd-webui-forge-neo/models`. Старая запись процесса `python` удаляется.
 
@@ -275,7 +275,7 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 
 | Эндпоинт | Метод | Что делает |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status}` |
+| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` или `forge`, `llamacpp` или `ollama`, `download_stream`. Старые версии сервера поля не отдают |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, процессор и память компьютера `sys` |
 | `/api/server/start/{name}` | POST | запустить процесс |
 | `/api/server/stop/{name}` | POST | остановить процесс |

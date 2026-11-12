@@ -185,7 +185,7 @@ func TestLoadOldConfigWithoutSDCppSection(t *testing.T) {
 			prepare: func(t *testing.T, dataDir, _ string) {
 				sddTouch(t, filepath.Join(dataDir, "sd-webui-forge-neo", "models", "Stable-diffusion", "model.safetensors"))
 			},
-			wantActive: NeoBackendKey,
+			wantActive: SDCppBackendKey,
 			want: func(dataDir, _ string) map[string]string {
 				m := filepath.Join(dataDir, "sd-webui-forge-neo", "models")
 				return sddForgeDirs(filepath.Join(m, "Stable-diffusion"), filepath.Join(m, "Lora"), filepath.Join(m, "VAE"))
@@ -200,7 +200,7 @@ func TestLoadOldConfigWithoutSDCppSection(t *testing.T) {
 			prepare: func(t *testing.T, _, forgeRoot string) {
 				sddTouch(t, filepath.Join(forgeRoot, "models", "Stable-diffusion", "model.safetensors"))
 			},
-			wantActive: NeoBackendKey,
+			wantActive: SDCppBackendKey,
 			want: func(_, forgeRoot string) map[string]string {
 				m := filepath.Join(forgeRoot, "models")
 				return sddForgeDirs(filepath.Join(m, "Stable-diffusion"), filepath.Join(m, "Lora"), filepath.Join(m, "VAE"))
@@ -216,7 +216,7 @@ func TestLoadOldConfigWithoutSDCppSection(t *testing.T) {
 				sddTouch(t, filepath.Join(forgeRoot, "m", "ckpt", "model.safetensors"))
 				sddTouch(t, filepath.Join(dataDir, "sd-webui-forge-neo", "models", "Stable-diffusion", "other.safetensors"))
 			},
-			wantActive: "my-forge",
+			wantActive: SDCppBackendKey,
 			want: func(_, forgeRoot string) map[string]string {
 				return sddForgeDirs(filepath.Join(forgeRoot, "m", "ckpt"), filepath.Join(forgeRoot, "l"), filepath.Join(forgeRoot, "v"))
 			},
@@ -227,7 +227,7 @@ func TestLoadOldConfigWithoutSDCppSection(t *testing.T) {
 				return "active_sd: forge-neo\n"
 			},
 			prepare:    func(t *testing.T, _, _ string) {},
-			wantActive: NeoBackendKey,
+			wantActive: SDCppBackendKey,
 			want: func(dataDir, _ string) map[string]string {
 				m := map[string]string{}
 				for k, rel := range sddOwnDirs {
@@ -284,7 +284,7 @@ func TestLoadKeepsExplicitSDCppSection(t *testing.T) {
 			cfg, err := load(writeYAML(t, body))
 			require.NoError(t, err)
 
-			assert.Equal(t, NeoBackendKey, cfg.ActiveSD)
+			assert.Equal(t, SDCppBackendKey, cfg.ActiveSD)
 			sd := cfg.Backends[SDCppBackendKey]
 			assert.Equal(t, filepath.FromSlash(mine+"/ckpt"), sd.ModelsDir)
 			assert.Equal(t, filepath.FromSlash(mine+"/lora"), sd.LoraDir)

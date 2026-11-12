@@ -106,7 +106,7 @@ Own Linux builds are needed because upstream builds require glibc 2.43 (Ubuntu 2
 
 ONNX Runtime 1.31.1 (into `engines/onnxruntime`) and the DWPose models from Hugging Face (`yzd-v/DWPose`, into `pose_models_dir`) are installed with the engine. A cut download resumes where it stopped; a file already in place with the right checksum is not downloaded. A finished install is marked by `engines/sd-cpp/.installed` with the version. The engine version is set by the server, not the config: a newer server with a newer sd.cpp installs the engine again over the old one (`install.version` in the config is replaced on load). The installer does not download image models — Imagecaster does.
 
-If an old config has no `sdcpp` section and the Forge models folder exists, `sdcpp` uses its folders as they are (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), copying nothing. `active_sd` of an old config is not changed: switch with `active_sd: sdcpp`.
+If an old config has no `sdcpp` section and the Forge models folder exists, `sdcpp` uses its folders as they are (`Stable-diffusion`, `Lora`, `VAE`, `text_encoder`, `ControlNetPreprocessor/openpose`, `ESRGAN`), copying nothing. If the active backend has no models folder, the folder of the previously active backend is used, then Forge Neo, then any other backend in the config.
 
 **Forge Neo** 2.31 (`forge-neo`, rollback option: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip of the tag). After unpacking: git (if missing), uv (pinned version, checksum checked), `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo starts with `launch.py --listen --api --uv` and installs PyTorch and its requirements itself on the first start (CUDA 13 build by default; on macOS `TORCH_COMMAND` installs the plain torch). The server sets `VIRTUAL_ENV` and the uv cache/python folders for it. If setup fails after the download, the next start only finishes the setup. A backend whose binary already exists is never reinstalled.
 
@@ -122,7 +122,7 @@ Linux builds need `libssl.so.3` in the system. `llama-server` runs in multi-mode
 
 **Ollama** is the rollback option (`active_llm: ollama`); by default it is neither installed nor started. On rollback an Ollama already in the system (or already running on 11434) is used. Otherwise it is installed into `<data>/ollama`: Windows — the standalone zip (no system install, no autostart), Linux — the `.tar.zst` archive, macOS — Homebrew, or the universal `ollama-darwin.tgz`. Extraction goes into a temporary folder first, so an interrupted install is redone.
 
-Old configs without `active_llm` keep working with Ollama as before: nothing is downloaded or switched. Moving to llama.cpp is one line, `active_llm: llamacpp`, and a server restart; the models stay the same (`models/ollama`, or the `OLLAMA_MODELS` folder of the `ollama` process).
+**Upgrading from an old version.** A config without `active_llm` (written by a version before llama.cpp) is moved to the new engines on the first start of the new version: `active_sd: sdcpp` and `active_llm: llamacpp`. Only on systems with an sd.cpp build (Windows x64, Linux x64, macOS Apple Silicon); elsewhere the config stays on Forge Neo and Ollama. The previous config is saved next to it as `server-config.yaml.bak-before-sdcpp` (an existing copy is not overwritten); comments in the config stay. Models are neither copied nor downloaded: sd.cpp uses the Forge folders (see above), llama.cpp the Ollama store (`models/ollama`, or the `OLLAMA_MODELS` folder of the `ollama` process). Forge Neo and Ollama are not removed. If the config cannot be written, the switch applies to this run only and the reason goes to the log. Rollback: restore the copy (while `.bak-before-sdcpp` is next to it, a config without `active_llm` is not switched again and runs on Forge Neo and Ollama), or change one line to `active_sd: forge-neo` / `active_llm: ollama`. A config that already has `active_llm` is left alone; on later starts the model folders come from the same previous backend as on the first start.
 
 Old configs: `active_sd: forge` (classic Forge) switches to Forge Neo; the old Forge folder stays on disk — move its models to `sd-webui-forge-neo/models`. The old `python` process entry is dropped.
 
@@ -275,7 +275,7 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 
 | Endpoint | Method | What it does |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status}` |
+| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` or `forge`, `llamacpp` or `ollama`, `download_stream`. Old server versions don't send it |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, host CPU/RAM `sys` |
 | `/api/server/start/{name}` | POST | start a process |
 | `/api/server/stop/{name}` | POST | stop a process |

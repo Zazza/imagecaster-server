@@ -183,13 +183,19 @@ func venvOf(binary string) string {
 	return ""
 }
 
-func (c *Config) adoptForgeModels() {
+func (c *Config) adoptForgeModels(prevSD string) {
 	sd, ok := c.Backends[SDCppBackendKey]
 	if !ok {
 		return
 	}
 	var forge *BackendConfig
-	for _, key := range []string{c.ActiveSD, NeoBackendKey} {
+	keys := []string{c.ActiveSD, prevSD, NeoBackendKey}
+	rest := make([]string, 0, len(c.Backends))
+	for key := range c.Backends {
+		rest = append(rest, key)
+	}
+	sort.Strings(rest)
+	for _, key := range append(keys, rest...) {
 		if b, ok := c.Backends[key]; ok && b.Kind != KindSDCpp && dirExists(b.ModelsDir) {
 			forge = &b
 			break

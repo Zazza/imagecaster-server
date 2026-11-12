@@ -246,3 +246,27 @@ func (h *Handlers) fetchOllamaRunningModels(client *http.Client, baseURL string)
 	}
 	return names
 }
+
+func (h *Handlers) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	api.WriteJSON(w, map[string]interface{}{
+		"name":     "Imagecaster Server",
+		"version":  version,
+		"status":   "running",
+		"features": h.features(),
+	})
+}
+
+func (h *Handlers) features() []string {
+	out := []string{}
+	if b := h.config.GetActiveBackend(); b != nil && b.Kind == config.KindSDCpp {
+		out = append(out, "sdcpp")
+	} else {
+		out = append(out, "forge")
+	}
+	out = append(out, h.config.LLMActive(), "download_stream")
+	return out
+}

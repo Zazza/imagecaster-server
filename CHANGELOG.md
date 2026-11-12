@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Upgrading from an old version moves the server to sd.cpp and llama.cpp on the first start: models stay where they are (Forge folders, Ollama store), nothing is downloaded; the old config is kept as `server-config.yaml.bak-before-sdcpp`, Forge Neo and Ollama stay for rollback. Systems without an sd.cpp build (Linux ARM, Intel Mac, Windows ARM) stay on Forge Neo and Ollama
+
+### Added
+- `GET /` lists `features` (active engines and capabilities), so Imagecaster can tell an old server from a new one
+
 ## [1.2.0] — 2026-11-05
 
 ### Added

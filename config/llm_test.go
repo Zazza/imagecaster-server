@@ -59,22 +59,26 @@ func guardNames(gs []PortGuard) []string {
 	return out
 }
 
-func TestOldConfigKeepsOllama(t *testing.T) {
+func TestOldConfigMovesToNewEngines(t *testing.T) {
 	cfg := loadText(t, oldConfig184)
-	assert.Equal(t, LLMOllama, cfg.ActiveLLM)
-	assert.Equal(t, "ollama", cfg.LLMProcessKey())
+	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
+	assert.Equal(t, LlamaCppProcessKey, cfg.LLMProcessKey())
+	assert.Equal(t, SDCppBackendKey, cfg.ActiveSD)
+	assert.Equal(t, KindSDCpp, cfg.GetActiveBackend().Kind)
 
 	cfg.ApplyLLMBackend()
-	ol := cfg.Processes["ollama"]
-	assert.True(t, ol.AutoStart)
-	assert.Equal(t, "/api/llm/", ol.ProxyPath)
-	assert.Equal(t, []string{"serve"}, ol.Args)
-	if llm, ok := cfg.Processes[LlamaCppProcessKey]; ok {
-		assert.False(t, llm.AutoStart, "llama.cpp must not start on an old Ollama install")
-		assert.Empty(t, llm.ProxyPath)
-		assert.Empty(t, llm.Install.Method)
-	}
+	assert.True(t, cfg.Processes[LlamaCppProcessKey].AutoStart)
+	assert.Equal(t, "/api/llm/", cfg.Processes[LlamaCppProcessKey].ProxyPath)
+	assert.False(t, cfg.Processes["ollama"].AutoStart)
+	assert.Empty(t, cfg.Processes["ollama"].ProxyPath)
+	assert.Equal(t, []string{"serve"}, cfg.Processes["ollama"].Args, "ollama settings stay for rollback")
+}
 
+func TestOllamaChosenExplicitlyStays(t *testing.T) {
+	cfg := loadText(t, "active_llm: ollama\n"+oldConfig184)
+	assert.Equal(t, LLMOllama, cfg.ActiveLLM)
+	cfg.ApplyLLMBackend()
+	assert.True(t, cfg.Processes["ollama"].AutoStart)
 	guards := cfg.ApplyPortGuard()
 	assert.Equal(t, []string{"ollama", "sd"}, guardNames(guards))
 	assert.Equal(t, "127.0.0.1:11435", cfg.Processes["ollama"].Env["OLLAMA_HOST"])

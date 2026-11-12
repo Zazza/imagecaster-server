@@ -71,7 +71,7 @@ func TestLoadMigratesLegacyConfig(t *testing.T) {
 		for lname, load := range loaders(t.TempDir()) {
 			t.Run(tt.name+"/"+lname, func(t *testing.T) {
 				dataDir := t.TempDir()
-				body := "data_dir: " + filepath.ToSlash(dataDir) + "\n" + tt.yaml
+				body := "data_dir: " + filepath.ToSlash(dataDir) + "\nactive_llm: ollama\n" + tt.yaml
 				cfg, err := load(writeYAML(t, body))
 				require.NoError(t, err)
 
