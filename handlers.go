@@ -20,11 +20,12 @@ import (
 )
 
 type Handlers struct {
-	manager   *process.ProcessManager
-	health    *sdhealth.HealthMonitor
-	gpu       *sdgpu.GPUMonitor
-	config    *config.Config
-	installer *installer.Installer
+	manager    *process.ProcessManager
+	health     *sdhealth.HealthMonitor
+	gpu        *sdgpu.GPUMonitor
+	config     *config.Config
+	installer  *installer.Installer
+	llmRunning func() []string
 }
 
 type sysJSON struct {
@@ -207,7 +208,11 @@ func (h *Handlers) fetchModels() map[string]interface{} {
 		}
 	}
 
-	if pc, ok := h.config.Process("ollama"); ok && pc.TargetURL != "" {
+	if h.llmRunning != nil {
+		if names := h.llmRunning(); len(names) > 0 {
+			models["llm_running"] = names
+		}
+	} else if pc, ok := h.config.Process("ollama"); ok && pc.TargetURL != "" {
 		llmModels := h.fetchOllamaRunningModels(client, pc.TargetURL)
 		if len(llmModels) > 0 {
 			models["llm_running"] = llmModels

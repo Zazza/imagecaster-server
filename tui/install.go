@@ -145,6 +145,8 @@ func componentLabel(key string) string {
 		return "stable-diffusion.cpp"
 	case "ollama":
 		return "Ollama"
+	case "llm":
+		return "llama.cpp"
 	default:
 		return key
 	}

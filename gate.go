@@ -32,6 +32,7 @@ type GateConfig struct {
 }
 
 type Gate struct {
+	beforeSD       func(ctx context.Context, sdWeightMB int)
 	q              *gpuqueue.Queue
 	cfg            GateConfig
 	sdw            *sdWeightTracker
@@ -84,8 +85,15 @@ func (g *Gate) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		defer lease.Release()
+		if g.beforeSD != nil && gateKind(r.URL.Path) == gpuqueue.KindSD {
+			g.beforeSD(r.Context(), weight)
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (g *Gate) SetBeforeSD(fn func(ctx context.Context, sdWeightMB int)) {
+	g.beforeSD = fn
 }
 
 func (g *Gate) weight(r *http.Request) int {

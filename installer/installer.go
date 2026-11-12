@@ -32,6 +32,7 @@ type Installer struct {
 	installMu        map[string]*sync.Mutex
 	backendSetup     func(target string, lb *process.RingBuffer) error
 	ReleaseArtifacts func() ([]Artifact, error)
+	LlamaArtifacts   func() ([]Artifact, error)
 	OnProgress       func(key, progress string)
 	ctx              context.Context
 	cancel           context.CancelFunc
@@ -105,8 +106,12 @@ func (inst *Installer) installPlan() []string {
 	if inst.backendAutoStarts() {
 		plan = append(plan, inst.config.ActiveSD)
 	}
-	if pc, ok := inst.config.Process("ollama"); ok && pc.AutoStart {
-		plan = append(plan, "ollama")
+	llm := inst.config.LLMProcessKey()
+	if inst.config.ActiveLLM == "" {
+		llm = "ollama"
+	}
+	if pc, ok := inst.config.Process(llm); ok && pc.AutoStart && (llm == "ollama" || pc.Install.Method != "") {
+		plan = append(plan, llm)
 	}
 	return plan
 }

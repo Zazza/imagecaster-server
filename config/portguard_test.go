@@ -23,7 +23,7 @@ func TestApplyPortGuard_Disabled(t *testing.T) {
 
 func TestApplyPortGuard_Default(t *testing.T) {
 	t.Parallel()
-	c := NewDefault()
+	c := ollamaDefault()
 	guards := c.ApplyPortGuard()
 
 	assert.Equal(t, []PortGuard{
@@ -35,7 +35,7 @@ func TestApplyPortGuard_Default(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:7861/sdapi/v1/options", c.Processes["sd"].HealthURL)
 	assert.Equal(t, "http://127.0.0.1:11435", c.Processes["ollama"].TargetURL)
 	assert.Equal(t, "http://127.0.0.1:11435/api/tags", c.Processes["ollama"].HealthURL)
-	assert.Equal(t, NewDefault().Processes["python"], c.Processes["python"])
+	assert.Equal(t, ollamaDefault().Processes["python"], c.Processes["python"])
 }
 
 func TestApplyPortGuard_LoopbackHosts(t *testing.T) {
@@ -221,10 +221,10 @@ func TestApplyPortGuard_OllamaEnvNotAliased(t *testing.T) {
 	assert.Equal(t, "127.0.0.1:11435", c.Processes["ollama"].Env["OLLAMA_HOST"])
 	assert.Equal(t, "0.0.0.0:11434", shared["OLLAMA_HOST"])
 
-	d := NewDefault()
+	d := ollamaDefault()
 	d.ApplyPortGuard()
 	assert.Equal(t, "127.0.0.1:11435", d.Processes["ollama"].Env["OLLAMA_HOST"])
-	assert.Equal(t, "0.0.0.0:11434", NewDefault().Processes["ollama"].Env["OLLAMA_HOST"])
+	assert.Equal(t, "0.0.0.0:11434", ollamaDefault().Processes["ollama"].Env["OLLAMA_HOST"])
 }
 
 func TestApplyPortGuard_SDArgs(t *testing.T) {
@@ -355,7 +355,7 @@ func TestApplyPortGuard_AutoStartOnly(t *testing.T) {
 
 func TestApplyPortGuard_DefaultAutoStartOff(t *testing.T) {
 	t.Parallel()
-	c := NewDefault()
+	c := ollamaDefault()
 	o := c.Processes["ollama"]
 	o.AutoStart = false
 	c.Processes["ollama"] = o
@@ -368,7 +368,7 @@ func TestApplyPortGuard_DefaultAutoStartOff(t *testing.T) {
 
 func TestApplyPortGuardIf_AllowCalledPerCandidate(t *testing.T) {
 	t.Parallel()
-	c := NewDefault()
+	c := ollamaDefault()
 	var asked []PortGuard
 	guards := c.ApplyPortGuardIf(func(g PortGuard) bool {
 		asked = append(asked, g)
@@ -397,9 +397,9 @@ func TestApplyPortGuardIf_Deny(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := NewDefault()
-			before := NewDefault().Processes
-			guarded := NewDefault()
+			c := ollamaDefault()
+			before := ollamaDefault().Processes
+			guarded := ollamaDefault()
 			guarded.ApplyPortGuard()
 
 			guards := c.ApplyPortGuardIf(func(g PortGuard) bool { return !tt.deny[g.Process] })
@@ -460,4 +460,10 @@ func TestApplyPortGuardIf_Disabled(t *testing.T) {
 	c.GPU.GuardPorts = false
 	assert.Nil(t, c.ApplyPortGuardIf(func(PortGuard) bool { return true }))
 	assert.Equal(t, NewDefault().Processes, c.Processes)
+}
+
+func ollamaDefault() Config {
+	c := NewDefault()
+	c.ActiveLLM = LLMOllama
+	return c
 }

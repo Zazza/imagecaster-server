@@ -27,7 +27,8 @@ func init() {
 		SDCppBackendKey: sdcppInstall(),
 	}
 	InstallDefaultsProcesses = map[string]InstallConfig{
-		"ollama": {},
+		"ollama":           {},
+		LlamaCppProcessKey: llamaInstall(),
 	}
 }
 
@@ -179,10 +180,12 @@ func dataDirIn(home string) string {
 
 func NewDefault() Config {
 	return Config{
-		Port:     8080,
-		MDNS:     true,
-		DataDir:  "",
-		ActiveSD: defaultActiveSD(runtime.GOOS, runtime.GOARCH),
+		Port:      8080,
+		MDNS:      true,
+		DataDir:   "",
+		ActiveSD:  defaultActiveSD(runtime.GOOS, runtime.GOARCH),
+		ActiveLLM: LLMLlamaCpp,
+		LLM:       defaultLLMConfig(),
 		GPU: GPUConfig{
 			TotalBudgetMB:     0,
 			ReserveMB:         500,
@@ -225,6 +228,7 @@ func NewDefault() Config {
 				MaxRestart:   5,
 				Install:      InstallConfig{},
 			},
+			LlamaCppProcessKey: llamaProcess(),
 		},
 		Backends: map[string]BackendConfig{
 			SDCppBackendKey: sdcppBackend(),

@@ -181,7 +181,7 @@ func (inst *Installer) artifactDest(key string, a Artifact) string {
 }
 
 func (inst *Installer) installRelease(key string, ic config.InstallConfig, lb *process.RingBuffer) error {
-	arts, err := inst.releaseArtifacts()
+	arts, err := inst.artifactsFor(key)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (inst *Installer) installRelease(key string, ic config.InstallConfig, lb *p
 		}
 	}
 	if runtime.GOOS != "windows" {
-		for _, name := range []string{"sd-server", "sd-cli"} {
+		for _, name := range []string{"sd-server", "sd-cli", "llama-server"} {
 			if p := filepath.Join(target, name); fileExists(p) {
 				if err := os.Chmod(p, 0o755); err != nil {
 					return err
@@ -445,8 +445,28 @@ func extractTgzStrip(archive, root string, strip int) error {
 			if err := writeTarFile(dest, tr, hdr.FileInfo().Mode().Perm()); err != nil {
 				return err
 			}
+		case tar.TypeSymlink:
+			if err := writeTarSymlink(root, dest, hdr.Linkname); err != nil {
+				return err
+			}
 		}
 	}
+}
+
+func writeTarSymlink(root, dest, link string) error {
+	if filepath.IsAbs(link) || strings.Contains(filepath.ToSlash(link), "..") {
+		return fmt.Errorf("tar symlink escapes target: %s -> %s", dest, link)
+	}
+	if _, err := safeJoin(root, filepath.Join(filepath.Dir(strings.TrimPrefix(dest, root)), link)); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(link, dest)
 }
 
 func writeTarFile(dest string, r io.Reader, perm os.FileMode) error {

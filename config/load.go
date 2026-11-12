@@ -33,6 +33,10 @@ func Load(path string) (*Config, error) {
 		cfg.DataDir = DefaultDataDir()
 	}
 
+	if !fileHasKey(data, "active_llm") {
+		cfg.ActiveLLM = LLMOllama
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -72,6 +76,10 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 
 	if cfg.DataDir == "" {
 		cfg.DataDir = dataDir
+	}
+
+	if !fileHasKey(data, "active_llm") {
+		cfg.ActiveLLM = LLMOllama
 	}
 
 	if err := cfg.Validate(); err != nil {

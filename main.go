@@ -27,6 +27,7 @@ import (
 	sdhealth "imagecaster-server/health"
 	"imagecaster-server/i18n"
 	"imagecaster-server/installer"
+	"imagecaster-server/llamacpp"
 	"imagecaster-server/models"
 	"imagecaster-server/process"
 	"imagecaster-server/tui"
@@ -114,18 +115,22 @@ type appDeps struct {
 	hm     *sdhealth.HealthMonitor
 	gm     *sdgpu.GPUMonitor
 	guards *portGuards
-	mux    *http.ServeMux
+	mux    http.Handler
 	q      *gpuqueue.Queue
 	sdw    *sdWeightTracker
+	llm    *llamacpp.Facade
 }
 
 func initApp(cfg *config.Config) *appDeps {
 	gpuOpt := sdgpu.NewOptimizerAdapter()
 	cfg.ApplyBackendToProcess(gpuOpt)
+	cfg.ApplyLLMBackend()
+	applyLlamaEnv(cfg)
 	if cfg.DetectedVRAMMB == 0 {
 		cfg.DetectedVRAMMB = gpuOpt.DetectGPU()
 	}
 	guardSpecs, guardWarns, guardHeld := holdPortGuards(cfg)
+	cfg.PinLlamaInternal()
 
 	inst := installer.NewInstaller(cfg)
 	pm := process.NewProcessManager(cfg, inst, cfg.DataDir)
@@ -164,7 +169,16 @@ func initApp(cfg *config.Config) *appDeps {
 		proxy.SetHandler("/api/sd/", f)
 		log.Printf("SD backend: sd.cpp facade on /api/sd/")
 	}
+	lf := newLlamaFacade(cfg, pm)
+	if lf != nil {
+		proxy.SetHandler("/api/llm/", lf)
+		gate.SetBeforeSD(llmEvictor(lf, q.Budget, cfg.GPU.LLMWeightMB))
+		log.Printf("LLM backend: llama.cpp with Ollama API on /api/llm/")
+	}
 	handlers := NewHandlers(pm, hm, gm, cfg, inst)
+	if lf != nil {
+		handlers.llmRunning = lf.RunningNames
+	}
 	mux := setupMux(handlers, inst, mm, bm, proxy)
 	gpuqueue.NewAPI(q).RegisterRoutes(mux)
 
@@ -175,7 +189,7 @@ func initApp(cfg *config.Config) *appDeps {
 
 	return &appDeps{
 		cfg: cfg, inst: inst, pm: pm, hm: hm, gm: gm,
-		guards: guards, mux: mux, q: q, sdw: sdw,
+		guards: guards, mux: withLLMServerRoutes(lf, mux), q: q, sdw: sdw, llm: lf,
 	}
 }
 
@@ -185,11 +199,16 @@ func (d *appDeps) startMonitors(ctx context.Context) {
 	go d.gm.Start(ctx)
 	d.q.Start(ctx)
 	go d.sdw.refresh(ctx)
+	if d.llm != nil {
+		d.llm.Start(ctx)
+	}
 }
 
 func (d *appDeps) ensureInstalled() {
 	d.inst.EnsureAllInstalled()
-	ensureOllamaBinary(d.cfg, d.pm, d.inst, d.gm)
+	if d.cfg.LLMProcessKey() == "ollama" {
+		ensureOllamaBinary(d.cfg, d.pm, d.inst, d.gm)
+	}
 }
 
 func (d *appDeps) newServer() *http.Server {

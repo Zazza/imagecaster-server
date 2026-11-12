@@ -94,6 +94,7 @@ func (c *Config) ApplyInstallDefaults() {
 			c.Backends[key] = bc
 		}
 	}
+	c.pinLlamaVersion()
 	for key, def := range InstallDefaultsProcesses {
 		if pc, ok := c.Processes[key]; ok && pc.Install.Method == "" {
 			pc.Install = def
@@ -257,6 +258,9 @@ func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
 	var guards []PortGuard
 	for _, key := range keys {
 		pc := c.Processes[key]
+		if c.inactiveLLM(key) {
+			continue
+		}
 		if !pc.AutoStart || pc.ProxyPath == "" || pc.TargetURL == "" {
 			continue
 		}
@@ -303,6 +307,9 @@ func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
 		}
 		pc.Env = env
 
+		if key == LlamaCppProcessKey {
+			pc.Args = llamaArgsOnPort(pc.Args, internal)
+		}
 		if pc.ProxyPath == "/api/sd/" {
 			if c.SDCppActive(key) {
 				pc.Args = sdcppArgsOnPort(pc.Args, internal)

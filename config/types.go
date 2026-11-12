@@ -18,6 +18,8 @@ type Config struct {
 	Lang           string                   `yaml:"lang,omitempty"`
 	DataDir        string                   `yaml:"data_dir"`
 	ActiveSD       string                   `yaml:"active_sd"`
+	ActiveLLM      string                   `yaml:"active_llm,omitempty"`
+	LLM            LLMConfig                `yaml:"llm,omitempty"`
 	DetectedVRAMMB int                      `yaml:"detected_vram_mb"`
 	Processes      map[string]ProcessConfig `yaml:"processes"`
 	Backends       map[string]BackendConfig `yaml:"backends"`

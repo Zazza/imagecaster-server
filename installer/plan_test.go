@@ -14,15 +14,15 @@ func TestInstallPlan(t *testing.T) {
 		mutate func(c *config.Config)
 		want   []string
 	}{
-		{"default", func(c *config.Config) {}, []string{config.SDCppBackendKey, "ollama"}},
-		{"sd off", func(c *config.Config) { setAuto(c, "sd", false) }, []string{"ollama"}},
-		{"ollama off", func(c *config.Config) { setAuto(c, "ollama", false) }, []string{config.SDCppBackendKey}},
-		{"both off", func(c *config.Config) { setAuto(c, "sd", false); setAuto(c, "ollama", false) }, nil},
+		{"default", func(c *config.Config) {}, []string{config.SDCppBackendKey, config.LlamaCppProcessKey}},
+		{"sd off", func(c *config.Config) { setAuto(c, "sd", false) }, []string{config.LlamaCppProcessKey}},
+		{"llm off", func(c *config.Config) { setAuto(c, config.LlamaCppProcessKey, false) }, []string{config.SDCppBackendKey}},
+		{"both off", func(c *config.Config) { setAuto(c, "sd", false); setAuto(c, config.LlamaCppProcessKey, false) }, nil},
 		{"custom backend", func(c *config.Config) {
 			b := c.Backends[config.NeoBackendKey]
 			c.Backends["custom"] = b
 			c.ActiveSD = "custom"
-		}, []string{"custom", "ollama"}},
+		}, []string{"custom", config.LlamaCppProcessKey}},
 		{"custom backend own process", func(c *config.Config) {
 			b := c.Backends[config.NeoBackendKey]
 			b.ProcessKey = "sd2"
@@ -30,15 +30,16 @@ func TestInstallPlan(t *testing.T) {
 			c.ActiveSD = "custom"
 			c.Processes["sd2"] = config.ProcessConfig{AutoStart: true}
 			setAuto(c, "sd", false)
-		}, []string{"custom", "ollama"}},
+		}, []string{"custom", config.LlamaCppProcessKey}},
 		{"custom backend process off", func(c *config.Config) {
 			b := c.Backends[config.NeoBackendKey]
 			b.ProcessKey = "sd2"
 			c.Backends["custom"] = b
 			c.ActiveSD = "custom"
 			c.Processes["sd2"] = config.ProcessConfig{AutoStart: false}
-		}, []string{"ollama"}},
-		{"missing backend", func(c *config.Config) { c.ActiveSD = "nope" }, []string{"ollama"}},
+		}, []string{config.LlamaCppProcessKey}},
+		{"rollback to ollama", func(c *config.Config) { c.ActiveLLM = config.LLMOllama }, []string{config.SDCppBackendKey, "ollama"}},
+		{"missing backend", func(c *config.Config) { c.ActiveSD = "nope" }, []string{config.LlamaCppProcessKey}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -2,8 +2,8 @@ package i18n
 
 var dict = map[string]pair{
 	"wizard.title":              {"Imagecaster Server — Setup", "Imagecaster Server — установка"},
-	"wizard.datadir":            {"Data folder (image engine, models, Ollama — tens of GB):", "Папка данных (движок картинок, модели, Ollama — десятки ГБ):"},
-	"wizard.components":         {"Installs stable-diffusion.cpp (about 1 GB) and pose detection; Ollama only if it isn't in the system yet. Models are downloaded from Imagecaster.", "Будет установлен stable-diffusion.cpp (около 1 ГБ) и распознавание позы; Ollama — только если её ещё нет в системе. Модели скачиваются из Imagecaster."},
+	"wizard.datadir":            {"Data folder (image and text engines, models — tens of GB):", "Папка данных (движки картинок и текста, модели — десятки ГБ):"},
+	"wizard.components":         {"Installs stable-diffusion.cpp (about 1 GB), pose detection and llama.cpp for text models (with an Ollama-compatible API). Models are downloaded from Imagecaster.", "Будет установлен stable-diffusion.cpp (около 1 ГБ), распознавание позы и llama.cpp для текстовых моделей (с API, совместимым с Ollama). Модели скачиваются из Imagecaster."},
 	"wizard.cdrive":             {"  Drive C: — make sure it has enough free space", "  Диск C: — проверьте, что на нём хватит места"},
 	"wizard.help":               {"Enter — install  •  Ctrl+C — quit", "Enter — установить  •  Ctrl+C — выход"},
 	"common.loading":            {"Loading...", "Загрузка..."},
@@ -80,6 +80,6 @@ var dict = map[string]pair{
 	"desktop.tray.console_hint": {"Services, logs and the GPU queue in a console window", "Сервисы, логи и очередь GPU в окне консоли"},
 	"desktop.tray.log":          {"Log", "Журнал"},
 	"desktop.tray.quit":         {"Exit", "Выход"},
-	"desktop.tray.quit_hint":    {"Stop Stable Diffusion, Ollama and the server", "Остановить Stable Diffusion, Ollama и сервер"},
+	"desktop.tray.quit_hint":    {"Stop Stable Diffusion, the text model engine and the server", "Остановить Stable Diffusion, движок текстовых моделей и сервер"},
 	"desktop.tray.quit_busy":    {"The GPU is busy with a job — stop it and exit?", "Видеокарта занята задачей — прервать её и выйти?"},
 }

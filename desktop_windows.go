@@ -271,7 +271,7 @@ func (e *desktopEngine) Snapshot() desktop.Snapshot {
 	snap := desktop.Snapshot{
 		Components: comps,
 		SD:         svc(sdKey),
-		Ollama:     svc("ollama"),
+		Ollama:     svc(cfg.LLMProcessKey()),
 		Addr:       desktop.ConnectAddr(desktop.LANIPs(), cfg.Port),
 	}
 	snap.Phase, snap.Error = desktop.PhaseOf(comps, snap.SD)
@@ -289,7 +289,7 @@ func componentRank(key string, cfg *config.Config) int {
 	switch {
 	case key == cfg.ActiveSD:
 		return 0
-	case key == "ollama":
+	case key == "ollama", key == config.LlamaCppProcessKey:
 		return 2
 	}
 	return 1
@@ -303,6 +303,8 @@ func componentName(key string) string {
 		return "stable-diffusion.cpp"
 	case "ollama":
 		return "Ollama"
+	case config.LlamaCppProcessKey:
+		return "llama.cpp"
 	}
 	return key
 }
