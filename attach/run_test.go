@@ -218,6 +218,9 @@ func withNullStdin(t *testing.T) {
 
 func TestMain_StdinNotATerminal(t *testing.T) {
 	withNullStdin(t)
+	prev := attachConsoleFn
+	attachConsoleFn = func() bool { return false }
+	t.Cleanup(func() { attachConsoleFn = prev })
 	err := Main([]string{"192.168.1.184:8080"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a terminal")

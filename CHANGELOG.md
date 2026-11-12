@@ -9,6 +9,9 @@
 ### Added
 - `GET /` lists `features` (active engines and capabilities), so Imagecaster can tell an old server from a new one
 
+### Fixed
+- Windows: the tray **Dashboard** button opened a console that flashed and closed. The console exe got a NUL stdin instead of the new console's keyboard (spawned from the windowed exe), treated it as "not a terminal" and exited; it now opens `CONIN$`/`CONOUT$` of its own console window and shows the dashboard
+
 ## [1.2.0] — 2026-11-05
 
 ### Added

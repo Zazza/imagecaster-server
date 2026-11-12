@@ -11,8 +11,11 @@ import (
 	"imagecaster-server/tui"
 )
 
+// attachConsoleFn — точка подмены для тестов.
+var attachConsoleFn = attachConsole
+
 func Main(args []string) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) && !attachConsoleFn() {
 		return fmt.Errorf("stdin is not a terminal")
 	}
 	if len(args) > 1 {
