@@ -75,7 +75,6 @@ var dict = map[string]pair{
 	"desktop.svc.installing":    {"installing…", "устанавливается…"},
 	"desktop.tray.addr":         {"Address:", "Адрес:"},
 	"desktop.tray.copy_hint":    {"Copy the address for the Imagecaster app", "Скопировать адрес для приложения Imagecaster"},
-	"desktop.tray.open_forge":   {"Open Stable Diffusion in the browser", "Открыть Stable Diffusion в браузере"},
 	"desktop.tray.console":      {"Dashboard", "Панель управления"},
 	"desktop.tray.console_hint": {"Services, logs and the GPU queue in a console window", "Сервисы, логи и очередь GPU в окне консоли"},
 	"desktop.tray.log":          {"Log", "Журнал"},

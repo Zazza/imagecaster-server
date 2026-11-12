@@ -20,9 +20,8 @@ import (
 )
 
 const (
-	desktopNeedGB   = 8
-	desktopForgeURL = "http://127.0.0.1:7860"
-	consoleExeName  = "imagecaster-server-console.exe"
+	desktopNeedGB  = 8
+	consoleExeName = "imagecaster-server-console.exe"
 )
 
 type desktopEngine struct {
@@ -54,7 +53,6 @@ func runDesktop(dataDir, cfgFile string, port int) {
 		Version:    version,
 		DataDir:    known,
 		DefaultDir: config.DefaultDataDir(),
-		ForgeURL:   desktopForgeURL,
 		ConsoleExe: consoleExe(),
 		NeedGB:     desktopNeedGB,
 		Engine:     e,

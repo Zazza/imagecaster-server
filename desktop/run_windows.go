@@ -23,7 +23,6 @@ type Options struct {
 	Version    string
 	DataDir    string
 	DefaultDir string
-	ForgeURL   string
 	ConsoleExe string
 	NeedGB     int
 	Engine     Engine

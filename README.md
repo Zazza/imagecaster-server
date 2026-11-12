@@ -19,7 +19,7 @@ Download the archive for your system from [Releases](https://github.com/Zazza/im
 2. In the setup window choose the data folder (a drive with free space; not necessarily C:) and press **Install**.
 3. When it says **Ready**, the window can be closed: the server keeps running, its icon is in the tray (by the clock).
 
-The tray menu shows the state of Forge Neo and Ollama and has: the address for the app (click to copy), open Forge Neo in the browser, **Dashboard** (console with services, logs and the GPU queue), the log, and **Exit** — it stops everything. Next time just start `imagecaster-server.exe` again.
+The tray menu shows the state of Forge Neo and Ollama and has: the address for the app (click to copy), **Dashboard** (console with services, logs and the GPU queue), the log, and **Exit** — it stops everything. Next time just start `imagecaster-server.exe` again.
 
 The setup window can be closed during installation — it continues in the background. A second start with the same folder only says that the server is already running.
 

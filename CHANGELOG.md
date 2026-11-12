@@ -12,6 +12,9 @@
 ### Fixed
 - Windows: the tray **Dashboard** button opened a console that flashed and closed. The console exe got a NUL stdin instead of the new console's keyboard (spawned from the windowed exe), treated it as "not a terminal" and exited; it now opens `CONIN$`/`CONOUT$` of its own console window and shows the dashboard
 
+### Removed
+- Tray item "Open Stable Diffusion in the browser": with sd.cpp active it opened a 404 (the engine's own page is not proxied), and the Imagecaster app is the UI anyway. The item is gone; the engine's built-in page stays on loopback `127.0.0.1:7861`, unreachable from the network
+
 ## [1.2.0] — 2026-11-05
 
 ### Added

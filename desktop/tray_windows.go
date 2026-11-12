@@ -34,7 +34,6 @@ func (a *app) trayReady() {
 	mOllama.Disable()
 	systray.AddSeparator()
 	mAddr := systray.AddMenuItem("", i18n.T("desktop.tray.copy_hint"))
-	mForge := systray.AddMenuItem(i18n.T("desktop.tray.open_forge"), "")
 	var mConsole *systray.MenuItem
 	if a.opts.ConsoleExe != "" {
 		mConsole = systray.AddMenuItem(i18n.T("desktop.tray.console"), i18n.T("desktop.tray.console_hint"))
@@ -70,8 +69,6 @@ func (a *app) trayReady() {
 			select {
 			case <-mAddr.ClickedCh:
 				copyText(e.Snapshot().Addr)
-			case <-mForge.ClickedCh:
-				openURL(a.opts.ForgeURL)
 			case <-consoleCh:
 				if err := openConsole(a.opts.ConsoleExe, "attach"); err != nil {
 					ShowError(err.Error())
