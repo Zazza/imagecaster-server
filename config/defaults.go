@@ -8,9 +8,6 @@ import (
 )
 
 const (
-	NeoBackendKey   = "forge-neo"
-	NeoVersion      = "2.31"
-	neoDir          = "sd-webui-forge-neo"
 	SDCppBackendKey = "sdcpp"
 	SDCppVersion    = "master-1086-465adf3"
 	OnnxVersion     = "1.31.1"
@@ -38,36 +35,11 @@ var InstallDefaultsProcesses map[string]InstallConfig
 
 func init() {
 	InstallDefaultsBackends = map[string]InstallConfig{
-		NeoBackendKey:   neoInstall(),
 		SDCppBackendKey: sdcppInstall(),
 	}
 	InstallDefaultsProcesses = map[string]InstallConfig{
 		LlamaCppProcessKey: llamaInstall(),
 	}
-}
-
-func neoInstall() InstallConfig {
-	return InstallConfig{
-		Method:  InstallZip,
-		URL:     "https://github.com/Haoming02/sd-webui-forge-classic/archive/refs/tags/" + NeoVersion + ".zip",
-		Target:  neoDir,
-		Version: NeoVersion,
-	}
-}
-
-func SDCppSupported(goos, goarch string) bool {
-	switch goos + "/" + goarch {
-	case "windows/amd64", "linux/amd64", "darwin/arm64":
-		return true
-	}
-	return false
-}
-
-func defaultActiveSD(goos, goarch string) string {
-	if SDCppSupported(goos, goarch) {
-		return SDCppBackendKey
-	}
-	return NeoBackendKey
 }
 
 func sdcppInstall() InstallConfig {
@@ -108,27 +80,6 @@ func sdcppBackend() BackendConfig {
 		OnnxRuntimeLib: onnxDir + "/lib/" + onnxLibName(),
 		Install:        sdcppInstall(),
 	}
-}
-
-func neoBinary() string {
-	if runtime.GOOS == "windows" {
-		return neoDir + "/venv/Scripts/python.exe"
-	}
-	return neoDir + "/venv/bin/python"
-}
-
-func sdEnv() map[string]string {
-	env := map[string]string{
-		"PYTORCH_CUDA_ALLOC_CONF":         "expandable_segments:True",
-		"GIT_DISCOVERY_ACROSS_FILESYSTEM": "1",
-		"GIT_CONFIG_COUNT":                "1",
-		"GIT_CONFIG_KEY_0":                "safe.directory",
-		"GIT_CONFIG_VALUE_0":              "*",
-	}
-	if runtime.GOOS == "darwin" {
-		env["TORCH_COMMAND"] = "pip install torch==2.12.0 torchvision==0.27.0"
-	}
-	return env
 }
 
 const (
@@ -197,7 +148,7 @@ func NewDefault() Config {
 		Port:      8080,
 		MDNS:      true,
 		DataDir:   "",
-		ActiveSD:  defaultActiveSD(runtime.GOOS, runtime.GOARCH),
+		ActiveSD:  SDCppBackendKey,
 		ActiveLLM: LLMLlamaCpp,
 		LLM:       defaultLLMConfig(),
 		GPU: GPUConfig{
@@ -213,31 +164,18 @@ func NewDefault() Config {
 		Processes: map[string]ProcessConfig{
 			"sd": {
 				Name:         "Stable Diffusion",
-				HealthURL:    "http://localhost:7860/sdapi/v1/options",
+				HealthURL:    "http://localhost:7860/sdcpp/v1/capabilities",
 				TargetURL:    "http://localhost:7860",
 				ProxyPath:    "/api/sd/",
 				InternalPort: 7861,
 				AutoStart:    true,
 				Restart:      true,
 				MaxRestart:   5,
-				Env:          sdEnv(),
 			},
 			LlamaCppProcessKey: llamaProcess(),
 		},
 		Backends: map[string]BackendConfig{
 			SDCppBackendKey: sdcppBackend(),
-			NeoBackendKey: {
-				Name:         "Stable Diffusion Forge Neo",
-				ProcessKey:   "sd",
-				Binary:       neoBinary(),
-				Args:         []string{"launch.py", "--listen", "--api", "--uv"},
-				WorkDir:      neoDir,
-				ModelsDir:    neoDir + "/models/Stable-diffusion",
-				LoraDir:      neoDir + "/models/Lora",
-				VaeDir:       neoDir + "/models/VAE",
-				EmbeddingDir: neoDir + "/embeddings",
-				Install:      neoInstall(),
-			},
 		},
 	}
 }

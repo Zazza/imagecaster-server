@@ -64,7 +64,7 @@ func TestOldConfigMigration(t *testing.T) {
 }
 
 func TestNewConfigNotMigrated(t *testing.T) {
-	for _, body := range []string{"active_sd: forge-neo\nactive_llm: ollama\n", "active_sd: sdcpp\nactive_llm: llamacpp\n"} {
+	for _, body := range []string{"active_sd: sdcpp\nactive_llm: llamacpp\n", "active_sd: sdcpp\nactive_llm: ollama\n"} {
 		path := writeYAML(t, body)
 		cfg, err := Load(path)
 		require.NoError(t, err)
@@ -74,24 +74,6 @@ func TestNewConfigNotMigrated(t *testing.T) {
 		saved, _ := os.ReadFile(path)
 		assert.Equal(t, body, string(saved))
 	}
-}
-
-func TestRestoredBackupIsNotMigratedAgain(t *testing.T) {
-	path := writeYAML(t, "active_sd: forge-neo\n")
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
-
-	old, err := os.ReadFile(path + EngineMigrationBackupSuffix)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path, old, 0o644))
-
-	cfg, err = Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, NeoBackendKey, cfg.ActiveSD)
-	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
-	saved, _ := os.ReadFile(path)
-	assert.Equal(t, "active_sd: forge-neo\n", string(saved))
 }
 
 func TestCustomBackendModelsKeptOnLaterStarts(t *testing.T) {
@@ -159,29 +141,4 @@ func TestFailedSaveRetriesNextStart(t *testing.T) {
 	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
 	saved, _ := os.ReadFile(path)
 	assert.Contains(t, string(saved), "active_llm: llamacpp")
-}
-
-func TestNoMigrationWithoutSDCppBuild(t *testing.T) {
-	orig := sdcppOnThisPlatform
-	sdcppOnThisPlatform = func() bool { return false }
-	t.Cleanup(func() { sdcppOnThisPlatform = orig })
-
-	for lname, load := range loaders("") {
-		t.Run(lname, func(t *testing.T) {
-			body := "data_dir: " + filepath.ToSlash(t.TempDir()) + "\nactive_sd: forge-neo\n" + legacyProcesses
-			path := filepath.Join(t.TempDir(), "server-config.yaml")
-			require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
-
-			cfg, err := load(path)
-			require.NoError(t, err)
-			assert.Equal(t, "forge-neo", cfg.ActiveSD)
-			assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
-			_, hasOllama := cfg.Processes["ollama"]
-			assert.False(t, hasOllama)
-			saved, _ := os.ReadFile(path)
-			assert.Equal(t, body, string(saved))
-			_, err = os.Stat(path + EngineMigrationBackupSuffix)
-			assert.True(t, os.IsNotExist(err))
-		})
-	}
 }

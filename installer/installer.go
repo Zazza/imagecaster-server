@@ -30,7 +30,6 @@ type Installer struct {
 	statuses         map[string]*InstallStatus
 	logs             map[string]*process.RingBuffer
 	installMu        map[string]*sync.Mutex
-	backendSetup     func(target string, lb *process.RingBuffer) error
 	ReleaseArtifacts func() ([]Artifact, error)
 	LlamaArtifacts   func() ([]Artifact, error)
 	OnProgress       func(key, progress string)
@@ -56,7 +55,6 @@ func NewInstaller(cfg *config.Config) *Installer {
 		installMu: make(map[string]*sync.Mutex),
 	}
 	inst.ctx, inst.cancel = context.WithCancel(context.Background())
-	inst.backendSetup = inst.setupBackend
 	inst.MigrateEngineDirs()
 
 	for key, bc := range cfg.Backends {
@@ -310,8 +308,6 @@ func (inst *Installer) Status() map[string]InstallStatus {
 
 func (inst *Installer) doInstall(key string, ic config.InstallConfig, lb *process.RingBuffer) error {
 	switch ic.Method {
-	case config.InstallZip:
-		return inst.installZip(key, ic, lb)
 	case config.InstallRelease:
 		return inst.installRelease(key, ic, lb)
 	}
@@ -320,13 +316,6 @@ func (inst *Installer) doInstall(key string, ic config.InstallConfig, lb *proces
 
 func (inst *Installer) checkInstalled(ic config.InstallConfig) bool {
 	switch ic.Method {
-	case config.InstallZip:
-		if ic.Target == "" {
-			return false
-		}
-		target := inst.resolveTarget(ic.Target)
-		st, err := os.Stat(target)
-		return err == nil && st.IsDir()
 	case config.InstallRelease:
 		return ic.Target != "" && inst.releaseInstalled(ic)
 	}

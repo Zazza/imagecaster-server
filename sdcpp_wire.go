@@ -115,6 +115,7 @@ func poseModelsDir(b *config.BackendConfig) string {
 type sdcppRoutes struct {
 	facade http.Handler
 	detect http.Handler
+	jobs   *sdcpp.Facade
 }
 
 func (h *sdcppRoutes) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -125,14 +126,27 @@ func (h *sdcppRoutes) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.facade.ServeHTTP(w, r)
 }
 
-func newSDCppHandler(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GPUMonitor) http.Handler {
+func newSDCppHandler(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GPUMonitor) *sdcppRoutes {
 	f := newSDCppFacade(cfg, pm, gm)
 	if f == nil {
 		return nil
 	}
 	b := cfg.GetActiveBackend()
 	est := dwpose.NewONNX(dwpose.Config{LibPath: b.OnnxRuntimeLib, ModelsDir: poseModelsDir(b)})
-	return &sdcppRoutes{facade: f, detect: dwpose.NewHandler(est)}
+	return &sdcppRoutes{facade: f, detect: dwpose.NewHandler(est), jobs: f}
+}
+
+func wireSDJobs(f *sdcpp.Facade, g *Gate) {
+	f.SetLeaser(g.LeaseSD)
+	f.SetPositionFunc(g.SDPosition)
+	g.SetSDLeaseLost(func(jobID string) { f.CancelJob(jobID) })
+}
+
+func sdJobsDir(cfg *config.Config) string {
+	if cfg.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(cfg.DataDir, "sdjobs")
 }
 
 func sdcppBaseArgs(args []string, vramMB int) []string {
@@ -152,10 +166,6 @@ func newSDCppFacade(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GP
 	if !ok {
 		return nil
 	}
-	state := ""
-	if cfg.DataDir != "" {
-		state = filepath.Join(cfg.DataDir, "sdcpp-state.json")
-	}
 	return sdcpp.New(sdcpp.Config{
 		BaseURL:        pc.TargetURL,
 		ModelsDir:      b.ModelsDir,
@@ -166,7 +176,8 @@ func newSDCppFacade(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GP
 		TokenizerDir:   b.TokenizerDir,
 		BaseArgs:       sdcppBaseArgs(pc.Args, cfg.DetectedVRAMMB),
 		Aliases:        b.Aliases,
-		StatePath:      state,
 		ReadyTimeout:   110 * time.Second,
+		JobsDir:        sdJobsDir(cfg),
+		JobTTL:         cfg.SDJobResultTTL(),
 	}, &processRestarter{pm: pm, cfg: cfg, key: b.ProcessKey}, &gpuMemory{gm: gm})
 }

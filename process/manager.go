@@ -446,12 +446,6 @@ func (pm *ProcessManager) toolPathDirs() []string {
 	if _, err := os.Stat(binDir); err == nil {
 		dirs = append(dirs, binDir)
 	}
-	if runtime.GOOS == "windows" {
-		gitCmdDir := filepath.Join(pm.dataDir, "git", "cmd")
-		if _, err := os.Stat(gitCmdDir); err == nil {
-			dirs = append(dirs, gitCmdDir)
-		}
-	}
 	return dirs
 }
 

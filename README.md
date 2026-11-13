@@ -2,16 +2,16 @@
 
 [Русский](README-ru.md)
 
-Runs image generation (**Stable Diffusion Forge Neo**) and text models (**llama.cpp**, with an Ollama-compatible API) on a computer with a graphics card for the [Imagecaster](https://github.com/Zazza/imagecaster) app. It installs everything itself into one folder, starts and restarts the services, and puts every GPU request through one queue so the card doesn't run out of memory. Imagecaster finds the server on the local network by itself (mDNS).
+Runs image generation (**stable-diffusion.cpp**) and text models (**llama.cpp**, with an Ollama-compatible API) on a computer with a graphics card for the [Imagecaster](https://github.com/Zazza/imagecaster) app. It installs everything itself into one folder, starts and restarts the services, and puts every GPU request through one queue so the card doesn't run out of memory. Imagecaster finds the server on the local network by itself (mDNS).
 
 - Windows, Linux, macOS — no WSL, no Docker
-- Forge Neo is installed automatically (with its own Python 3.13 and PyTorch); llama.cpp for text models is installed into the same folder (no build for Linux ARM and Windows ARM — no text models there)
+- stable-diffusion.cpp is installed automatically (CUDA, Vulkan or CPU build on Windows x64 and Linux x64, Metal on Apple Silicon); llama.cpp for text models is installed into the same folder. Linux ARM, Windows ARM and Intel Mac have no sd.cpp build — no image generation there (and no text models on Linux ARM and Windows ARM)
 - Nothing is registered in the system and nothing starts with it: you start the server when you need it
 - Interface in English or Russian, chosen from the system language
 
 ## Install
 
-Download the archive for your system from [Releases](https://github.com/Zazza/imagecaster-server/releases) and unpack it anywhere. The first start downloads Forge Neo, Python, PyTorch and llama.cpp — about 20 GB without models, so it takes a while.
+Download the archive for your system from [Releases](https://github.com/Zazza/imagecaster-server/releases) and unpack it anywhere. The first start downloads stable-diffusion.cpp and llama.cpp — up to about 4 GB without models (most of it CUDA libraries).
 
 ### Windows
 
@@ -39,12 +39,12 @@ The first start asks for the data folder (Enter — default `~/imagecaster-serve
 
 Unpack the archive and open `Imagecaster Server.command` (the first time: right click → Open). It removes the download quarantine from the server and starts it in Terminal; the rest is the same as on Linux.
 
-> Forge Neo on macOS runs on Apple Silicon without CUDA; this setup has not been tested on a Mac yet.
+> On macOS only Apple Silicon is supported; this setup has not been tested on a Mac yet.
 
 ## Requirements
 
-- NVIDIA graphics card with a recent driver (Forge Neo installs PyTorch for CUDA 13). Without one, generation is very slow or does not work.
-- Free disk space: about 20 GB plus models (an SDXL checkpoint is ~6.5 GB).
+- NVIDIA graphics card with a recent driver (CUDA 12 build); other cards use the Vulkan build. Without a graphics card generation runs on the CPU and is very slow.
+- Free disk space: about 8 GB plus models (an SDXL checkpoint is ~6.5 GB).
 - Internet for the first start.
 
 ## Terminal interface
@@ -77,14 +77,14 @@ Environment: `IMAGECASTER_LANG=ru|en` — interface language; `SD_PORT`, `SD_DAT
 ```
  Imagecaster / any program in the LAN
         │                     │
-   :8080 /api/sd/  /api/llm/  │ :7860 (Forge)  :11434 (LLM)
+   :8080 /api/sd/  /api/llm/  │ :7860 (SD)     :11434 (LLM)
         └──────────┬──────────┘
            Imagecaster Server ── GPU queue (VRAM budget)
              │            │
-     Forge Neo :7861   llama.cpp :11435   (loopback only)
+     sd-server :7861   llama.cpp :11435   (loopback only)
 ```
 
-The server takes the standard Forge (`7860`) and Ollama-compatible LLM (`11434`) ports and moves the services to loopback ports, so every request — from Imagecaster or any other program — goes through the same GPU queue. Details: [docs/server-en.md](docs/server-en.md).
+The server takes the standard SD (`7860`) and Ollama-compatible LLM (`11434`) ports and moves the services to loopback ports, so every request — from Imagecaster or any other program — goes through the same GPU queue. Details: [docs/server-en.md](docs/server-en.md).
 
 ## Development
 

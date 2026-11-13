@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"imagecaster-server/config"
 	"imagecaster-server/hide"
 )
 
@@ -123,58 +122,6 @@ func (gm *GPUMonitor) Detect() GPUInfo {
 	return gm.Info()
 }
 
-func checkXformersCompat(pythonBinary, workDir string) bool {
-	if pythonBinary == "" {
-		return false
-	}
-	cmd := hide.Command(pythonBinary, "-c",
-		"import torch; v=tuple(int(x) for x in torch.__version__.split('+')[0].split('.')[:2]); "+
-			"print('native' if v>=(2,0) else 'legacy')",
-	)
-	if workDir != "" {
-		cmd.Dir = workDir
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(string(out)) == "legacy"
-}
-
-var _ config.GPUOptimizer = (*OptimizerAdapter)(nil)
-
-type OptimizerAdapter struct{}
-
-func NewOptimizerAdapter() *OptimizerAdapter {
-	return &OptimizerAdapter{}
-}
-
-func (g *OptimizerAdapter) DetectGPU() int {
-	gm := NewGPUMonitor()
-	return gm.Detect().MemoryTotal
-}
-
-func (g *OptimizerAdapter) CheckXformersCompat(binary, workDir string) bool {
-	return checkXformersCompat(binary, workDir)
-}
-
-func (g *OptimizerAdapter) ForgeArgsForVRAM(vramMB int, xformers bool) []string {
-	return forgeArgsForVRAM(vramMB, xformers)
-}
-
-func forgeArgsForVRAM(vramMB int, useXformers bool) []string {
-	base := []string{"launch.py", "--listen", "--api"}
-	if useXformers {
-		base = append(base, "--xformers")
-	}
-	switch {
-	case vramMB <= 0:
-		return append(base, "--medvram-sdxl")
-	case vramMB < 6000:
-		return append(base, "--lowvram")
-	case vramMB < 8192:
-		return append(base, "--medvram-sdxl")
-	default:
-		return base
-	}
+func DetectVRAMMB() int {
+	return NewGPUMonitor().Detect().MemoryTotal
 }

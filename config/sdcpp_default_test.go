@@ -89,20 +89,6 @@ func TestNewDefaultSDCppRelativePaths(t *testing.T) {
 	})
 }
 
-func TestNewDefaultKeepsForgeNeoForRollback(t *testing.T) {
-	cfg := NewDefault()
-	require.Contains(t, cfg.Backends, NeoBackendKey)
-	neo := cfg.Backends[NeoBackendKey]
-	assert.Equal(t, "Stable Diffusion Forge Neo", neo.Name)
-	assert.Equal(t, "sd", neo.ProcessKey)
-	assert.Equal(t, InstallZip, neo.Install.Method)
-	assert.Equal(t, NeoVersion, neo.Install.Version)
-	assert.Equal(t, "sd-webui-forge-neo/models/Stable-diffusion", neo.ModelsDir)
-	assert.Equal(t, "sd-webui-forge-neo/models/Lora", neo.LoraDir)
-	assert.Equal(t, "sd-webui-forge-neo/models/VAE", neo.VaeDir)
-	assert.NotEqual(t, KindSDCpp, neo.Kind)
-}
-
 func TestResolvePathsSDCppInsideDataDir(t *testing.T) {
 	cfg := NewDefault()
 	cfg.DataDir = t.TempDir()
@@ -148,7 +134,6 @@ func TestLoadNewInstallDefaultsToSDCpp(t *testing.T) {
 			again, err := load(cfgPath)
 			require.NoError(t, err)
 			assert.Equal(t, SDCppBackendKey, again.ActiveSD)
-			assert.Contains(t, again.Backends, NeoBackendKey)
 			got := sddDirs(again.Backends[SDCppBackendKey])
 			for field, rel := range sddOwnDirs {
 				assert.Equal(t, filepath.Join(dataDir, filepath.FromSlash(rel)), got[field], field)

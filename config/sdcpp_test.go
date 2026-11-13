@@ -1,25 +1,21 @@
 package config
 
 import (
+	"time"
+
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
-
-type noGPU struct{}
-
-func (noGPU) DetectGPU() int                          { return 0 }
-func (noGPU) CheckXformersCompat(string, string) bool { return false }
-func (noGPU) ForgeArgsForVRAM(int, bool) []string     { return []string{"--forge-only"} }
 
 func TestSDCppBackendListensOnInternalPort(t *testing.T) {
 	cfg := NewDefault()
 	cfg.ActiveSD = "sdcpp"
 	cfg.Backends["sdcpp"] = BackendConfig{
 		Name: "sd.cpp", Kind: KindSDCpp, ProcessKey: "sd", Binary: "/opt/sd-server",
-		Args: []string{"--lora-model-dir", "/m/Lora", "--listen-port", "9999"}, AutoOptimize: true,
+		Args: []string{"--lora-model-dir", "/m/Lora", "--listen-port", "9999"},
 	}
-	cfg.ApplyBackendToProcess(noGPU{})
+	cfg.ApplyBackendToProcess()
 	pc := cfg.Processes["sd"]
 	assert.Equal(t, []string{"--lora-model-dir", "/m/Lora", "--listen-ip", "127.0.0.1", "--listen-port", "7860"}, pc.Args)
 
@@ -30,14 +26,13 @@ func TestSDCppBackendListensOnInternalPort(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:7861", pc.TargetURL)
 }
 
-func TestForgeBackendKeepsForgePortArgs(t *testing.T) {
+func TestNonSDCppBackendLeavesProcessArgs(t *testing.T) {
 	cfg := NewDefault()
-	cfg.ActiveSD = NeoBackendKey
-	cfg.ApplyBackendToProcess(noGPU{})
-	cfg.ApplyPortGuard()
-	args := cfg.Processes["sd"].Args
-	assert.Equal(t, []string{"--port", "7861"}, args[len(args)-2:])
-	assert.NotContains(t, args, "--listen-port")
+	cfg.Backends["custom"] = BackendConfig{Name: "x", Kind: "other", ProcessKey: "sd", Args: []string{"--x"}}
+	cfg.ActiveSD = "custom"
+	before := cfg.Processes["sd"].Args
+	cfg.ApplyBackendToProcess()
+	assert.Equal(t, before, cfg.Processes["sd"].Args)
 }
 
 func TestSDCppBackendPassesLoraAndUpscalerDirs(t *testing.T) {
@@ -47,26 +42,36 @@ func TestSDCppBackendPassesLoraAndUpscalerDirs(t *testing.T) {
 		Name: "sd.cpp", Kind: KindSDCpp, ProcessKey: "sd", Binary: "/opt/sd-server",
 		LoraDir: "/m/Lora", UpscalerDir: "/m/up",
 	}
-	cfg.ApplyBackendToProcess(noGPU{})
+	cfg.ApplyBackendToProcess()
 	assert.Equal(t, []string{"--lora-model-dir", "/m/Lora", "--hires-upscalers-dir", "/m/up", "--listen-ip", "127.0.0.1", "--listen-port", "7860"}, cfg.Processes["sd"].Args)
 
 	cfg.Backends["sdcpp"] = BackendConfig{
 		Name: "sd.cpp", Kind: KindSDCpp, ProcessKey: "sd", Binary: "/opt/sd-server",
 		LoraDir: "/m/Lora", Args: []string{"--lora-model-dir=/other"},
 	}
-	cfg.ApplyBackendToProcess(noGPU{})
+	cfg.ApplyBackendToProcess()
 	assert.Equal(t, []string{"--lora-model-dir=/other", "--listen-ip", "127.0.0.1", "--listen-port", "7860"}, cfg.Processes["sd"].Args)
 }
 
-func TestDefaultActiveSDByPlatform(t *testing.T) {
-	for _, tc := range []struct{ goos, goarch, want string }{
-		{"linux", "amd64", SDCppBackendKey},
-		{"windows", "amd64", SDCppBackendKey},
-		{"darwin", "arm64", SDCppBackendKey},
-		{"linux", "arm64", NeoBackendKey},
-		{"darwin", "amd64", NeoBackendKey},
-		{"windows", "arm64", NeoBackendKey},
-	} {
-		assert.Equal(t, tc.want, defaultActiveSD(tc.goos, tc.goarch), tc.goos+"/"+tc.goarch)
+func TestSDHealthURLRewritesLegacyPath(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"http://localhost:7860/sdapi/v1/options", "http://localhost:7860/sdcpp/v1/capabilities"},
+		{"http://localhost:7860/sdcpp/v1/capabilities", "http://localhost:7860/sdcpp/v1/capabilities"},
+		{"http://localhost:7860/custom", "http://localhost:7860/custom"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, sdHealthURL(tc.in), tc.in)
+	}
+}
+
+func TestSDJobResultTTL(t *testing.T) {
+	c := &Config{}
+	if got := c.SDJobResultTTL(); got != 24*time.Hour {
+		t.Errorf("default %v", got)
+	}
+	c.SD.JobResultTTLHours = 6
+	if got := c.SDJobResultTTL(); got != 6*time.Hour {
+		t.Errorf("custom %v", got)
 	}
 }

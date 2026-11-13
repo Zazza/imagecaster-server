@@ -137,10 +137,6 @@ func installOrder(statuses map[string]ComponentInstallStatus) []string {
 
 func componentLabel(key string) string {
 	switch key {
-	case "forge-neo":
-		return "Forge Neo"
-	case "forge":
-		return "Forge"
 	case "sdcpp":
 		return "stable-diffusion.cpp"
 	case "llm":

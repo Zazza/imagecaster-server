@@ -18,6 +18,9 @@ type qjob struct {
 	submitted time.Time
 	started   time.Time
 	deadline  time.Time
+	noLimit   bool
+	noQueue   bool
+	exclusive bool
 
 	admitted  chan struct{}
 	removed   chan struct{}
@@ -74,7 +77,20 @@ func (q *Queue) Budget() int {
 func (q *Queue) QueueFull() bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.maxQueueLen > 0 && len(q.waiting) >= q.maxQueueLen
+	return q.fullLocked()
+}
+
+func (q *Queue) fullLocked() bool {
+	if q.maxQueueLen <= 0 {
+		return false
+	}
+	n := 0
+	for _, j := range q.waiting {
+		if !j.noQueue {
+			n++
+		}
+	}
+	return n >= q.maxQueueLen
 }
 
 func (q *Queue) Warn(msg string) {
@@ -127,11 +143,18 @@ func (q *Queue) Acquire(ctx context.Context, spec Spec) (*Lease, error) {
 	if err != nil {
 		return nil, err
 	}
-	timer := time.NewTimer(q.maxWait)
-	defer timer.Stop()
+	if spec.OnQueued != nil {
+		spec.OnQueued(j.id)
+	}
+	var timeout <-chan time.Time
+	if !spec.NoWaitLimit {
+		timer := time.NewTimer(q.maxWait)
+		defer timer.Stop()
+		timeout = timer.C
+	}
 	select {
 	case <-j.admitted:
-	case <-timer.C:
+	case <-timeout:
 		if q.dequeue(j.id) {
 			return nil, ErrTimeout
 		}
@@ -151,7 +174,7 @@ func (q *Queue) Acquire(ctx context.Context, spec Spec) (*Lease, error) {
 	if spec.AutoRenew {
 		q.startRenew(j)
 	}
-	return &Lease{q: q, id: j.id}, nil
+	return &Lease{q: q, id: j.id, done: j.stopRenew}, nil
 }
 
 func (q *Queue) TryAcquire(spec Spec) (*Lease, bool, int) {
@@ -163,7 +186,7 @@ func (q *Queue) TryAcquire(spec Spec) (*Lease, bool, int) {
 		return &Lease{q: q}, true, 0
 	}
 	q.mu.Lock()
-	if q.maxQueueLen > 0 && len(q.waiting) >= q.maxQueueLen {
+	if !spec.NoQueueLimit && q.fullLocked() {
 		q.mu.Unlock()
 		return nil, false, 0
 	}
@@ -180,12 +203,12 @@ func (q *Queue) TryAcquire(spec Spec) (*Lease, bool, int) {
 	}
 	q.mu.Unlock()
 	if !admitted {
-		return &Lease{q: q, id: j.id}, false, pos
+		return &Lease{q: q, id: j.id, done: j.stopRenew}, false, pos
 	}
 	if spec.AutoRenew {
 		q.startRenew(j)
 	}
-	return &Lease{q: q, id: j.id}, true, 0
+	return &Lease{q: q, id: j.id, done: j.stopRenew}, true, 0
 }
 
 func (q *Queue) WaitLease(ctx context.Context, id string) (*Lease, error) {
@@ -207,11 +230,11 @@ func (q *Queue) WaitLease(ctx context.Context, id string) (*Lease, error) {
 		return nil, ErrNotFound
 	}
 	if running {
-		return &Lease{q: q, id: j.id}, nil
+		return &Lease{q: q, id: j.id, done: j.stopRenew}, nil
 	}
 	select {
 	case <-j.admitted:
-		return &Lease{q: q, id: j.id}, nil
+		return &Lease{q: q, id: j.id, done: j.stopRenew}, nil
 	case <-j.removed:
 		return nil, ErrCancelled
 	case <-ctx.Done():
@@ -307,7 +330,7 @@ func (q *Queue) Status() Status {
 func (q *Queue) enqueue(spec Spec) (*qjob, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.maxQueueLen > 0 && len(q.waiting) >= q.maxQueueLen {
+	if !spec.NoQueueLimit && q.fullLocked() {
 		return nil, ErrQueueFull
 	}
 	j := q.newQJobLocked(spec)
@@ -327,6 +350,9 @@ func (q *Queue) newQJobLocked(spec Spec) *qjob {
 		weightMB:  spec.WeightMB,
 		priority:  clampPriority(spec.Priority),
 		submitted: time.Now(),
+		noLimit:   spec.NoWaitLimit,
+		noQueue:   spec.NoQueueLimit,
+		exclusive: spec.Exclusive,
 		admitted:  make(chan struct{}),
 		removed:   make(chan struct{}),
 		stopRenew: make(chan struct{}),
@@ -337,6 +363,10 @@ func (q *Queue) dispatchLocked() {
 	now := time.Now()
 	kept := make([]*qjob, 0, len(q.waiting))
 	for _, j := range q.waiting {
+		if j.exclusive && q.exclusiveRunningLocked(j.kind) {
+			kept = append(kept, j)
+			continue
+		}
 		if q.usedMB+j.weightMB <= q.totalMB {
 			q.usedMB += j.weightMB
 			j.started = now
@@ -348,6 +378,15 @@ func (q *Queue) dispatchLocked() {
 		}
 	}
 	q.waiting = kept
+}
+
+func (q *Queue) exclusiveRunningLocked(kind Kind) bool {
+	for _, r := range q.running {
+		if r.exclusive && r.kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func (q *Queue) evictExpired() {
@@ -367,7 +406,7 @@ func (q *Queue) evictExpired() {
 func (q *Queue) dropAbandonedLocked(now time.Time) {
 	kept := make([]*qjob, 0, len(q.waiting))
 	for _, j := range q.waiting {
-		if now.Sub(j.submitted) > q.maxWait {
+		if !j.noLimit && now.Sub(j.submitted) > q.maxWait {
 			q.warnLocked("job abandoned: " + j.id)
 			close(j.removed)
 			continue

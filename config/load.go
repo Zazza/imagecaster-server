@@ -25,7 +25,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	data, prevSD := migrateEngines(path, data)
+	origSD := activeSDOf(data)
+	data = migrateEngines(path, data)
+	data = dropForgeBackends(path, data, DefaultDataDir(), origSD)
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -44,9 +46,6 @@ func Load(path string) (*Config, error) {
 	cfg.ResolvePaths()
 	cfg.adoptOllamaProcess()
 	cfg.migrateLegacy()
-	if !fileHasBackend(data, SDCppBackendKey) {
-		cfg.adoptForgeModels(prevSD)
-	}
 	return &cfg, nil
 }
 
@@ -68,7 +67,9 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	data, prevSD := migrateEngines(path, data)
+	origSD := activeSDOf(data)
+	data = migrateEngines(path, data)
+	data = dropForgeBackends(path, data, dataDir, origSD)
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -87,21 +88,7 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 	cfg.ResolvePaths()
 	cfg.adoptOllamaProcess()
 	cfg.migrateLegacy()
-	if !fileHasBackend(data, SDCppBackendKey) {
-		cfg.adoptForgeModels(prevSD)
-	}
 	return &cfg, nil
-}
-
-func fileHasBackend(data []byte, key string) bool {
-	var raw struct {
-		Backends map[string]yaml.Node `yaml:"backends"`
-	}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return false
-	}
-	_, ok := raw.Backends[key]
-	return ok
 }
 
 func (c *Config) Validate() error {

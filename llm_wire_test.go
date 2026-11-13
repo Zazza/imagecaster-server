@@ -14,6 +14,7 @@ import (
 
 	"imagecaster-server/config"
 	"imagecaster-server/llamacpp"
+	"imagecaster-server/sdcpp"
 )
 
 type countUnloader struct{ n atomic.Int32 }
@@ -27,28 +28,20 @@ func TestGateUnloadsLLMBeforeSDJob(t *testing.T) {
 	cfg := GateConfig{SDDefaultWeightMB: 9000, LLMWeightMB: 11000, MaxWaitSeconds: 5}
 	gate, q := newTestGate(15876, 5, cfg, "")
 	u := &countUnloader{}
-	var unloadedFirst atomic.Bool
 	gate.SetBeforeSD(llmEvictor(u, q.Budget, cfg.LLMWeightMB))
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		unloadedFirst.Store(u.n.Load() > 0)
-	})
-	h := gate.Middleware(next)
 
-	cases := []struct {
-		method, path string
-		want         int32
-	}{
-		{http.MethodPost, "/api/sd/sdapi/v1/txt2img", 1},
-		{http.MethodPost, "/api/sd/sdapi/v1/img2img", 2},
-		{http.MethodGet, "/api/sd/sdapi/v1/progress", 2},
-		{http.MethodPost, "/api/llm/api/chat", 2},
-		{http.MethodPost, "/api/llm/v1/chat/completions", 2},
+	for i, ck := range []string{"a.safetensors", "b.safetensors"} {
+		release, err := gate.LeaseSD(context.Background(), sdcpp.LeaseRequest{JobID: ck, Client: "test", Checkpoint: ck})
+		require.NoError(t, err)
+		assert.Equal(t, int32(i+1), u.n.Load())
+		release()
 	}
-	for _, c := range cases {
-		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(c.method, c.path, strings.NewReader("{}")))
-		assert.Equal(t, c.want, u.n.Load(), c.path)
+
+	h := gate.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	for _, path := range []string{"/api/sd/jobs", "/api/llm/api/chat", "/api/llm/v1/chat/completions"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}")))
+		assert.Equal(t, int32(2), u.n.Load(), path)
 	}
-	assert.True(t, unloadedFirst.Load())
 }
 
 func TestEvictorSkipsWhenBothFit(t *testing.T) {

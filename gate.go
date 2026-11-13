@@ -1,25 +1,22 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"imagecaster-server/api"
 	"imagecaster-server/gpuqueue"
 	"imagecaster-server/models"
+	"imagecaster-server/sdcpp"
 )
 
 const (
-	maxSniffBody = 64 * 1024
 	mbBytes      = 1024 * 1024
 	maxClientTag = 32
 )
@@ -39,6 +36,8 @@ type Gate struct {
 	clampMu        sync.Mutex
 	lastClampW     int
 	lastClampTotal int
+	sdLeases       sync.Map
+	sdLeaseLost    func(jobID string)
 }
 
 func NewGate(q *gpuqueue.Queue, cfg GateConfig, sdw *sdWeightTracker) *Gate {
@@ -55,7 +54,6 @@ func (g *Gate) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		g.sdw.sniff(r)
 		weight := g.weight(r)
 		if weight <= 0 {
 			next.ServeHTTP(w, r)
@@ -85,9 +83,6 @@ func (g *Gate) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		defer lease.Release()
-		if g.beforeSD != nil && gateKind(r.URL.Path) == gpuqueue.KindSD {
-			g.beforeSD(r.Context(), weight)
-		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -98,24 +93,6 @@ func (g *Gate) SetBeforeSD(fn func(ctx context.Context, sdWeightMB int)) {
 
 func (g *Gate) weight(r *http.Request) int {
 	p := strings.TrimSuffix(r.URL.Path, "/")
-	if strings.HasPrefix(p, "/api/sd/") {
-		if r.Method != http.MethodPost {
-			return 0
-		}
-		rest := strings.TrimPrefix(p, "/api/sd/")
-		if strings.HasPrefix(rest, "sdapi/v1/") {
-			switch {
-			case strings.HasSuffix(rest, "/txt2img"),
-				strings.HasSuffix(rest, "/img2img"),
-				strings.HasSuffix(rest, "/interrogate"),
-				strings.HasSuffix(rest, "/extra-single-image"),
-				strings.HasSuffix(rest, "/extra-batch-images"):
-				_, w := g.sdw.current()
-				return g.clampWeight(w)
-			}
-		}
-		return 0
-	}
 	if strings.HasPrefix(p, "/api/llm/") {
 		if r.Method != http.MethodPost {
 			return 0
@@ -173,42 +150,26 @@ func clientTag(r *http.Request) string {
 }
 
 type sdWeightTracker struct {
-	mu         sync.Mutex
-	cfg        GateConfig
-	mm         *models.ModelManager
-	modelsDir  string
-	optionsURL string
-	checkpoint string
-	weights    map[string]int
+	mu        sync.Mutex
+	cfg       GateConfig
+	mm        *models.ModelManager
+	modelsDir string
+	weights   map[string]int
 }
 
-func newSDWeight(cfg GateConfig, mm *models.ModelManager, modelsDir, sdTargetURL string) *sdWeightTracker {
+func newSDWeight(cfg GateConfig, mm *models.ModelManager, modelsDir string) *sdWeightTracker {
 	return &sdWeightTracker{
-		cfg:        cfg,
-		mm:         mm,
-		modelsDir:  modelsDir,
-		optionsURL: strings.TrimSuffix(sdTargetURL, "/") + "/sdapi/v1/options",
-		weights:    make(map[string]int),
+		cfg:       cfg,
+		mm:        mm,
+		modelsDir: modelsDir,
+		weights:   make(map[string]int),
 	}
-}
-
-func (t *sdWeightTracker) setCheckpoint(name string) {
-	t.mu.Lock()
-	t.checkpoint = cleanCheckpoint(name)
-	t.mu.Unlock()
-}
-
-func (t *sdWeightTracker) current() (string, int) {
-	t.mu.Lock()
-	name := t.checkpoint
-	t.mu.Unlock()
-	if name == "" {
-		return "", t.cfg.SDDefaultWeightMB
-	}
-	return name, t.weightFor(name)
 }
 
 func (t *sdWeightTracker) weightFor(name string) int {
+	if name == "" {
+		return t.cfg.SDDefaultWeightMB
+	}
 	t.mu.Lock()
 	if w, ok := t.weights[name]; ok {
 		t.mu.Unlock()
@@ -235,89 +196,96 @@ func (t *sdWeightTracker) weightFor(name string) int {
 	return weight
 }
 
-func (t *sdWeightTracker) sniff(r *http.Request) {
-	p := strings.TrimSuffix(r.URL.Path, "/")
-	if r.Method != http.MethodPost ||
-		!strings.HasPrefix(p, "/api/sd/") ||
-		!strings.HasSuffix(p, "/sdapi/v1/options") {
-		return
-	}
-	orig := r.Body
-	var buf bytes.Buffer
-	tmp := make([]byte, 8192)
-	for buf.Len() <= maxSniffBody {
-		want := maxSniffBody + 1 - buf.Len()
-		if want > len(tmp) {
-			want = len(tmp)
-		}
-		n, rerr := orig.Read(tmp[:want])
-		if n > 0 {
-			buf.Write(tmp[:n])
-		}
-		if rerr != nil {
-			break
-		}
-	}
-	r.Body = &bodyRestore{reader: io.MultiReader(bytes.NewReader(buf.Bytes()), orig), closer: orig}
-	if buf.Len() > maxSniffBody {
-		return
-	}
-	var payload struct {
-		SDModelCheckpoint string `json:"sd_model_checkpoint"`
-	}
-	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
-		return
-	}
-	if payload.SDModelCheckpoint != "" {
-		t.setCheckpoint(payload.SDModelCheckpoint)
-	}
-}
-
-type bodyRestore struct {
-	reader io.Reader
-	closer io.Closer
-}
-
-func (b *bodyRestore) Read(p []byte) (int, error) {
-	return b.reader.Read(p)
-}
-
-func (b *bodyRestore) Close() error {
-	return b.closer.Close()
-}
-
-func (t *sdWeightTracker) refresh(ctx context.Context) {
-	if t.optionsURL == "/sdapi/v1/options" {
-		return
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, t.optionsURL, nil)
-	if err != nil {
-		return
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-	var payload struct {
-		SDModelCheckpoint string `json:"sd_model_checkpoint"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return
-	}
-	if payload.SDModelCheckpoint != "" {
-		t.setCheckpoint(payload.SDModelCheckpoint)
-	}
-}
-
 func cleanCheckpoint(name string) string {
 	if i := strings.Index(name, " ["); i >= 0 {
 		name = name[:i]
 	}
 	return strings.TrimSpace(name)
+}
+
+func (g *Gate) SetSDLeaseLost(fn func(jobID string)) {
+	g.sdLeaseLost = fn
+}
+
+func (g *Gate) sdJobWeight(checkpoint string) int {
+	w := g.cfg.SDDefaultWeightMB
+	if g.sdw != nil {
+		w = g.sdw.weightFor(cleanCheckpoint(checkpoint))
+	}
+	return g.clampWeight(w)
+}
+
+func sdJobClient(c string) string {
+	runes := []rune(gpuqueue.SanitizeClient(c))
+	if len(runes) == 0 {
+		return "sd-job"
+	}
+	if len(runes) > maxClientTag {
+		runes = runes[:maxClientTag]
+	}
+	return string(runes)
+}
+
+func (g *Gate) LeaseSD(ctx context.Context, req sdcpp.LeaseRequest) (func(), error) {
+	if !g.Enabled() {
+		return func() {}, nil
+	}
+	weight := g.sdJobWeight(req.Checkpoint)
+	lease, err := g.q.Acquire(ctx, gpuqueue.Spec{
+		Kind:         gpuqueue.KindSD,
+		Client:       sdJobClient(req.Client),
+		WeightMB:     weight,
+		AutoRenew:    true,
+		NoWaitLimit:  true,
+		NoQueueLimit: true,
+		Exclusive:    true,
+		OnQueued:     func(id string) { g.sdLeases.Store(req.JobID, id) },
+	})
+	g.sdLeases.Delete(req.JobID)
+	if err != nil {
+		switch {
+		case errors.Is(err, gpuqueue.ErrQueueFull):
+			return nil, sdcpp.ErrQueueFull
+		case errors.Is(err, gpuqueue.ErrCancelled), ctx.Err() != nil:
+			return nil, context.Canceled
+		}
+		return nil, err
+	}
+	if g.beforeSD != nil {
+		g.beforeSD(ctx, weight)
+	}
+	var released atomic.Bool
+	stop := make(chan struct{})
+	if done := lease.Done(); done != nil {
+		go func() {
+			select {
+			case <-done:
+				if !released.Load() && g.sdLeaseLost != nil {
+					g.sdLeaseLost(req.JobID)
+				}
+			case <-stop:
+			}
+		}()
+	}
+	return func() {
+		if released.CompareAndSwap(false, true) {
+			close(stop)
+			lease.Release()
+		}
+	}, nil
+}
+
+func (g *Gate) SDPosition(jobID string) int {
+	if g == nil || g.q == nil {
+		return 0
+	}
+	v, ok := g.sdLeases.Load(jobID)
+	if !ok {
+		return 0
+	}
+	j, ok := g.q.Get(v.(string))
+	if !ok {
+		return 0
+	}
+	return j.Position
 }

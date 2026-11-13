@@ -777,3 +777,67 @@ func TestSanitizeClient(t *testing.T) {
 		})
 	}
 }
+
+func TestAcquire_NoWaitLimitWaitsPastMaxWait(t *testing.T) {
+	q := New(Config{TotalBudgetMB: 1000, MaxWait: 50 * time.Millisecond, LeaseTTL: 5 * time.Second})
+	hold, err := q.Acquire(context.Background(), Spec{Kind: KindLLM, WeightMB: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var queuedID string
+	got := make(chan error, 1)
+	var lease *Lease
+	go func() {
+		var err error
+		lease, err = q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 1000, NoWaitLimit: true, OnQueued: func(id string) { queuedID = id }})
+		got <- err
+	}()
+	time.Sleep(150 * time.Millisecond)
+	q.evictExpired()
+	if st := q.Status(); len(st.Queue) != 1 {
+		t.Fatalf("job must still wait, queue %v", st.Queue)
+	}
+	hold.Release()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("job not admitted")
+	}
+	if queuedID == "" || lease.ID() != queuedID {
+		t.Fatalf("OnQueued id %q, lease %q", queuedID, lease.ID())
+	}
+	lease.Release()
+}
+
+func TestLease_DoneClosedOnCancelAndRelease(t *testing.T) {
+	q := New(Config{TotalBudgetMB: 1000, LeaseTTL: 5 * time.Second})
+	for _, cancel := range []bool{true, false} {
+		l, err := q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 500})
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-l.Done():
+			t.Fatal("done before end")
+		default:
+		}
+		if cancel {
+			q.Cancel(l.ID())
+		} else {
+			l.Release()
+		}
+		select {
+		case <-l.Done():
+		case <-time.After(time.Second):
+			t.Fatalf("done not closed (cancel=%v)", cancel)
+		}
+	}
+	disabled := New(Config{})
+	l, _ := disabled.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 500})
+	if l.Done() != nil {
+		t.Fatal("disabled queue lease must have nil Done")
+	}
+}

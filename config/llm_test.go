@@ -106,7 +106,9 @@ func TestOldOllamaConfigAdopted(t *testing.T) {
 func TestOldConfigFileNotRewrittenByAdoption(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "server-config.yaml")
-	text := "active_llm: ollama\n" + oldConfig184
+	noForge := strings.Replace(oldConfig184[:strings.Index(oldConfig184, "backends:")], "active_sd: forge", "active_sd: sdcpp", 1)
+	noForge = strings.Replace(noForge, "/sdapi/v1/options", "/sdcpp/v1/capabilities", 1)
+	text := "active_llm: ollama\n" + noForge
 	require.NoError(t, os.WriteFile(p, []byte(text), 0o644))
 	_, err := LoadWithDir(p, dir)
 	require.NoError(t, err)

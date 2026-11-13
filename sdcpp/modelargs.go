@@ -99,7 +99,7 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 	lower := strings.ToLower(stem(name))
 	zimage := strings.Contains(lower, "z-image") || strings.Contains(lower, "zimage") || strings.Contains(lower, "z_image")
 	if zimage && (len(modules) == 0 || strings.Contains(lower, "aio")) {
-		return nil, fmt.Errorf("model %q: sd.cpp cannot load the Forge all-in-one Z-Image file; add an alias with a GGUF diffusion model, text encoder and VAE", name)
+		return nil, fmt.Errorf("model %q: sd.cpp cannot load an all-in-one Z-Image file; add an alias with a GGUF diffusion model, text encoder and VAE", name)
 	}
 	path, err := checkpointPath(cfg, name)
 	if err != nil {
@@ -161,7 +161,7 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 		return []string{"--model", path, "--vae", vae}, nil
 	}
 	if vae == "" || llm == "" {
-		return nil, fmt.Errorf("model %q needs a VAE and a text encoder in forge_additional_modules, got %v", name, modules)
+		return nil, fmt.Errorf("model %q needs a VAE and a text encoder in modules, got %v", name, modules)
 	}
 	args := []string{"--diffusion-model", path, "--llm", llm, "--vae", vae}
 	if tokenizer == "" && moss {

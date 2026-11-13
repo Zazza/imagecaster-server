@@ -32,7 +32,7 @@ func TestApplyPortGuard_Default(t *testing.T) {
 	}, guards)
 
 	assert.Equal(t, "http://127.0.0.1:7861", c.Processes["sd"].TargetURL)
-	assert.Equal(t, "http://127.0.0.1:7861/sdapi/v1/options", c.Processes["sd"].HealthURL)
+	assert.Equal(t, "http://127.0.0.1:7861/sdcpp/v1/capabilities", c.Processes["sd"].HealthURL)
 	assert.Equal(t, "http://127.0.0.1:11435", c.Processes["llm"].TargetURL)
 	assert.Equal(t, "http://127.0.0.1:11435/health", c.Processes["llm"].HealthURL)
 	assert.Equal(t, llmDefault().Processes["python"], c.Processes["python"])
@@ -127,7 +127,7 @@ func TestApplyPortGuard_InternalPort(t *testing.T) {
 			HealthURL:    "http://localhost:7860/x",
 			ProxyPath:    "/api/sd/",
 			InternalPort: 7860,
-			Args:         []string{"launch.py", "--listen", "--port", "7860"},
+			Args:         []string{"--listen-port", "7860"},
 		}
 		c := guardCfg(map[string]ProcessConfig{"sd": pc})
 		assert.Empty(t, c.ApplyPortGuard())
@@ -143,7 +143,7 @@ func TestApplyPortGuard_NotGuarded(t *testing.T) {
 		HealthURL:    "http://192.168.1.50:7860/sdapi/v1/options",
 		ProxyPath:    "/api/sd/",
 		InternalPort: 7861,
-		Args:         []string{"launch.py", "--listen", "--port", "7860"},
+		Args:         []string{"--listen-port", "7860"},
 	}
 	remoteLLM := ProcessConfig{
 		AutoStart:    true,
@@ -180,29 +180,24 @@ func TestApplyPortGuard_SDArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			"card example",
-			[]string{"launch.py", "--listen", "--api", "--xformers", "--port", "7860"},
-			[]string{"launch.py", "--api", "--xformers", "--port", "7861"},
+			"listen args replaced",
+			[]string{"--lora-model-dir", "/m", "--listen-ip", "0.0.0.0", "--listen-port", "7860"},
+			[]string{"--lora-model-dir", "/m", "--listen-ip", "127.0.0.1", "--listen-port", "7861"},
 		},
 		{
-			"port equals form",
-			[]string{"launch.py", "--port=7860", "--api"},
-			[]string{"launch.py", "--api", "--port", "7861"},
+			"equals forms",
+			[]string{"--listen-port=7860", "--listen-ip=0.0.0.0", "-v"},
+			[]string{"-v", "--listen-ip", "127.0.0.1", "--listen-port", "7861"},
 		},
 		{
-			"server name both forms",
-			[]string{"launch.py", "--server-name", "0.0.0.0", "--api", "--server-name=1.2.3.4", "--medvram-sdxl"},
-			[]string{"launch.py", "--api", "--medvram-sdxl", "--port", "7861"},
+			"short listen ip",
+			[]string{"-l", "0.0.0.0", "-v"},
+			[]string{"-v", "--listen-ip", "127.0.0.1", "--listen-port", "7861"},
 		},
 		{
-			"multiple ports and listen",
-			[]string{"--listen", "launch.py", "--port", "1", "--xformers", "--port=2", "--listen"},
-			[]string{"launch.py", "--xformers", "--port", "7861"},
-		},
-		{
-			"no port args",
-			[]string{"launch.py", "--api"},
-			[]string{"launch.py", "--api", "--port", "7861"},
+			"no listen args",
+			[]string{"-v"},
+			[]string{"-v", "--listen-ip", "127.0.0.1", "--listen-port", "7861"},
 		},
 	}
 	for _, tt := range tests {
@@ -211,10 +206,23 @@ func TestApplyPortGuard_SDArgs(t *testing.T) {
 			c := guardCfg(map[string]ProcessConfig{
 				"sd": {AutoStart: true, TargetURL: "http://localhost:7860", ProxyPath: "/api/sd/", InternalPort: 7861, Args: tt.args},
 			})
+			c.ActiveSD = SDCppBackendKey
+			c.Backends = map[string]BackendConfig{SDCppBackendKey: {Kind: KindSDCpp, ProcessKey: "sd"}}
 			require.Len(t, c.ApplyPortGuard(), 1)
 			assert.Equal(t, tt.want, c.Processes["sd"].Args)
 		})
 	}
+}
+
+func TestApplyPortGuard_NonSDCppArgsUntouched(t *testing.T) {
+	t.Parallel()
+	args := []string{"--listen-port", "7860"}
+	c := guardCfg(map[string]ProcessConfig{
+		"sd": {AutoStart: true, TargetURL: "http://localhost:7860", ProxyPath: "/api/sd/", InternalPort: 7861, Args: args},
+	})
+	require.Len(t, c.ApplyPortGuard(), 1)
+	assert.Equal(t, args, c.Processes["sd"].Args)
+	assert.Equal(t, "http://127.0.0.1:7861", c.Processes["sd"].TargetURL)
 }
 
 func TestApplyPortGuard_SDEnvUntouched(t *testing.T) {
@@ -224,31 +232,6 @@ func TestApplyPortGuard_SDEnvUntouched(t *testing.T) {
 	_, has := c.Processes["sd"].Env["OLLAMA_HOST"]
 	assert.False(t, has)
 	assert.Equal(t, NewDefault().Processes["sd"].Env, c.Processes["sd"].Env)
-}
-
-type fakeOptimizer struct{}
-
-func (fakeOptimizer) DetectGPU() int                          { return 16000 }
-func (fakeOptimizer) CheckXformersCompat(string, string) bool { return true }
-func (fakeOptimizer) ForgeArgsForVRAM(int, bool) []string {
-	return []string{"launch.py", "--listen", "--api", "--xformers"}
-}
-
-func TestApplyPortGuard_AfterBackendArgs(t *testing.T) {
-	for _, auto := range []bool{false, true} {
-		cfg := NewDefault()
-		cfg.ActiveSD = NeoBackendKey
-		b := cfg.Backends["forge"]
-		b.AutoOptimize = auto
-		cfg.Backends["forge"] = b
-		cfg.ApplyBackendToProcess(fakeOptimizer{})
-		cfg.ApplyPortGuard()
-		args := cfg.Processes["sd"].Args
-		assert.NotContains(t, args, "--listen", "auto=%v", auto)
-		require.GreaterOrEqual(t, len(args), 2)
-		assert.Equal(t, []string{"--port", "7861"}, args[len(args)-2:], "auto=%v", auto)
-		assert.Equal(t, "launch.py", args[0])
-	}
 }
 
 func TestApplyPortGuard_AutoStartOnly(t *testing.T) {
@@ -262,7 +245,7 @@ func TestApplyPortGuard_AutoStartOnly(t *testing.T) {
 			"sd autostart guarded",
 			ProcessConfig{
 				AutoStart: true, TargetURL: "http://localhost:7860", HealthURL: "http://localhost:7860/x",
-				ProxyPath: "/api/sd/", InternalPort: 7861, Args: []string{"launch.py", "--listen", "--port", "7860"},
+				ProxyPath: "/api/sd/", InternalPort: 7861, Args: []string{"--listen-port", "7860"},
 			},
 			1,
 		},
@@ -270,7 +253,7 @@ func TestApplyPortGuard_AutoStartOnly(t *testing.T) {
 			"sd not autostart left alone",
 			ProcessConfig{
 				TargetURL: "http://localhost:7860", HealthURL: "http://localhost:7860/x",
-				ProxyPath: "/api/sd/", InternalPort: 7861, Args: []string{"launch.py", "--listen", "--port", "7860"},
+				ProxyPath: "/api/sd/", InternalPort: 7861, Args: []string{"--listen-port", "7860"},
 			},
 			0,
 		},

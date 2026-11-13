@@ -5,59 +5,43 @@ import (
 	"errors"
 	"log"
 	"os"
-	"runtime"
 
 	"gopkg.in/yaml.v3"
 )
 
 const EngineMigrationBackupSuffix = ".bak-before-sdcpp"
 
-var sdcppOnThisPlatform = func() bool { return SDCppSupported(runtime.GOOS, runtime.GOARCH) }
-
-func migrateEngines(path string, data []byte) ([]byte, string) {
+func migrateEngines(path string, data []byte) []byte {
 	if fileHasKey(data, "active_llm") {
-		return data, backupActiveSD(path)
-	}
-	if !sdcppOnThisPlatform() {
-		return data, ""
-	}
-	if _, err := os.Stat(path + EngineMigrationBackupSuffix); err == nil {
-		log.Printf("[config] %s exists, config without active_llm is kept as is (rollback)", path+EngineMigrationBackupSuffix)
-		return data, ""
+		return data
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return data, ""
+		return data
 	}
 	root := doc.Content[0]
-	prev := mapValue(root, "active_sd")
 	setMapValue(root, "active_sd", SDCppBackendKey)
 	setMapValue(root, "active_llm", LLMLlamaCpp)
+	out, err := encodeYAML(&doc)
+	if err != nil {
+		return data
+	}
+	if err := writeMigrated(path, EngineMigrationBackupSuffix, data, out); err != nil {
+		log.Printf("[config] engines switched to sd.cpp and llama.cpp for this run only, config not saved: %v", err)
+		return out
+	}
+	log.Printf("[config] engines switched to sd.cpp and llama.cpp; models stay in their folders; old config saved as %s", path+EngineMigrationBackupSuffix)
+	return out
+}
+
+func encodeYAML(doc *yaml.Node) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(4)
-	if err := enc.Encode(&doc); err != nil {
-		return data, ""
+	if err := enc.Encode(doc); err != nil {
+		return nil, err
 	}
-	out := buf.Bytes()
-	if err := writeMigrated(path, data, out); err != nil {
-		log.Printf("[config] engines switched to sd.cpp and llama.cpp for this run only, config not saved: %v", err)
-		return out, prev
-	}
-	log.Printf("[config] engines switched to sd.cpp and llama.cpp; models stay in their folders; old config saved as %s", path+EngineMigrationBackupSuffix)
-	return out, prev
-}
-
-func backupActiveSD(path string) string {
-	data, err := os.ReadFile(path + EngineMigrationBackupSuffix)
-	if err != nil {
-		return ""
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return ""
-	}
-	return mapValue(doc.Content[0], "active_sd")
+	return buf.Bytes(), nil
 }
 
 func mapValue(m *yaml.Node, key string) string {
@@ -69,8 +53,8 @@ func mapValue(m *yaml.Node, key string) string {
 	return ""
 }
 
-func writeMigrated(path string, old, migrated []byte) error {
-	backup := path + EngineMigrationBackupSuffix
+func writeMigrated(path, suffix string, old, migrated []byte) error {
+	backup := path + suffix
 	created := false
 	f, err := os.OpenFile(backup, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	switch {

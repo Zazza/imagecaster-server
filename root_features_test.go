@@ -21,10 +21,10 @@ func TestRootReportsFeatures(t *testing.T) {
 		facade   bool
 		want     []string
 	}{
-		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, []string{"sdcpp", "llamacpp", "download_stream"}},
-		{"old active_llm ollama value", "forge-neo", "", "ollama", true, []string{"forge", "llamacpp", "download_stream"}},
-		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, []string{"sdcpp", "download_stream"}},
-		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, []string{"forge", "llamacpp", "download_stream"}},
+		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, []string{"sdcpp", "sd_jobs", "llamacpp", "download_stream"}},
+		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, []string{"sdcpp", "sd_jobs", "llamacpp", "download_stream"}},
+		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, []string{"sdcpp", "sd_jobs", "download_stream"}},
+		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, []string{"llamacpp", "download_stream"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -34,7 +34,7 @@ func TestRootReportsFeatures(t *testing.T) {
 			if tc.facade {
 				h.llmRunning = func() []string { return nil }
 			}
-			h.config.Backends = map[string]config.BackendConfig{"sdcpp": {Kind: config.KindSDCpp}, "forge-neo": {}}
+			h.config.Backends = map[string]config.BackendConfig{"sdcpp": {Kind: config.KindSDCpp}}
 			rec := httptest.NewRecorder()
 			h.handleRoot(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 			require.Equal(t, http.StatusOK, rec.Code)

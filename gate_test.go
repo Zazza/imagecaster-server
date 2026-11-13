@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +26,7 @@ func newTestGate(budgetMB, maxWaitSec int, cfg GateConfig, modelsDir string) (*G
 		LeaseTTL:      30 * time.Second,
 	})
 	mm := models.NewModelManager(&config.Config{})
-	sdw := newSDWeight(cfg, mm, modelsDir, "")
+	sdw := newSDWeight(cfg, mm, modelsDir)
 	return NewGate(q, cfg, sdw), q
 }
 
@@ -61,7 +60,7 @@ func newGateServer(t *testing.T, gate *Gate, prefixes ...string) *httptest.Serve
 func TestGate_Enabled(t *testing.T) {
 	t.Parallel()
 	cfg := GateConfig{SDDefaultWeightMB: 3000}
-	sdw := newSDWeight(cfg, nil, "", "")
+	sdw := newSDWeight(cfg, nil, "")
 
 	assert.True(t, NewGate(gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 100}), cfg, sdw).Enabled())
 	assert.False(t, NewGate(gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 0}), cfg, sdw).Enabled())
@@ -74,7 +73,7 @@ func TestGateKind(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, gpuqueue.KindLLM, gateKind("/api/llm/api/chat"))
 	assert.Equal(t, gpuqueue.KindLLM, gateKind("/api/llm/api/generate"))
-	assert.Equal(t, gpuqueue.KindSD, gateKind("/api/sd/sdapi/v1/txt2img"))
+	assert.Equal(t, gpuqueue.KindSD, gateKind("/api/sd/jobs"))
 	assert.Equal(t, gpuqueue.KindSD, gateKind("/api/other"))
 }
 
@@ -112,30 +111,16 @@ func TestGate_WeightClassification(t *testing.T) {
 		path   string
 		want   int
 	}{
-		{"txt2img", http.MethodPost, "/api/sd/sdapi/v1/txt2img", 3000},
-		{"img2img", http.MethodPost, "/api/sd/sdapi/v1/img2img", 3000},
-		{"interrogate", http.MethodPost, "/api/sd/sdapi/v1/interrogate", 3000},
-		{"txt2img trailing slash", http.MethodPost, "/api/sd/sdapi/v1/txt2img/", 3000},
-		{"img2img trailing slash", http.MethodPost, "/api/sd/sdapi/v1/img2img/", 3000},
+		{"submit job", http.MethodPost, "/api/sd/jobs", 0},
+		{"submit job trailing slash", http.MethodPost, "/api/sd/jobs/", 0},
+		{"cancel job", http.MethodPost, "/api/sd/jobs/abc/cancel", 0},
+		{"unload", http.MethodPost, "/api/sd/unload", 0},
 		{"llm chat trailing slash", http.MethodPost, "/api/llm/api/chat/", 2000},
-		{"txt2img get", http.MethodGet, "/api/sd/sdapi/v1/txt2img", 0},
-		{"txt2img get trailing slash", http.MethodGet, "/api/sd/sdapi/v1/txt2img/", 0},
-		{"options post", http.MethodPost, "/api/sd/sdapi/v1/options", 0},
-		{"progress", http.MethodGet, "/api/sd/sdapi/v1/progress", 0},
 		{"llm generate", http.MethodPost, "/api/llm/api/generate", 2000},
 		{"llm chat", http.MethodPost, "/api/llm/api/chat", 2000},
 		{"llm chat get", http.MethodGet, "/api/llm/api/chat", 0},
 		{"llm tags", http.MethodPost, "/api/llm/api/tags", 0},
 		{"llm ps", http.MethodGet, "/api/llm/api/ps", 0},
-		{"extra single", http.MethodPost, "/api/sd/sdapi/v1/extra-single-image", 3000},
-		{"extra batch", http.MethodPost, "/api/sd/sdapi/v1/extra-batch-images", 3000},
-		{"interrogate trailing slash", http.MethodPost, "/api/sd/sdapi/v1/interrogate/", 3000},
-		{"extra single trailing slash", http.MethodPost, "/api/sd/sdapi/v1/extra-single-image/", 3000},
-		{"extra batch trailing slash", http.MethodPost, "/api/sd/sdapi/v1/extra-batch-images/", 3000},
-		{"img2img get", http.MethodGet, "/api/sd/sdapi/v1/img2img", 0},
-		{"interrogate get", http.MethodGet, "/api/sd/sdapi/v1/interrogate", 0},
-		{"extra single get", http.MethodGet, "/api/sd/sdapi/v1/extra-single-image", 0},
-		{"extra batch get", http.MethodGet, "/api/sd/sdapi/v1/extra-batch-images/", 0},
 		{"llm embed", http.MethodPost, "/api/llm/api/embed", 2000},
 		{"llm embeddings", http.MethodPost, "/api/llm/api/embeddings", 2000},
 		{"llm v1 chat completions", http.MethodPost, "/api/llm/v1/chat/completions", 2000},
@@ -186,9 +171,9 @@ func TestGate_LightPathsBypassQueue(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/sd/sdapi/v1/options"},
-		{http.MethodGet, "/api/sd/sdapi/v1/progress"},
-		{http.MethodPost, "/api/sd/sdapi/v1/options"},
+		{http.MethodGet, "/api/sd/state"},
+		{http.MethodGet, "/api/sd/jobs"},
+		{http.MethodPost, "/api/sd/jobs"},
 		{http.MethodGet, "/api/llm/api/tags"},
 		{http.MethodPost, "/api/llm/api/tags"},
 		{http.MethodGet, "/api/llm/api/ps"},
@@ -233,8 +218,6 @@ func TestGate_HeavyPathAcquiresAndReleases(t *testing.T) {
 		path string
 		want int
 	}{
-		{"txt2img", "/api/sd/sdapi/v1/txt2img", 3000},
-		{"img2img", "/api/sd/sdapi/v1/img2img", 3000},
 		{"chat", "/api/llm/api/chat", 2000},
 		{"generate", "/api/llm/api/generate", 2000},
 	}
@@ -259,7 +242,7 @@ func TestGate_HeavyPathAcquiresAndReleases(t *testing.T) {
 }
 
 func TestGate_TimeoutReturns503WithRetryAfter(t *testing.T) {
-	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 1}
+	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 3000, MaxWaitSeconds: 1}
 	gate, q := newTestGate(3000, 1, cfg, "")
 
 	hold := make(chan struct{})
@@ -270,13 +253,13 @@ func TestGate_TimeoutReturns503WithRetryAfter(t *testing.T) {
 	})
 	h := gate.Middleware(next)
 	mux := http.NewServeMux()
-	mux.Handle("/api/sd/", h)
+	mux.Handle("/api/llm/", h)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	go func() {
 		defer close(firstDone)
-		resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+		resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
 		if err == nil {
 			resp.Body.Close()
 		}
@@ -285,7 +268,7 @@ func TestGate_TimeoutReturns503WithRetryAfter(t *testing.T) {
 	require.True(t, waitFor(t, 2*time.Second, func() bool { return len(q.Status().Running) == 1 }))
 
 	start := time.Now()
-	resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+	resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -305,78 +288,6 @@ func TestGate_TimeoutReturns503WithRetryAfter(t *testing.T) {
 	require.True(t, waitFor(t, time.Second, func() bool { return len(q.Status().Running) == 0 }))
 }
 
-func TestGate_SniffOptionsPreservesBodyAndUpdatesWeight(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "model.safetensors"), make([]byte, 2*1024*1024), 0o644))
-
-	cfg := GateConfig{SDDefaultWeightMB: 5000, SDOverheadMB: 1000, LLMWeightMB: 2000, MaxWaitSeconds: 1}
-	gate, q := newTestGate(100000, 1, cfg, dir)
-
-	type capture struct {
-		body   string
-		length int64
-		weight int
-	}
-	captures := make(chan capture, 4)
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		c := capture{body: string(b), length: r.ContentLength}
-		st := q.Status()
-		if len(st.Running) == 1 {
-			c.weight = st.Running[0].WeightMB
-		}
-		captures <- c
-		w.WriteHeader(http.StatusOK)
-	})
-	h := gate.Middleware(next)
-	mux := http.NewServeMux()
-	mux.Handle("/api/sd/", h)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	name, weight := gate.sdw.current()
-	assert.Empty(t, name)
-	assert.Equal(t, 5000, weight)
-
-	payload := `{"sd_model_checkpoint":"model.safetensors","CLIP_stop_at_last_layers":2}`
-	resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/options", "application/json", strings.NewReader(payload))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-
-	got := <-captures
-	assert.Equal(t, payload, got.body)
-	assert.Equal(t, int64(len(payload)), got.length)
-	assert.Zero(t, got.weight)
-
-	name, weight = gate.sdw.current()
-	assert.Equal(t, "model.safetensors", name)
-	assert.Equal(t, 1002, weight)
-
-	resp, err = http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-
-	got = <-captures
-	assert.Equal(t, 1002, got.weight)
-
-	hashed := `{"sd_model_checkpoint":"model.safetensors [abc123]"}`
-	resp, err = http.Post(srv.URL+"/api/sd/sdapi/v1/options", "application/json", strings.NewReader(hashed))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-
-	got = <-captures
-	assert.Equal(t, hashed, got.body)
-
-	name, weight = gate.sdw.current()
-	assert.Equal(t, "model.safetensors", name)
-	assert.Equal(t, 1002, weight)
-	assert.Empty(t, q.Status().Running)
-}
-
 func TestGate_DisabledQueuePassthrough(t *testing.T) {
 	t.Parallel()
 	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 1}
@@ -384,7 +295,7 @@ func TestGate_DisabledQueuePassthrough(t *testing.T) {
 	assert.False(t, gate.Enabled())
 
 	srv := newGateServer(t, gate, "/api/sd/", "/api/llm/")
-	for _, path := range []string{"/api/sd/sdapi/v1/txt2img", "/api/llm/api/chat"} {
+	for _, path := range []string{"/api/sd/jobs", "/api/llm/api/chat"} {
 		resp, err := http.Post(srv.URL+path, "application/json", strings.NewReader("{}"))
 		require.NoError(t, err)
 		resp.Body.Close()
@@ -403,56 +314,11 @@ func TestSDWeightTracker_ModelWeights(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "known.safetensors"), make([]byte, 1024*1024), 0o644))
 
 	cfg := GateConfig{SDDefaultWeightMB: 5000, SDOverheadMB: 1000}
-	sdw := newSDWeight(cfg, models.NewModelManager(&config.Config{}), dir, "")
+	sdw := newSDWeight(cfg, models.NewModelManager(&config.Config{}), dir)
 
-	sdw.setCheckpoint("known.safetensors")
-	name, weight := sdw.current()
-	assert.Equal(t, "known.safetensors", name)
-	assert.Equal(t, 1001, weight)
-
-	sdw.setCheckpoint("missing.safetensors")
-	name, weight = sdw.current()
-	assert.Equal(t, "missing.safetensors", name)
-	assert.Equal(t, 5000, weight)
-}
-
-func TestSDWeightTracker_Refresh(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"sd_model_checkpoint":"refreshed.safetensors"}`))
-	}))
-	defer srv.Close()
-
-	cfg := GateConfig{SDDefaultWeightMB: 5000, SDOverheadMB: 100}
-	sdw := newSDWeight(cfg, nil, "", srv.URL)
-
-	name, weight := sdw.current()
-	assert.Empty(t, name)
-	assert.Equal(t, 5000, weight)
-
-	sdw.refresh(context.Background())
-
-	name, _ = sdw.current()
-	assert.Equal(t, "refreshed.safetensors", name)
-}
-
-func TestSDWeightTracker_RefreshErrorKeepsState(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	cfg := GateConfig{SDDefaultWeightMB: 5000}
-	sdw := newSDWeight(cfg, nil, "", srv.URL)
-	sdw.setCheckpoint("kept.safetensors")
-
-	sdw.refresh(context.Background())
-
-	name, weight := sdw.current()
-	assert.Equal(t, "kept.safetensors", name)
-	assert.Equal(t, 5000, weight)
+	assert.Equal(t, 1001, sdw.weightFor("known.safetensors"))
+	assert.Equal(t, 5000, sdw.weightFor("missing.safetensors"))
+	assert.Equal(t, 5000, sdw.weightFor(""))
 }
 
 func TestGate_WeightClampedToBudgetWithDebouncedWarning(t *testing.T) {
@@ -460,9 +326,8 @@ func TestGate_WeightClampedToBudgetWithDebouncedWarning(t *testing.T) {
 	cfg := GateConfig{SDDefaultWeightMB: 12000, SDOverheadMB: 4500, LLMWeightMB: 2000, MaxWaitSeconds: 1}
 	gate, q := newTestGate(10000, 1, cfg, "")
 
-	req := httptest.NewRequest(http.MethodPost, "http://test.local/api/sd/sdapi/v1/txt2img", nil)
-	assert.Equal(t, 10000, gate.weight(req))
-	assert.Equal(t, 10000, gate.weight(req))
+	assert.Equal(t, 10000, gate.sdJobWeight("big.safetensors"))
+	assert.Equal(t, 10000, gate.sdJobWeight("big.safetensors"))
 
 	llmReq := httptest.NewRequest(http.MethodPost, "http://test.local/api/llm/api/chat", nil)
 	assert.Equal(t, 2000, gate.weight(llmReq))
@@ -478,13 +343,12 @@ func TestGate_WeightClampedToBudgetWithDebouncedWarning(t *testing.T) {
 
 	smallCfg := GateConfig{SDDefaultWeightMB: 2000, LLMWeightMB: 2000}
 	smallGate, smallQ := newTestGate(10000, 1, smallCfg, "")
-	smallReq := httptest.NewRequest(http.MethodPost, "http://test.local/api/sd/sdapi/v1/txt2img", nil)
-	assert.Equal(t, 2000, smallGate.weight(smallReq))
+	assert.Equal(t, 2000, smallGate.sdJobWeight("small.safetensors"))
 	assert.Empty(t, smallQ.Status().Warnings)
 }
 
 func TestGate_RetryAfterFromQueueMaxWait(t *testing.T) {
-	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 99}
+	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 3000, MaxWaitSeconds: 99}
 	gate, q := newTestGate(3000, 1, cfg, "")
 
 	hold := make(chan struct{})
@@ -494,12 +358,12 @@ func TestGate_RetryAfterFromQueueMaxWait(t *testing.T) {
 	})
 	h := gate.Middleware(next)
 	mux := http.NewServeMux()
-	mux.Handle("/api/sd/", h)
+	mux.Handle("/api/llm/", h)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	go func() {
-		resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+		resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
 		if err == nil {
 			resp.Body.Close()
 		}
@@ -507,7 +371,7 @@ func TestGate_RetryAfterFromQueueMaxWait(t *testing.T) {
 
 	require.True(t, waitFor(t, 2*time.Second, func() bool { return len(q.Status().Running) == 1 }))
 
-	resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+	resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -519,7 +383,7 @@ func TestGate_RetryAfterFromQueueMaxWait(t *testing.T) {
 }
 
 func TestGate_CancelledFromQueueReturns503NotEmpty200(t *testing.T) {
-	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 1}
+	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 3000, MaxWaitSeconds: 1}
 	gate, q := newTestGate(3000, 5, cfg, "")
 
 	hold := make(chan struct{})
@@ -529,12 +393,12 @@ func TestGate_CancelledFromQueueReturns503NotEmpty200(t *testing.T) {
 	})
 	h := gate.Middleware(next)
 	mux := http.NewServeMux()
-	mux.Handle("/api/sd/", h)
+	mux.Handle("/api/llm/", h)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	go func() {
-		resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+		resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
 		if err == nil {
 			resp.Body.Close()
 		}
@@ -547,7 +411,7 @@ func TestGate_CancelledFromQueueReturns503NotEmpty200(t *testing.T) {
 	}
 	resCh := make(chan result, 1)
 	go func() {
-		resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+		resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
 		resCh <- result{resp: resp, err: err}
 	}()
 
@@ -570,42 +434,4 @@ func TestGate_CancelledFromQueueReturns503NotEmpty200(t *testing.T) {
 
 	close(hold)
 	require.True(t, waitFor(t, time.Second, func() bool { return len(q.Status().Running) == 0 }))
-}
-
-func TestGate_SniffOversizedOptionsPassthrough(t *testing.T) {
-	t.Parallel()
-	cfg := GateConfig{SDDefaultWeightMB: 5000, SDOverheadMB: 100, MaxWaitSeconds: 1}
-	gate, _ := newTestGate(100000, 1, cfg, "")
-
-	type capture struct {
-		bodyLen int
-		length  int64
-	}
-	captures := make(chan capture, 1)
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("downstream body read: %v", err)
-		}
-		captures <- capture{bodyLen: len(b), length: r.ContentLength}
-		w.WriteHeader(http.StatusOK)
-	})
-	h := gate.Middleware(next)
-	mux := http.NewServeMux()
-	mux.Handle("/api/sd/", h)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	big := `{"sd_model_checkpoint":"evil.safetensors","pad":"` + strings.Repeat("x", 70*1024) + `"}`
-	resp, err := http.Post(srv.URL+"/api/sd/sdapi/v1/options", "application/json", strings.NewReader(big))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-
-	got := <-captures
-	assert.Equal(t, len(big), got.bodyLen)
-	assert.Equal(t, int64(len(big)), got.length)
-
-	name, _ := gate.sdw.current()
-	assert.Empty(t, name, "oversized options body must not be parsed")
 }

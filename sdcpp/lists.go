@@ -2,6 +2,7 @@ package sdcpp
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -21,8 +22,8 @@ import (
 	xdraw "golang.org/x/image/draw"
 )
 
-func (f *Facade) sdModels(w http.ResponseWriter) {
-	out := []map[string]any{}
+func (f *Facade) checkpoints(w http.ResponseWriter) {
+	out := []map[string]string{}
 	seen := map[string]bool{}
 	if f.cfg.ModelsDir != "" {
 		filepath.WalkDir(f.cfg.ModelsDir, func(p string, d fs.DirEntry, err error) error {
@@ -36,14 +37,7 @@ func (f *Facade) sdModels(w http.ResponseWriter) {
 			rel = filepath.ToSlash(rel)
 			seen[rel] = true
 			seen[stem(rel)] = true
-			out = append(out, map[string]any{
-				"title":      rel,
-				"model_name": strings.TrimSuffix(rel, filepath.Ext(rel)),
-				"filename":   p,
-				"hash":       nil,
-				"sha256":     nil,
-				"config":     nil,
-			})
+			out = append(out, map[string]string{"name": rel, "file": p})
 			return nil
 		})
 	}
@@ -56,31 +50,24 @@ func (f *Facade) sdModels(w http.ResponseWriter) {
 		if seen[k] || seen[stem(k)] {
 			continue
 		}
-		out = append(out, map[string]any{
-			"title":      k,
-			"model_name": stem(k),
-			"filename":   "",
-			"hash":       nil,
-			"sha256":     nil,
-			"config":     nil,
-		})
+		out = append(out, map[string]string{"name": k, "file": ""})
 	}
-	respondJSON(w, http.StatusOK, out)
+	respondJSON(w, http.StatusOK, map[string]any{"checkpoints": out})
 }
 
-func (f *Facade) sdVAE(w http.ResponseWriter) {
-	out := []map[string]any{}
+func (f *Facade) vaes(w http.ResponseWriter) {
+	out := []map[string]string{}
 	if f.cfg.VAEDir != "" {
 		if ents, err := os.ReadDir(f.cfg.VAEDir); err == nil {
 			for _, e := range ents {
 				if e.IsDir() || !hasModelExt(e.Name()) {
 					continue
 				}
-				out = append(out, map[string]any{"model_name": e.Name(), "filename": filepath.Join(f.cfg.VAEDir, e.Name())})
+				out = append(out, map[string]string{"name": e.Name(), "file": filepath.Join(f.cfg.VAEDir, e.Name())})
 			}
 		}
 	}
-	respondJSON(w, http.StatusOK, out)
+	respondJSON(w, http.StatusOK, map[string]any{"vaes": out})
 }
 
 func (f *Facade) loras(w http.ResponseWriter, r *http.Request) {
@@ -89,48 +76,33 @@ func (f *Facade) loras(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(list))
-	for _, l := range list {
-		out = append(out, map[string]any{"name": l.Name, "alias": l.Name, "path": l.Path, "metadata": map[string]any{}})
-	}
-	respondJSON(w, http.StatusOK, out)
-}
-
-func (f *Facade) samplers(w http.ResponseWriter) {
-	out := make([]map[string]any, 0, len(samplers))
-	for _, s := range samplers {
-		out = append(out, map[string]any{"name": s.forge, "aliases": []string{s.sdcpp}, "options": map[string]any{}})
-	}
-	respondJSON(w, http.StatusOK, out)
-}
-
-func (f *Facade) schedulers(w http.ResponseWriter) {
-	out := make([]map[string]any, 0, len(schedulers)+1)
-	out = append(out, map[string]any{"name": "Automatic", "label": "Automatic", "aliases": nil})
-	for _, s := range schedulers {
-		out = append(out, map[string]any{"name": s.forge, "label": s.forge, "aliases": nil})
-	}
-	respondJSON(w, http.StatusOK, out)
+	respondJSON(w, http.StatusOK, map[string]any{"loras": list})
 }
 
 func (f *Facade) upscalers(w http.ResponseWriter) {
 	out := []map[string]any{
-		{"name": "None", "model_name": nil, "model_path": nil, "scale": 4},
-		{"name": "Lanczos", "model_name": nil, "model_path": nil, "scale": 4},
-		{"name": "Nearest", "model_name": nil, "model_path": nil, "scale": 4},
-	}
-	rev := map[string]string{}
-	for forge, s := range upscalerAliases {
-		rev[s] = forge
+		{"name": "lanczos", "scale": 4},
+		{"name": "nearest", "scale": 4},
 	}
 	for _, p := range f.upscalerFiles() {
-		s := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-		out = append(out, map[string]any{"name": s, "model_name": s, "model_path": p, "scale": 4})
-		if forge, ok := rev[s]; ok {
-			out = append(out, map[string]any{"name": forge, "model_name": s, "model_path": p, "scale": 4})
-		}
+		out = append(out, map[string]any{"name": strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)), "scale": 4})
 	}
-	respondJSON(w, http.StatusOK, out)
+	respondJSON(w, http.StatusOK, map[string]any{"upscalers": out})
+}
+
+func imageSizeB64(s string) (int, int, error) {
+	if i := strings.Index(s, ","); i >= 0 && strings.HasPrefix(s, "data:") {
+		s = s[i+1:]
+	}
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return 0, 0, err
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		return 0, 0, err
+	}
+	return cfg.Width, cfg.Height, nil
 }
 
 func decodeImageB64(s string) (image.Image, error) {
@@ -179,58 +151,71 @@ func resizeTo(img image.Image, w, h int, k xdraw.Interpolator) image.Image {
 	return dst
 }
 
-func (f *Facade) extraSingle(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Image    string   `json:"image"`
-		Upscaler string   `json:"upscaler_1"`
-		Resize   *float64 `json:"upscaling_resize"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, errf(http.StatusBadRequest, "invalid JSON: %v", err))
-		return
-	}
-	src, err := decodeImageB64(req.Image)
-	if err != nil {
-		writeErr(w, errf(http.StatusBadRequest, "decode image: %v", err))
-		return
-	}
-	scale := 2.0
-	if req.Resize != nil && *req.Resize > 0 {
-		scale = *req.Resize
-	}
+func upscaleTarget(src image.Image, scale float64) (int, int, error) {
 	b := src.Bounds()
 	fw, fh := math.Round(float64(b.Dx())*scale), math.Round(float64(b.Dy())*scale)
 	if !(fw >= 1 && fh >= 1 && fw <= maxSide && fh <= maxSide && fw*fh <= maxPixels) {
-		writeErr(w, errf(http.StatusBadRequest, "bad upscaling_resize %v: result must be 1..%d px per side and at most %d MP", scale, maxSide, maxPixels/1_000_000))
-		return
+		return 0, 0, apiErr(http.StatusBadRequest, "invalid_params", "bad scale %v: result must be 1..%d px per side and at most %d MP", scale, maxSide, maxPixels/1_000_000)
 	}
-	tw, th := int(fw), int(fh)
-	name, err := f.resolveUpscaler(req.Upscaler, false)
+	return int(fw), int(fh), nil
+}
+
+func upscaleScale(p GenParams) float64 {
+	if p.Scale != nil && *p.Scale > 0 {
+		return *p.Scale
+	}
+	return 2
+}
+
+func (f *Facade) checkUpscale(p GenParams) error {
+	if p.Image == "" {
+		return apiErr(http.StatusBadRequest, "invalid_params", "upscale needs params.image")
+	}
+	src, err := decodeImageB64(p.Image)
 	if err != nil {
-		writeErr(w, err)
-		return
+		return apiErr(http.StatusBadRequest, "invalid_params", "decode image: %v", err)
+	}
+	if _, _, err := upscaleTarget(src, upscaleScale(p)); err != nil {
+		return err
+	}
+	_, err = f.resolveUpscaler(p.Upscaler, false)
+	return err
+}
+
+func (f *Facade) upscale(ctx context.Context, p GenParams) ([]string, map[string]any, error) {
+	src, err := decodeImageB64(p.Image)
+	if err != nil {
+		return nil, nil, apiErr(http.StatusBadRequest, "invalid_params", "decode image: %v", err)
+	}
+	scale := upscaleScale(p)
+	tw, th, err := upscaleTarget(src, scale)
+	if err != nil {
+		return nil, nil, err
+	}
+	name, err := f.resolveUpscaler(p.Upscaler, false)
+	if err != nil {
+		return nil, nil, err
 	}
 	var out image.Image
 	switch name {
 	case "Nearest":
 		out = resizeTo(src, tw, th, xdraw.NearestNeighbor)
-	case "None", "Lanczos":
+	case "Lanczos":
 		out = resizeTo(src, tw, th, xdraw.CatmullRom)
 	default:
 		repeats := 1
 		if scale > 4 {
 			repeats = 2
 		}
-		f.gen.Lock()
-		code, body, derr := f.do(r.Context(), http.MethodPost, "/sdcpp/v1/upscale", map[string]any{"image": req.Image, "upscaler": name, "repeats": repeats}, 10*time.Minute)
-		f.gen.Unlock()
+		code, body, derr := f.do(ctx, http.MethodPost, "/sdcpp/v1/upscale", map[string]any{"image": p.Image, "upscaler": name, "repeats": repeats}, 10*time.Minute)
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
 		if derr != nil {
-			writeErr(w, errf(http.StatusBadGateway, "sd-server unavailable: %v", derr))
-			return
+			return nil, nil, apiErr(http.StatusBadGateway, "sd_failed", "sd-server unavailable: %v", derr)
 		}
 		if code != http.StatusOK {
-			writeErr(w, submitError(code, body))
-			return
+			return nil, nil, submitError(code, body)
 		}
 		var resp struct {
 			Images []struct {
@@ -238,20 +223,18 @@ func (f *Facade) extraSingle(w http.ResponseWriter, r *http.Request) {
 			} `json:"images"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil || len(resp.Images) == 0 {
-			writeErr(w, errf(http.StatusBadGateway, "sd-server upscale: bad response: %s", truncate(body, 200)))
-			return
+			return nil, nil, apiErr(http.StatusBadGateway, "sd_failed", "sd-server upscale: bad response: %s", truncate(body, 200))
 		}
 		up, err := decodeImageB64(resp.Images[0].B64)
 		if err != nil {
-			writeErr(w, errf(http.StatusBadGateway, "decode upscaled image: %v", err))
-			return
+			return nil, nil, apiErr(http.StatusBadGateway, "sd_failed", "decode upscaled image: %v", err)
 		}
 		out = resizeTo(up, tw, th, xdraw.CatmullRom)
 	}
 	enc, err := encodePNG(out)
 	if err != nil {
-		writeErr(w, errf(http.StatusInternalServerError, "encode png: %v", err))
-		return
+		return nil, nil, apiErr(http.StatusInternalServerError, "sd_failed", "encode png: %v", err)
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"image": enc, "html_info": ""})
+	info := map[string]any{"upscaler": p.Upscaler, "scale": scale, "width": tw, "height": th, "backend": "sd.cpp"}
+	return []string{enc}, info, nil
 }

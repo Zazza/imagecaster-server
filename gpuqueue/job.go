@@ -22,11 +22,15 @@ func (k Kind) Valid() bool {
 }
 
 type Spec struct {
-	Kind      Kind
-	Client    string
-	WeightMB  int
-	Priority  int
-	AutoRenew bool
+	Kind         Kind
+	Client       string
+	WeightMB     int
+	Priority     int
+	AutoRenew    bool
+	NoWaitLimit  bool
+	NoQueueLimit bool
+	Exclusive    bool
+	OnQueued     func(id string)
 }
 
 type Job struct {
@@ -58,8 +62,16 @@ type Status struct {
 }
 
 type Lease struct {
-	q  *Queue
-	id string
+	q    *Queue
+	id   string
+	done <-chan struct{}
+}
+
+func (l *Lease) Done() <-chan struct{} {
+	if l == nil {
+		return nil
+	}
+	return l.done
 }
 
 func (l *Lease) ID() string {

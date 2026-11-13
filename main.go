@@ -115,17 +115,15 @@ type appDeps struct {
 	guards *portGuards
 	mux    http.Handler
 	q      *gpuqueue.Queue
-	sdw    *sdWeightTracker
 	llm    *llamacpp.Facade
 }
 
 func initApp(cfg *config.Config) *appDeps {
-	gpuOpt := sdgpu.NewOptimizerAdapter()
-	cfg.ApplyBackendToProcess(gpuOpt)
+	cfg.ApplyBackendToProcess()
 	cfg.ApplyLLMBackend()
 	applyLlamaEnv(cfg)
 	if cfg.DetectedVRAMMB == 0 {
-		cfg.DetectedVRAMMB = gpuOpt.DetectGPU()
+		cfg.DetectedVRAMMB = sdgpu.DetectVRAMMB()
 	}
 	guardSpecs, guardWarns, guardHeld := holdPortGuards(cfg)
 	cfg.PinLlamaInternal()
@@ -155,16 +153,14 @@ func initApp(cfg *config.Config) *appDeps {
 	if backend := cfg.GetActiveBackend(); backend != nil {
 		modelsDir = backend.ModelsDir
 	}
-	sdTargetURL := ""
-	if pc, ok := cfg.Process("sd"); ok {
-		sdTargetURL = pc.TargetURL
-	}
-	sdw := newSDWeight(gateCfg, mm, modelsDir, sdTargetURL)
+	sdw := newSDWeight(gateCfg, mm, modelsDir)
 	gate := NewGate(q, gateCfg, sdw)
 
 	proxy := NewProxyHandler(pm, cfg, gate)
-	if f := newSDCppHandler(cfg, pm, gm); f != nil {
-		proxy.SetHandler("/api/sd/", f)
+	sdRoutes := newSDCppHandler(cfg, pm, gm)
+	if sdRoutes != nil {
+		wireSDJobs(sdRoutes.jobs, gate)
+		proxy.SetHandler("/api/sd/", sdRoutes)
 		log.Printf("SD backend: sd.cpp facade on /api/sd/")
 	}
 	lf := newLlamaFacade(cfg, pm)
@@ -174,6 +170,9 @@ func initApp(cfg *config.Config) *appDeps {
 		log.Printf("LLM backend: llama.cpp on /api/llm/")
 	}
 	handlers := NewHandlers(pm, hm, gm, cfg, inst)
+	if sdRoutes != nil {
+		handlers.sdCheckpoint = sdRoutes.jobs.LoadedCheckpoint
+	}
 	if lf != nil {
 		handlers.llmRunning = lf.RunningNames
 	}
@@ -187,7 +186,7 @@ func initApp(cfg *config.Config) *appDeps {
 
 	return &appDeps{
 		cfg: cfg, inst: inst, pm: pm, hm: hm, gm: gm,
-		guards: guards, mux: withLLMServerRoutes(lf, mux), q: q, sdw: sdw, llm: lf,
+		guards: guards, mux: withLLMServerRoutes(lf, mux), q: q, llm: lf,
 	}
 }
 
@@ -196,7 +195,6 @@ func (d *appDeps) startMonitors(ctx context.Context) {
 	go d.hm.Start(ctx)
 	go d.gm.Start(ctx)
 	d.q.Start(ctx)
-	go d.sdw.refresh(ctx)
 	if d.llm != nil {
 		d.llm.Start(ctx)
 	}
@@ -519,7 +517,7 @@ func absDir(dir string) string {
 func firstRunConfig(cfgFile, dataDir string) (*config.Config, error) {
 	cfg := config.NewDefault()
 	cfg.DataDir = dataDir
-	cfg.ApplyBackendToProcess(sdgpu.NewOptimizerAdapter())
+	cfg.ApplyBackendToProcess()
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
 	if err := saveConfig(cfgFile, &cfg); err != nil {
@@ -558,6 +556,10 @@ func setupMux(handlers *Handlers, inst *installer.Installer, mm *models.ModelMan
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/sd/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")

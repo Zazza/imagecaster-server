@@ -289,8 +289,6 @@ func componentRank(key string, cfg *config.Config) int {
 
 func componentName(key string) string {
 	switch key {
-	case config.NeoBackendKey:
-		return "Forge Neo"
 	case config.SDCppBackendKey:
 		return "stable-diffusion.cpp"
 	case config.LlamaCppProcessKey:

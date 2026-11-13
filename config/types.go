@@ -3,12 +3,12 @@ package config
 import (
 	"maps"
 	"sync"
+	"time"
 )
 
 type InstallMethod string
 
 const (
-	InstallZip     InstallMethod = "zip"
 	InstallRelease InstallMethod = "release"
 )
 
@@ -24,6 +24,18 @@ type Config struct {
 	Processes      map[string]ProcessConfig `yaml:"processes"`
 	Backends       map[string]BackendConfig `yaml:"backends"`
 	GPU            GPUConfig                `yaml:"gpu"`
+	SD             SDConfig                 `yaml:"sd,omitempty"`
+}
+
+type SDConfig struct {
+	JobResultTTLHours int `yaml:"job_result_ttl_hours,omitempty"`
+}
+
+func (c *Config) SDJobResultTTL() time.Duration {
+	if c.SD.JobResultTTLHours <= 0 {
+		return 24 * time.Hour
+	}
+	return time.Duration(c.SD.JobResultTTLHours) * time.Hour
 }
 
 type GPUConfig struct {
@@ -89,8 +101,6 @@ type BackendConfig struct {
 	ModelsDir      string              `yaml:"models_dir"`
 	LoraDir        string              `yaml:"lora_dir"`
 	VaeDir         string              `yaml:"vae_dir"`
-	EmbeddingDir   string              `yaml:"embedding_dir"`
-	AutoOptimize   bool                `yaml:"auto_optimize"`
 	Install        InstallConfig       `yaml:"install"`
 }
 

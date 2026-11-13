@@ -26,26 +26,21 @@ func pngWithHeader(t *testing.T, w, h uint32) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func TestExtraSingle_RejectsHugeSource(t *testing.T) {
+func TestUpscale_RejectsHugeSource(t *testing.T) {
 	e := newEnv(t)
-	rec := e.do(t, http.MethodPost, "/sdapi/v1/extra-single-image", map[string]any{
-		"image": pngWithHeader(t, 40000, 40000), "upscaler_1": "Lanczos", "upscaling_resize": 1,
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	code, m := e.submit(t, jobBody("upscale", nil, map[string]any{"image": pngWithHeader(t, 40000, 40000), "upscaler": "lanczos", "scale": 1}))
+	assert.Equal(t, http.StatusBadRequest, code, m)
 }
 
-func TestExtraSingle_RejectsHugeResult(t *testing.T) {
+func TestUpscale_RejectsHugeResult(t *testing.T) {
 	e := newEnv(t)
 	for _, scale := range []float64{1000, 1e300} {
-		rec := e.do(t, http.MethodPost, "/sdapi/v1/extra-single-image", map[string]any{
-			"image": pngB64(t, 64, 64), "upscaler_1": "Lanczos", "upscaling_resize": scale,
-		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code, "scale %v: %s", scale, rec.Body.String())
+		code, m := e.submit(t, jobBody("upscale", nil, map[string]any{"image": pngB64(t, 64, 64), "upscaler": "lanczos", "scale": scale}))
+		assert.Equal(t, http.StatusBadRequest, code, "scale %v: %v", scale, m)
 	}
-	rec := e.do(t, http.MethodPost, "/sdapi/v1/extra-single-image", map[string]any{
-		"image": pngB64(t, 64, 64), "upscaler_1": "Lanczos", "upscaling_resize": 4,
-	})
-	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	st, imgs, _ := e.run(t, jobBody("upscale", nil, map[string]any{"image": pngB64(t, 64, 64), "upscaler": "lanczos", "scale": 4}))
+	assert.Equal(t, statusCompleted, st["status"])
+	assert.Len(t, imgs, 1)
 }
 
 func TestModelPathsStayInsideFolders(t *testing.T) {
@@ -73,9 +68,10 @@ func TestModelPathsStayInsideFolders(t *testing.T) {
 	assert.Contains(t, args, te)
 }
 
-func TestOptionsRejectsVAEOutside(t *testing.T) {
+func TestJobRejectsCheckpointOutsideModels(t *testing.T) {
 	e := newEnv(t)
-	rec := e.do(t, http.MethodPost, "/sdapi/v1/options", map[string]any{"sd_model_checkpoint": "sdxl_base.safetensors", "sd_vae": "../../../etc/x.safetensors"})
-	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	outside := touch(t, filepath.Join(t.TempDir(), "evil.safetensors"))
+	code, m := e.submit(t, jobBody("txt2img", model(outside), map[string]any{"prompt": "p"}))
+	assert.Equal(t, http.StatusBadRequest, code, m)
 	assert.Empty(t, e.rs.Calls())
 }

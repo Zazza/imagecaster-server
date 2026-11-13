@@ -3,7 +3,8 @@ package installer
 import (
 	"archive/zip"
 	"bytes"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"imagecaster-server/config"
-	"imagecaster-server/process"
 )
 
 func testZip(t *testing.T) []byte {
@@ -49,7 +49,22 @@ func zipServer(t *testing.T, gate chan struct{}) (*httptest.Server, *int32) {
 }
 
 func zipInstall(url, target string) config.InstallConfig {
-	return config.InstallConfig{Method: config.InstallZip, URL: url, Target: target}
+	return config.InstallConfig{Method: config.InstallRelease, URL: url, Target: target, Version: "v1"}
+}
+
+func legacyInstall(url, target string) config.InstallConfig {
+	return config.InstallConfig{Method: "zip", URL: url, Target: target}
+}
+
+func newLockInstaller(t *testing.T, cfg *config.Config, url string) *Installer {
+	t.Helper()
+	sum := sha256.Sum256(testZip(t))
+	dest := filepath.Join(t.TempDir(), "art")
+	inst := NewInstaller(cfg)
+	inst.ReleaseArtifacts = func() ([]Artifact, error) {
+		return []Artifact{{Name: "pkg.zip", URL: url, SHA256: hex.EncodeToString(sum[:]), Kind: "zip", Dest: dest, Strip: 1}}, nil
+	}
+	return inst
 }
 
 func baseConfig(t *testing.T) *config.Config {
@@ -58,28 +73,6 @@ func baseConfig(t *testing.T) *config.Config {
 		Processes: map[string]config.ProcessConfig{},
 		Backends:  map[string]config.BackendConfig{},
 	}
-}
-
-type setupCalls struct {
-	mu      sync.Mutex
-	targets []string
-}
-
-func (s *setupCalls) list() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.targets...)
-}
-
-func stubSetup(inst *Installer, err error) *setupCalls {
-	c := &setupCalls{}
-	inst.backendSetup = func(target string, lb *process.RingBuffer) error {
-		c.mu.Lock()
-		c.targets = append(c.targets, target)
-		c.mu.Unlock()
-		return err
-	}
-	return c
 }
 
 func TestInstallConcurrentSameKeyDownloadsOnce(t *testing.T) {
@@ -92,8 +85,7 @@ func TestInstallConcurrentSameKeyDownloadsOnce(t *testing.T) {
 		ProcessKey: "sd",
 		Install:    zipInstall(srv.URL, filepath.Join(t.TempDir(), "tb")),
 	}
-	inst := NewInstaller(cfg)
-	stubSetup(inst, nil)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	errs := make([]error, 2)
 	var wg sync.WaitGroup
@@ -125,8 +117,7 @@ func TestEnsureInstalledBackendProcessUsesBackendKey(t *testing.T) {
 		Name:    "sd",
 		Install: zipInstall(srv.URL, filepath.Join(t.TempDir(), "sdproc")),
 	}
-	inst := NewInstaller(cfg)
-	stubSetup(inst, nil)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	require.NoError(t, inst.EnsureInstalled("sd", ""))
 
@@ -146,11 +137,9 @@ func TestEnsureInstalledOtherProcessUsesOwnKey(t *testing.T) {
 		Name:    "other",
 		Install: zipInstall(srv.URL, filepath.Join(t.TempDir(), "other")),
 	}
-	inst := NewInstaller(cfg)
-	calls := stubSetup(inst, nil)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	require.NoError(t, inst.EnsureInstalled("other", ""))
-	assert.Empty(t, calls.list())
 
 	st := inst.Status()
 	require.Contains(t, st, "other")
@@ -158,55 +147,7 @@ func TestEnsureInstalledOtherProcessUsesOwnKey(t *testing.T) {
 	assert.NotContains(t, st, "testbackend")
 }
 
-func neoConfig(t *testing.T, url string) (*config.Config, string) {
-	t.Helper()
-	cfg := baseConfig(t)
-	target := filepath.Join(t.TempDir(), "neo")
-	cfg.ActiveSD = config.NeoBackendKey
-	cfg.Backends[config.NeoBackendKey] = config.BackendConfig{
-		Name:       "neo",
-		ProcessKey: "sd",
-		Binary:     VenvPython(target),
-		Install:    zipInstall(url, target),
-	}
-	return cfg, target
-}
-
-func makeVenv(t *testing.T, target string) {
-	t.Helper()
-	p := VenvPython(target)
-	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-	require.NoError(t, os.WriteFile(p, []byte("x"), 0o755))
-}
-
-func TestInstallNeoRunsSetupOnTarget(t *testing.T) {
-	srv, _ := zipServer(t, nil)
-	cfg, target := neoConfig(t, srv.URL)
-	inst := NewInstaller(cfg)
-	calls := stubSetup(inst, nil)
-
-	require.NoError(t, inst.Install(config.NeoBackendKey))
-
-	assert.Equal(t, []string{target}, calls.list())
-}
-
-func TestInstallNeoSetupErrorFailsInstall(t *testing.T) {
-	srv, _ := zipServer(t, nil)
-	cfg, _ := neoConfig(t, srv.URL)
-	inst := NewInstaller(cfg)
-	calls := stubSetup(inst, errors.New("venv failed"))
-
-	err := inst.Install(config.NeoBackendKey)
-
-	require.Error(t, err)
-	assert.Len(t, calls.list(), 1)
-	assert.False(t, inst.IsInstalled(config.NeoBackendKey))
-	st := inst.Status()
-	require.Contains(t, st, config.NeoBackendKey)
-	assert.False(t, st[config.NeoBackendKey].Installed)
-}
-
-func TestInstallNonNeoBackendSkipsSetup(t *testing.T) {
+func TestInstallBackendDownloadsOnce(t *testing.T) {
 	srv, hits := zipServer(t, nil)
 	cfg := baseConfig(t)
 	cfg.ActiveSD = "testbackend"
@@ -215,98 +156,28 @@ func TestInstallNonNeoBackendSkipsSetup(t *testing.T) {
 		ProcessKey: "sd",
 		Install:    zipInstall(srv.URL, filepath.Join(t.TempDir(), "tb")),
 	}
-	inst := NewInstaller(cfg)
-	calls := stubSetup(inst, nil)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	require.NoError(t, inst.Install("testbackend"))
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(hits))
-	assert.Empty(t, calls.list())
-}
-
-func TestNeoInstalledRequiresFolderAndVenv(t *testing.T) {
-	tests := []struct {
-		name   string
-		folder bool
-		venv   bool
-		want   bool
-	}{
-		{"nothing", false, false, false},
-		{"folder without venv", true, false, false},
-		{"folder and venv", true, true, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv, _ := zipServer(t, nil)
-			cfg, target := neoConfig(t, srv.URL)
-			if tt.folder {
-				require.NoError(t, os.MkdirAll(target, 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(target, "launch.py"), []byte("x"), 0o644))
-			}
-			if tt.venv {
-				makeVenv(t, target)
-			}
-			inst := NewInstaller(cfg)
-
-			assert.Equal(t, tt.want, inst.IsInstalled(config.NeoBackendKey))
-			st := inst.Status()
-			require.Contains(t, st, config.NeoBackendKey)
-			assert.Equal(t, tt.want, st[config.NeoBackendKey].Installed)
-		})
-	}
-}
-
-func TestInstallNeoRetryAfterFailedSetupSkipsDownload(t *testing.T) {
-	srv, hits := zipServer(t, nil)
-	cfg, target := neoConfig(t, srv.URL)
-	require.NoError(t, os.MkdirAll(target, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(target, "launch.py"), []byte("x"), 0o644))
-	inst := NewInstaller(cfg)
-	c := &setupCalls{}
-	inst.backendSetup = func(tg string, lb *process.RingBuffer) error {
-		c.mu.Lock()
-		c.targets = append(c.targets, tg)
-		c.mu.Unlock()
-		makeVenv(t, tg)
-		return nil
-	}
-
-	require.NoError(t, inst.Install(config.NeoBackendKey))
-
-	assert.Equal(t, int32(0), atomic.LoadInt32(hits))
-	assert.Equal(t, []string{target}, c.list())
-	assert.True(t, inst.IsInstalled(config.NeoBackendKey))
-}
-
-func TestInstallNeoRetrySetupErrorFailsInstall(t *testing.T) {
-	srv, hits := zipServer(t, nil)
-	cfg, target := neoConfig(t, srv.URL)
-	require.NoError(t, os.MkdirAll(target, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(target, "launch.py"), []byte("x"), 0o644))
-	inst := NewInstaller(cfg)
-	calls := stubSetup(inst, errors.New("venv failed"))
-
-	err := inst.Install(config.NeoBackendKey)
-
-	require.Error(t, err)
-	assert.Equal(t, int32(0), atomic.LoadInt32(hits))
-	assert.Len(t, calls.list(), 1)
-	assert.False(t, inst.IsInstalled(config.NeoBackendKey))
 }
 
 func TestStatusOnlyActiveBackend(t *testing.T) {
 	srv, _ := zipServer(t, nil)
-	cfg, _ := neoConfig(t, srv.URL)
+	cfg := baseConfig(t)
+	cfg.ActiveSD = "testbackend"
+	cfg.Backends["testbackend"] = config.BackendConfig{Name: "test", ProcessKey: "sd", Install: zipInstall(srv.URL, filepath.Join(t.TempDir(), "tb"))}
 	cfg.Backends["other"] = config.BackendConfig{
 		Name:       "other",
 		ProcessKey: "sd",
 		Install:    zipInstall(srv.URL, filepath.Join(t.TempDir(), "other")),
 	}
-	inst := NewInstaller(cfg)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	st := inst.Status()
 
-	assert.Contains(t, st, config.NeoBackendKey)
+	assert.Contains(t, st, "testbackend")
 	assert.NotContains(t, st, "other")
 }
 
@@ -330,7 +201,7 @@ func TestEnsureAllInstalledSkipsBackendWithExistingBinary(t *testing.T) {
 			b := config.BackendConfig{
 				Name:       "test",
 				ProcessKey: "sd",
-				Install:    zipInstall(srv.URL, filepath.Join(t.TempDir(), "tb")),
+				Install:    legacyInstall(srv.URL, filepath.Join(t.TempDir(), "tb")),
 			}
 			p := config.ProcessConfig{Name: "sd", AutoStart: true}
 			if tt.onBackend {
@@ -340,13 +211,11 @@ func TestEnsureAllInstalledSkipsBackendWithExistingBinary(t *testing.T) {
 			}
 			cfg.Backends["testbackend"] = b
 			cfg.Processes["sd"] = p
-			inst := NewInstaller(cfg)
-			calls := stubSetup(inst, nil)
+			inst := newLockInstaller(t, cfg, srv.URL)
 
 			inst.EnsureAllInstalled()
 
 			assert.Equal(t, int32(0), atomic.LoadInt32(hits))
-			assert.Empty(t, calls.list())
 		})
 	}
 }
@@ -362,8 +231,7 @@ func TestEnsureAllInstalledInstallsBackendWithoutBinary(t *testing.T) {
 		Install:    zipInstall(srv.URL, filepath.Join(t.TempDir(), "tb")),
 	}
 	cfg.Processes["sd"] = config.ProcessConfig{Name: "sd", AutoStart: true}
-	inst := NewInstaller(cfg)
-	stubSetup(inst, nil)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	inst.EnsureAllInstalled()
 

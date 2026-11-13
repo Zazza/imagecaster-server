@@ -87,9 +87,9 @@ func TestGuardHandler_PrefixesPath(t *testing.T) {
 		wantPath  string
 		wantQuery string
 	}{
-		{"sd post with query", "/api/sd/", http.MethodPost, "/sdapi/v1/txt2img?a=1&b=two", `{"p":1}`, "/api/sd/sdapi/v1/txt2img", "a=1&b=two"},
+		{"sd post with query", "/api/sd/", http.MethodPost, "/jobs?a=1&b=two", `{"p":1}`, "/api/sd/jobs", "a=1&b=two"},
 		{"llm get", "/api/llm/", http.MethodGet, "/api/tags", "", "/api/llm/api/tags", ""},
-		{"proxy path without trailing slash", "/api/sd", http.MethodGet, "/sdapi/v1/options", "", "/api/sd/sdapi/v1/options", ""},
+		{"proxy path without trailing slash", "/api/sd", http.MethodGet, "/state", "", "/api/sd/state", ""},
 		{"root", "/api/sd/", http.MethodGet, "/", "", "/api/sd/", ""},
 		{"delete", "/api/llm/", http.MethodDelete, "/api/delete", `{"name":"m"}`, "/api/llm/api/delete", ""},
 	}
@@ -163,13 +163,13 @@ func TestStartPortGuards_ServesPrefixedPaths(t *testing.T) {
 	var resp *http.Response
 	var err error
 	require.True(t, waitFor(t, 2*time.Second, func() bool {
-		resp, err = client.Post("http://"+sdAddr+"/sdapi/v1/txt2img?q=1", "application/json", strings.NewReader("{}"))
+		resp, err = client.Post("http://"+sdAddr+"/jobs?q=1", "application/json", strings.NewReader("{}"))
 		return err == nil
 	}), "sd guard did not start: %v", err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	got := <-ch
-	assert.Equal(t, "/api/sd/sdapi/v1/txt2img", got.path)
+	assert.Equal(t, "/api/sd/jobs", got.path)
 	assert.Equal(t, "q=1", got.query)
 	assert.Equal(t, http.MethodPost, got.method)
 
@@ -205,11 +205,11 @@ func TestStartPortGuards_AddressInUse(t *testing.T) {
 	client := noKeepAliveClient()
 	var resp *http.Response
 	require.True(t, waitFor(t, 2*time.Second, func() bool {
-		resp, err = client.Get("http://" + freeA + "/sdapi/v1/options")
+		resp, err = client.Get("http://" + freeA + "/state")
 		return err == nil
 	}), "free guard did not start: %v", err)
 	resp.Body.Close()
-	assert.Equal(t, "/api/sd/sdapi/v1/options", (<-ch).path)
+	assert.Equal(t, "/api/sd/state", (<-ch).path)
 
 	require.True(t, waitFor(t, time.Second, func() bool { return len(w.messages()) > 0 }))
 	time.Sleep(50 * time.Millisecond)
@@ -278,7 +278,7 @@ func newPortGuardE2E(t *testing.T) (*e2eEnv, func() int) {
 
 	sdBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env.running <- len(q.Status().Running)
-		if r.URL.Path == "/sdapi/v1/txt2img" {
+		if r.URL.Path == "/jobs" {
 			<-env.release
 		}
 		env.sdSeen <- seenRequest{method: r.Method, path: r.URL.Path, host: r.Host}
@@ -325,13 +325,13 @@ func newPortGuardE2E(t *testing.T) (*e2eEnv, func() int) {
 	return env, func() int { return len(q.Status().Running) }
 }
 
-func TestPortGuardE2E_HeavySDTakesLease(t *testing.T) {
+func TestPortGuardE2E_SDJobSubmitTakesNoLease(t *testing.T) {
 	env, running := newPortGuardE2E(t)
 	client := noKeepAliveClient()
 
 	done := make(chan *http.Response, 1)
 	go func() {
-		resp, err := client.Post("http://"+env.sdAddr+"/sdapi/v1/txt2img", "application/json", strings.NewReader("{}"))
+		resp, err := client.Post("http://"+env.sdAddr+"/jobs", "application/json", strings.NewReader("{}"))
 		if err != nil {
 			done <- nil
 			return
@@ -341,12 +341,12 @@ func TestPortGuardE2E_HeavySDTakesLease(t *testing.T) {
 
 	select {
 	case n := <-env.running:
-		assert.Equal(t, 1, n, "txt2img via guard port must hold a GPU lease while backend runs")
+		assert.Equal(t, 0, n, "job submit via guard port must not hold a GPU lease")
 	case <-time.After(3 * time.Second):
 		close(env.release)
 		t.Fatal("txt2img did not reach backend")
 	}
-	assert.Equal(t, 1, running())
+	assert.Equal(t, 0, running())
 	close(env.release)
 
 	select {
@@ -358,7 +358,7 @@ func TestPortGuardE2E_HeavySDTakesLease(t *testing.T) {
 		t.Fatal("txt2img did not complete")
 	}
 	got := <-env.sdSeen
-	assert.Equal(t, "/sdapi/v1/txt2img", got.path)
+	assert.Equal(t, "/jobs", got.path)
 	assert.True(t, waitFor(t, time.Second, func() bool { return running() == 0 }))
 }
 
@@ -367,13 +367,13 @@ func TestPortGuardE2E_LightSDNoLease(t *testing.T) {
 	close(env.release)
 	client := noKeepAliveClient()
 
-	resp, err := client.Get("http://" + env.sdAddr + "/sdapi/v1/options")
+	resp, err := client.Get("http://" + env.sdAddr + "/state")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	assert.Equal(t, 0, <-env.running)
-	assert.Equal(t, "/sdapi/v1/options", (<-env.sdSeen).path)
+	assert.Equal(t, "/state", (<-env.sdSeen).path)
 	assert.Equal(t, 0, running())
 }
 
@@ -393,7 +393,7 @@ func TestPortGuardE2E_HostHeader(t *testing.T) {
 	assert.Equal(t, "/api/tags", got.path)
 	assert.Equal(t, env.llmHost, got.host, "llm backend must receive its own host:port as Host")
 
-	req, err = http.NewRequest(http.MethodGet, "http://"+env.sdAddr+"/sdapi/v1/options", nil)
+	req, err = http.NewRequest(http.MethodGet, "http://"+env.sdAddr+"/state", nil)
 	require.NoError(t, err)
 	req.Host = "client.example:7860"
 	resp, err = client.Do(req)
@@ -423,7 +423,7 @@ func TestProxyHandler_LLMHostViaServerPort(t *testing.T) {
 	assert.Equal(t, "/api/tags", got.path)
 	assert.Equal(t, env.llmHost, got.host)
 
-	req, err = http.NewRequest(http.MethodGet, srv.URL+"/api/sd/sdapi/v1/options", nil)
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/api/sd/state", nil)
 	require.NoError(t, err)
 	req.Host = "client.example:8080"
 	resp, err = client.Do(req)

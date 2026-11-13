@@ -55,7 +55,6 @@ func (c *Config) ResolvePaths() {
 		bc.ModelsDir = resolveDirPath(c.DataDir, bc.ModelsDir)
 		bc.LoraDir = resolveDirPath(c.DataDir, bc.LoraDir)
 		bc.VaeDir = resolveDirPath(c.DataDir, bc.VaeDir)
-		bc.EmbeddingDir = resolveDirPath(c.DataDir, bc.EmbeddingDir)
 		bc.TextEncoderDir = resolveDirPath(c.DataDir, bc.TextEncoderDir)
 		bc.UpscalerDir = resolveDirPath(c.DataDir, bc.UpscalerDir)
 		bc.TokenizerDir = resolveDirPath(c.DataDir, bc.TokenizerDir)
@@ -140,15 +139,9 @@ func replaceEnginePath(p, dataDir, legacy, next string) string {
 	return p
 }
 
-type GPUOptimizer interface {
-	DetectGPU() int
-	CheckXformersCompat(binary, workDir string) bool
-	ForgeArgsForVRAM(vramMB int, xformers bool) []string
-}
-
-func (c *Config) ApplyBackendToProcess(gpu GPUOptimizer) {
+func (c *Config) ApplyBackendToProcess() {
 	backend, ok := c.Backends[c.ActiveSD]
-	if !ok {
+	if !ok || backend.Kind != KindSDCpp {
 		return
 	}
 	proc, ok := c.Processes[backend.ProcessKey]
@@ -156,125 +149,36 @@ func (c *Config) ApplyBackendToProcess(gpu GPUOptimizer) {
 		return
 	}
 	proc.Binary = backend.Binary
-	if backend.Kind == KindSDCpp {
-		args := withDirFlag(backend.Args, "--lora-model-dir", backend.LoraDir)
-		args = withDirFlag(args, "--hires-upscalers-dir", backend.UpscalerDir)
-		proc.Args = sdcppArgsOnPort(args, targetPort(proc.TargetURL, 7860))
-	} else if backend.AutoOptimize {
-		vram := gpu.DetectGPU()
-		c.DetectedVRAMMB = vram
-		useXformers := gpu.CheckXformersCompat(proc.Binary, backend.WorkDir)
-		proc.Args = gpu.ForgeArgsForVRAM(vram, useXformers)
-	} else {
-		proc.Args = backend.Args
-	}
+	proc.HealthURL = sdHealthURL(proc.HealthURL)
+	args := withDirFlag(backend.Args, "--lora-model-dir", backend.LoraDir)
+	args = withDirFlag(args, "--hires-upscalers-dir", backend.UpscalerDir)
+	proc.Args = sdcppArgsOnPort(args, targetPort(proc.TargetURL, 7860))
 	proc.WorkDir = backend.WorkDir
 	if proc.Install.Method == "" && backend.Install.Method != "" {
 		proc.Install = backend.Install
 	}
-	proc.Env = c.uvRuntimeEnv(proc.Env, backend.Binary)
 	c.Processes[backend.ProcessKey] = proc
 }
 
-func (c *Config) uvRuntimeEnv(env map[string]string, binary string) map[string]string {
-	out := make(map[string]string, len(env)+3)
-	for k, v := range env {
-		out[k] = v
-	}
-	set := func(k, v string) {
-		if _, ok := out[k]; !ok && v != "" {
-			out[k] = v
-		}
-	}
-	set("VIRTUAL_ENV", venvOf(binary))
-	if c.DataDir != "" {
-		set("UV_CACHE_DIR", filepath.Join(c.DataDir, "uv-cache"))
-		set("UV_PYTHON_INSTALL_DIR", filepath.Join(c.DataDir, "python"))
-	}
-	return out
-}
+const (
+	sdcppHealthPath  = "/sdcpp/v1/capabilities"
+	legacyHealthPath = "/sdapi/v1/options"
+)
 
-func venvOf(binary string) string {
-	if !filepath.IsAbs(binary) {
-		return ""
+func sdHealthURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Path != legacyHealthPath {
+		return raw
 	}
-	switch strings.ToLower(filepath.Base(binary)) {
-	case "python", "python.exe", "python3", "python3.exe":
-	default:
-		return ""
-	}
-	dir := filepath.Dir(binary)
-	switch strings.ToLower(filepath.Base(dir)) {
-	case "bin", "scripts":
-	default:
-		return ""
-	}
-	root := filepath.Dir(dir)
-	switch strings.ToLower(filepath.Base(root)) {
-	case "venv", ".venv":
-		return root
-	}
-	if _, err := os.Stat(filepath.Join(root, "pyvenv.cfg")); err == nil {
-		return root
-	}
-	return ""
-}
-
-func (c *Config) adoptForgeModels(prevSD string) {
-	sd, ok := c.Backends[SDCppBackendKey]
-	if !ok {
-		return
-	}
-	var forge *BackendConfig
-	keys := []string{c.ActiveSD, prevSD, NeoBackendKey}
-	rest := make([]string, 0, len(c.Backends))
-	for key := range c.Backends {
-		rest = append(rest, key)
-	}
-	sort.Strings(rest)
-	for _, key := range append(keys, rest...) {
-		if b, ok := c.Backends[key]; ok && b.Kind != KindSDCpp && dirExists(b.ModelsDir) {
-			forge = &b
-			break
-		}
-	}
-	if forge == nil {
-		return
-	}
-	root := filepath.Dir(forge.ModelsDir)
-	sd.ModelsDir = forge.ModelsDir
-	sd.LoraDir = orDefault(forge.LoraDir, filepath.Join(root, "Lora"))
-	sd.VaeDir = orDefault(forge.VaeDir, filepath.Join(root, "VAE"))
-	sd.TextEncoderDir = filepath.Join(root, "text_encoder")
-	sd.TokenizerDir = sd.TextEncoderDir
-	sd.PoseModelsDir = filepath.Join(root, "ControlNetPreprocessor", "openpose")
-	sd.UpscalerDir = filepath.Join(root, "ESRGAN")
-	c.Backends[SDCppBackendKey] = sd
-}
-
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
-}
-
-func dirExists(p string) bool {
-	if p == "" {
-		return false
-	}
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
+	u.Path = sdcppHealthPath
+	return u.String()
 }
 
 func (c *Config) migrateLegacy() {
 	delete(c.Processes, "python")
 	delete(c.Processes, "rembg")
-	if c.ActiveSD == "forge" {
-		delete(c.Backends, "forge")
-	}
 	if _, ok := c.Backends[c.ActiveSD]; !ok {
-		c.ActiveSD = NeoBackendKey
+		c.ActiveSD = SDCppBackendKey
 	}
 }
 
@@ -337,21 +241,19 @@ func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
 		pc.TargetURL = target.String()
 		pc.HealthURL = moveLoopbackPort(pc.HealthURL, public, internalHost)
 
-		env := make(map[string]string, len(pc.Env)+1)
-		for k, v := range pc.Env {
-			env[k] = v
+		if pc.Env != nil {
+			env := make(map[string]string, len(pc.Env))
+			for k, v := range pc.Env {
+				env[k] = v
+			}
+			pc.Env = env
 		}
-		pc.Env = env
 
 		if key == LlamaCppProcessKey {
 			pc.Args = llamaArgsOnPort(pc.Args, internal)
 		}
-		if pc.ProxyPath == "/api/sd/" {
-			if c.SDCppActive(key) {
-				pc.Args = sdcppArgsOnPort(pc.Args, internal)
-			} else {
-				pc.Args = forgeArgsOnPort(pc.Args, internal)
-			}
+		if pc.ProxyPath == "/api/sd/" && c.SDCppActive(key) {
+			pc.Args = sdcppArgsOnPort(pc.Args, internal)
 		}
 
 		c.Processes[key] = pc
@@ -380,22 +282,6 @@ func moveLoopbackPort(raw string, public int, internalHost string) string {
 	}
 	u.Host = internalHost
 	return u.String()
-}
-
-func forgeArgsOnPort(args []string, port int) []string {
-	out := make([]string, 0, len(args)+2)
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--listen":
-		case a == "--port", a == "--server-name":
-			i++
-		case strings.HasPrefix(a, "--port="), strings.HasPrefix(a, "--server-name="):
-		default:
-			out = append(out, a)
-		}
-	}
-	return append(out, "--port", strconv.Itoa(port))
 }
 
 func (c *Config) SDCppActive(processKey string) bool {

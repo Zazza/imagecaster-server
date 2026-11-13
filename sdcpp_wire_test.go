@@ -24,18 +24,28 @@ func TestProxySetHandlerKeepsGateAndStripsPrefix(t *testing.T) {
 	assert.Same(t, gate, ph.routes["/api/sd/"].gate)
 
 	rec := httptest.NewRecorder()
-	ph.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sd/sdapi/v1/samplers", nil))
+	ph.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sd/samplers", nil))
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"Euler a"`)
+	assert.Contains(t, rec.Body.String(), `"euler_a"`)
 
-	rec = httptest.NewRecorder()
-	ph.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sd/sdapi/v1/nope", nil))
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, p := range []string{"/api/sd/sdapi/v1/samplers", "/api/sd/sdapi/v1/options"} {
+		rec = httptest.NewRecorder()
+		ph.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		assert.Equal(t, http.StatusNotFound, rec.Code, p)
+	}
+}
+
+func TestSDJobsDirAndTTLFromConfig(t *testing.T) {
+	cfg := config.NewDefault()
+	assert.Equal(t, "", sdJobsDir(&cfg))
+	cfg.DataDir = "/data"
+	assert.Equal(t, filepath.Join("/data", "sdjobs"), sdJobsDir(&cfg))
 }
 
 func TestNewSDCppFacadeOnlyForSDCppBackend(t *testing.T) {
 	cfg := config.NewDefault()
-	cfg.ActiveSD = config.NeoBackendKey
+	cfg.Backends["custom"] = config.BackendConfig{Kind: "other", ProcessKey: "sd"}
+	cfg.ActiveSD = "custom"
 	assert.Nil(t, newSDCppFacade(&cfg, nil, nil))
 	cfg.ActiveSD = "sdcpp"
 	cfg.Backends["sdcpp"] = config.BackendConfig{Kind: config.KindSDCpp, ProcessKey: "sd"}
@@ -49,7 +59,7 @@ func TestSDCppRoutesDetect(t *testing.T) {
 	for _, tc := range []struct{ path, want string }{
 		{"controlnet/detect", "detect"},
 		{"/controlnet/detect", "detect"},
-		{"/sdapi/v1/txt2img", "facade"},
+		{"/jobs", "facade"},
 		{"controlnet/model_list", "facade"},
 	} {
 		var got string

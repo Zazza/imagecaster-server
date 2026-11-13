@@ -19,12 +19,12 @@ func TestInstallPlan(t *testing.T) {
 		{"llm off", func(c *config.Config) { setAuto(c, config.LlamaCppProcessKey, false) }, []string{config.SDCppBackendKey}},
 		{"both off", func(c *config.Config) { setAuto(c, "sd", false); setAuto(c, config.LlamaCppProcessKey, false) }, nil},
 		{"custom backend", func(c *config.Config) {
-			b := c.Backends[config.NeoBackendKey]
+			b := c.Backends[config.SDCppBackendKey]
 			c.Backends["custom"] = b
 			c.ActiveSD = "custom"
 		}, []string{"custom", config.LlamaCppProcessKey}},
 		{"custom backend own process", func(c *config.Config) {
-			b := c.Backends[config.NeoBackendKey]
+			b := c.Backends[config.SDCppBackendKey]
 			b.ProcessKey = "sd2"
 			c.Backends["custom"] = b
 			c.ActiveSD = "custom"
@@ -32,7 +32,7 @@ func TestInstallPlan(t *testing.T) {
 			setAuto(c, "sd", false)
 		}, []string{"custom", config.LlamaCppProcessKey}},
 		{"custom backend process off", func(c *config.Config) {
-			b := c.Backends[config.NeoBackendKey]
+			b := c.Backends[config.SDCppBackendKey]
 			b.ProcessKey = "sd2"
 			c.Backends["custom"] = b
 			c.ActiveSD = "custom"
@@ -62,16 +62,10 @@ func TestInstallPlan(t *testing.T) {
 
 func TestDefaultConfigBackends(t *testing.T) {
 	cfg := config.NewDefault()
-	assert.Equal(t, "forge-neo", config.NeoBackendKey)
-	assert.Equal(t, "2.31", config.NeoVersion)
 	assert.Equal(t, config.SDCppBackendKey, cfg.ActiveSD)
-	assert.Len(t, cfg.Backends, 2)
-	b, ok := cfg.Backends[config.NeoBackendKey]
-	assert.True(t, ok)
-	assert.Equal(t, config.InstallZip, b.Install.Method)
+	assert.Len(t, cfg.Backends, 1)
 	assert.Equal(t, config.InstallRelease, cfg.Backends[config.SDCppBackendKey].Install.Method)
 	assert.NotContains(t, cfg.Processes, "python")
-	assert.NotContains(t, cfg.Backends, "forge")
 }
 
 func setAuto(c *config.Config, key string, v bool) {

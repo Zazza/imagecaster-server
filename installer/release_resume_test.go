@@ -312,15 +312,13 @@ func TestEnsureInstalledNonReleaseBinaryPresentDownloadsNothing(t *testing.T) {
 		Name:       "test",
 		ProcessKey: "sd",
 		Binary:     bin,
-		Install:    zipInstall(srv.URL, target),
+		Install:    legacyInstall(srv.URL, target),
 	}
 	cfg.Processes["sd"] = config.ProcessConfig{Name: "sd", Binary: bin}
-	inst := NewInstaller(cfg)
-	calls := stubSetup(inst, nil)
+	inst := newLockInstaller(t, cfg, srv.URL)
 
 	require.NoError(t, inst.EnsureInstalled("sd", bin))
 
 	assert.Zero(t, atomic.LoadInt32(hits))
-	assert.Empty(t, calls.list())
 	assert.FileExists(t, bin)
 }

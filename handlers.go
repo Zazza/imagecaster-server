@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"imagecaster-server/api"
 	"imagecaster-server/config"
@@ -20,12 +18,13 @@ import (
 )
 
 type Handlers struct {
-	manager    *process.ProcessManager
-	health     *sdhealth.HealthMonitor
-	gpu        *sdgpu.GPUMonitor
-	config     *config.Config
-	installer  *installer.Installer
-	llmRunning func() []string
+	manager      *process.ProcessManager
+	health       *sdhealth.HealthMonitor
+	gpu          *sdgpu.GPUMonitor
+	config       *config.Config
+	installer    *installer.Installer
+	llmRunning   func() []string
+	sdCheckpoint func() string
 }
 
 type sysJSON struct {
@@ -190,21 +189,9 @@ func hostSysStats() sysJSON {
 
 func (h *Handlers) fetchModels() map[string]interface{} {
 	models := make(map[string]interface{})
-	client := &http.Client{Timeout: 3 * time.Second}
-
-	if pc, ok := h.config.Process("sd"); ok && pc.TargetURL != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, pc.TargetURL+"/sdapi/v1/options", nil)
-		resp, err := client.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			var opts map[string]interface{}
-			if json.NewDecoder(resp.Body).Decode(&opts) == nil {
-				if cp, ok := opts["sd_model_checkpoint"].(string); ok {
-					models["sd_checkpoint"] = cp
-				}
-			}
+	if h.sdCheckpoint != nil {
+		if cp := h.sdCheckpoint(); cp != "" {
+			models["sd_checkpoint"] = cp
 		}
 	}
 
@@ -233,9 +220,7 @@ func (h *Handlers) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) features() []string {
 	out := []string{}
 	if b := h.config.GetActiveBackend(); b != nil && b.Kind == config.KindSDCpp {
-		out = append(out, "sdcpp")
-	} else {
-		out = append(out, "forge")
+		out = append(out, "sdcpp", "sd_jobs")
 	}
 	if h.llmRunning != nil {
 		out = append(out, config.LLMLlamaCpp)

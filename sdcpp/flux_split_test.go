@@ -1,7 +1,6 @@
 package sdcpp
 
 import (
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,63 +105,4 @@ func TestModelArgs_T5GemmaGoesToLLM(t *testing.T) {
 			assert.Equal(t, map[string]string{"--diffusion-model": tc.model, "--llm": d.gemma, "--vae": d.vae}, got)
 		})
 	}
-}
-
-func restartVAEs(t *testing.T, e *testEnv, body map[string]any) []string {
-	t.Helper()
-	rec := e.do(t, http.MethodPost, "/sdapi/v1/options", body)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	calls := e.rs.Calls()
-	require.Len(t, calls, 1)
-	args := calls[0]
-	require.GreaterOrEqual(t, len(args), len(testBaseArgs))
-	assert.Equal(t, testBaseArgs, args[:len(testBaseArgs)])
-	model := args[len(testBaseArgs):]
-	var vaes []string
-	for i, a := range model {
-		if a == "--vae" {
-			require.Less(t, i+1, len(model), "--vae without value: %v", model)
-			vaes = append(vaes, model[i+1])
-		}
-	}
-	assert.Equal(t, filepath.Join(e.cfg.ModelsDir, "sdxl_base.safetensors"), flagValues(t, model)["--model"])
-	return vaes
-}
-
-func TestOptionsPost_SDXLModuleVAEWinsOverSdVae(t *testing.T) {
-	cases := []struct {
-		name   string
-		module func(e *testEnv, moduleVAE string) string
-	}{
-		{"absolute module path", func(e *testEnv, moduleVAE string) string { return moduleVAE }},
-		{"module file name", func(e *testEnv, moduleVAE string) string { return filepath.Base(moduleVAE) }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newEnv(t)
-			moduleVAE := e.dirs.vae
-			touch(t, filepath.Join(e.cfg.VAEDir, "sdxl_vae.safetensors"))
-
-			vaes := restartVAEs(t, e, map[string]any{
-				"sd_model_checkpoint":      "sdxl_base.safetensors",
-				"forge_additional_modules": []string{tc.module(e, moduleVAE)},
-				"sd_vae":                   "sdxl_vae.safetensors",
-			})
-
-			assert.Equal(t, []string{moduleVAE}, vaes)
-		})
-	}
-}
-
-func TestOptionsPost_SDXLSdVaeWithoutModules(t *testing.T) {
-	e := newEnv(t)
-	sdVAE := touch(t, filepath.Join(e.cfg.VAEDir, "sdxl_vae.safetensors"))
-
-	vaes := restartVAEs(t, e, map[string]any{
-		"sd_model_checkpoint": "sdxl_base.safetensors",
-		"sd_vae":              "sdxl_vae.safetensors",
-	})
-
-	require.Len(t, vaes, 1)
-	assert.Contains(t, []string{sdVAE, "sdxl_vae.safetensors"}, vaes[0])
 }
