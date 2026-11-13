@@ -66,3 +66,55 @@ func TestMigrateEngineDirsSkipsWhenTargetExists(t *testing.T) {
 	assert.Equal(t, "x", string(data), "existing platform dir not overwritten")
 	assert.True(t, dirExists(legacy), "legacy dir kept when target already exists")
 }
+
+func TestNewInstallerSeesMovedLegacyBuildAsInstalled(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.NewDefault()
+	cfg.DataDir = dir
+	cfg.ApplyInstallDefaults()
+	cfg.ResolvePaths()
+	cfg.ApplyLLMBackend()
+	pc, ok := cfg.Process(config.LlamaCppProcessKey)
+	require.True(t, ok)
+	require.Equal(t, filepath.Join(dir, filepath.FromSlash(config.LlamaCppDir)), filepath.Clean(pc.Install.Target))
+
+	legacy := filepath.Join(dir, filepath.FromSlash(config.LlamaCppDirLegacy))
+	require.NoError(t, os.MkdirAll(legacy, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacy, "llama-server"+exeSuffixFor(runtime.GOOS)), []byte("x"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacy, installMark), []byte(pc.Install.Version), 0o644))
+
+	inst := NewInstaller(&cfg)
+
+	assert.True(t, inst.IsInstalled(config.LlamaCppProcessKey), "status counted after the move, no reinstall")
+	assert.False(t, dirExists(legacy))
+}
+
+func TestMigrateEngineDirsKeepsLegacyDirStillInConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.NewDefault()
+	cfg.DataDir = dir
+	for key, bc := range cfg.Backends {
+		bc.Install.Target = config.SDCppDirLegacy
+		cfg.Backends[key] = bc
+	}
+	legacy := filepath.Join(dir, filepath.FromSlash(config.SDCppDirLegacy))
+	require.NoError(t, os.MkdirAll(legacy, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacy, "sd-server"+exeSuffixFor(runtime.GOOS)), []byte("x"), 0o755))
+
+	NewInstaller(&cfg)
+
+	assert.True(t, dirExists(legacy), "config still points at the old dir")
+}
+
+func TestSDCppEngineDirFallbackHasPlatformSuffix(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.NewDefault()
+	cfg.DataDir = dir
+	for key, bc := range cfg.Backends {
+		bc.Install.Target = ""
+		cfg.Backends[key] = bc
+	}
+
+	assert.Equal(t, filepath.Join(dir, filepath.FromSlash(config.SDCppDir)), SDCppEngineDir(&cfg))
+	assert.NotEqual(t, filepath.Join(dir, filepath.FromSlash(config.SDCppDirLegacy)), SDCppEngineDir(&cfg))
+}

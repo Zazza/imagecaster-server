@@ -308,11 +308,12 @@ func TestLoadSDCppReleaseVersionComesFromServer(t *testing.T) {
 		name        string
 		binary      string
 		install     string
+		wantBinary  string
 		wantMethod  InstallMethod
 		wantVersion string
 	}{
-		{name: "old release version", binary: "engines/sd-cpp/sd-server", install: "    install:\n      method: release\n      target: engines/sd-cpp\n      version: master-1000-oldsha\n", wantMethod: InstallRelease, wantVersion: SDCppVersion},
-		{name: "empty release version", binary: "engines/sd-cpp/sd-server", install: "    install:\n      method: release\n      target: engines/sd-cpp\n      version: \"\"\n", wantMethod: InstallRelease, wantVersion: SDCppVersion},
+		{name: "old release version", binary: "engines/sd-cpp/sd-server", wantBinary: SDCppDir + "/sd-server", install: "    install:\n      method: release\n      target: engines/sd-cpp\n      version: master-1000-oldsha\n", wantMethod: InstallRelease, wantVersion: SDCppVersion},
+		{name: "empty release version", binary: "engines/sd-cpp/sd-server", wantBinary: SDCppDir + "/sd-server", install: "    install:\n      method: release\n      target: engines/sd-cpp\n      version: \"\"\n", wantMethod: InstallRelease, wantVersion: SDCppVersion},
 		{name: "manual method keeps version", binary: "/opt/sd/sd-server", install: "    install:\n      method: manual\n      version: custom-1\n", wantMethod: InstallMethod("manual"), wantVersion: "custom-1"},
 		{name: "empty install with own binary", binary: "/opt/sd/sd-server", install: "    install: {}\n", wantMethod: "", wantVersion: ""},
 	}
@@ -338,7 +339,7 @@ func TestLoadSDCppReleaseVersionComesFromServer(t *testing.T) {
 				if filepath.IsAbs(tt.binary) {
 					assert.Equal(t, tt.binary, sd.Binary)
 				} else {
-					assert.Equal(t, filepath.Join(dataDir, filepath.FromSlash(tt.binary)), sd.Binary)
+					assert.Equal(t, filepath.Join(dataDir, filepath.FromSlash(tt.wantBinary)), sd.Binary)
 				}
 			})
 		}

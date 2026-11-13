@@ -57,6 +57,7 @@ func NewInstaller(cfg *config.Config) *Installer {
 	}
 	inst.ctx, inst.cancel = context.WithCancel(context.Background())
 	inst.backendSetup = inst.setupBackend
+	inst.MigrateEngineDirs()
 
 	for key, bc := range cfg.Backends {
 		if bc.Install.Method != "" && key == cfg.ActiveSD {
@@ -131,7 +132,6 @@ func (inst *Installer) isBackendProcess(key string) bool {
 }
 
 func (inst *Installer) EnsureAllInstalled() {
-	inst.MigrateEngineDirs()
 	for _, key := range inst.installPlan() {
 		if key == "ollama" {
 			if findOllamaBinary(inst.config.DataDir) != "" {

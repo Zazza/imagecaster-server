@@ -119,7 +119,7 @@ func TestInstallLlamaReleaseWithSymlinks(t *testing.T) {
 	inst.ReleaseArtifacts = func() ([]Artifact, error) { t.Fatal("sd.cpp artifacts must not be used for llm"); return nil, nil }
 
 	require.NoError(t, inst.Install(config.LlamaCppProcessKey))
-	dir := filepath.Join(cfg.DataDir, "engines", "llama-cpp")
+	dir := filepath.Join(cfg.DataDir, filepath.FromSlash(config.LlamaCppDir))
 	got, err := os.Readlink(filepath.Join(dir, "libmtmd.so.0"))
 	require.NoError(t, err)
 	assert.Equal(t, "libmtmd.so.0.9.0", got)

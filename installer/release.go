@@ -50,7 +50,6 @@ const (
 	installMark = ".installed"
 )
 
-// sdcppTarget — каталог с суффиксом платформы (общая папка данных у Windows и Linux).
 // sdcppTarget — каталог движка с суффиксом целевой платформы
 // (общая папка данных у Windows и Linux).
 func sdcppTarget(goos string) string {

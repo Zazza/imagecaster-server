@@ -62,7 +62,7 @@ func SDCppEngineDir(cfg *config.Config) string {
 		}
 		return filepath.Join(cfg.DataDir, b.Install.Target)
 	}
-	return filepath.Join(cfg.DataDir, "engines", "sd-cpp")
+	return filepath.Join(cfg.DataDir, filepath.FromSlash(config.SDCppDir))
 }
 
 func SharedCUDADir(sdcppDir, goos string) string {
