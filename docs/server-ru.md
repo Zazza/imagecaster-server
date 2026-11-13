@@ -83,8 +83,8 @@ Imagecaster Server запускает stable-diffusion.cpp (или Forge Neo) и
   bin/uv(.exe)               uv 0.12.19
   uv-cache/                  uv package cache (PyTorch wheels)
   engines/llama-cpp-<ОС>/   llama.cpp (llama-server) для текстовых моделей (суффикс платформы, как у sd-cpp)
-  llamacpp-models.ini        model list for llama-server, written by the server from models/ollama
-  models/ollama/             text models in the Ollama layout (manifests + blobs), used by llama.cpp (`llm.models_dir`)
+  llamacpp-models.ini        список моделей для llama-server, сервер пишет его по models/ollama
+  models/ollama/             текстовые модели в раскладке Ollama (manifests + blobs), их берёт llama.cpp (`llm.models_dir`)
   logs/server.log            server log (Windows window build)
   imagecaster-server.lock    one server per folder (Windows window build)
 ```
@@ -109,7 +109,7 @@ Imagecaster Server запускает stable-diffusion.cpp (или Forge Neo) и
 
 **Forge Neo** 2.31 (`forge-neo`, вариант отката: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip-архив тега). После распаковки ставятся git (если его нет), uv (закреплённая версия, контрольная сумма проверяется) и выполняется `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo запускается командой `launch.py --listen --api --uv` и при первом запуске сам ставит PyTorch и свои зависимости (по умолчанию сборка под CUDA 13; на macOS `TORCH_COMMAND` ставит обычный torch). Сервер задаёт для него `VIRTUAL_ENV` и папки кэша и Python для uv. Если настройка сорвалась после скачивания, следующий запуск только доделает её. Бэкенд, у которого бинарник уже есть, никогда не переустанавливается.
 
-**llama.cpp** (`active_llm: llamacpp`, по умолчанию для новых установок). Сервер скачивает готовую сборку `llama-server` версии `b12283` в `engines/llama-cpp-<ОС>` и проверяет sha256:
+**llama.cpp** (`active_llm: llamacpp` — другого движка текста нет). Сервер скачивает готовую сборку `llama-server` версии `b12283` в `engines/llama-cpp-<ОС>` и проверяет sha256:
 
 | Система | NVIDIA | Vulkan | Без видеокарты |
 |---|---|---|---|
@@ -119,7 +119,7 @@ Imagecaster Server запускает stable-diffusion.cpp (или Forge Neo) и
 
 Сборки Linux требуют `libssl.so.3` в системе. `llama-server` работает в режиме нескольких моделей (router) на `127.0.0.1:11435`, а сервер сам отвечает на порту `11434` и на `/api/llm/` как Ollama (см. «API»). Модели берутся из `models/ollama` в формате Ollama как есть, без копирования: блоб модели и, у моделей с картинками, отдельный блоб projector. Модели, которые Ollama собрала в свой формат (например `qwen2.5vl:7b`, один блоб без projector), llama.cpp не открывает — запрос к ним и `/api/pull` отвечают понятной ошибкой; берите GGUF с hf.co (`hf.co/<user>/<repo>:<квант>`).
 
-**Программа Ollama** не ставится и не запускается: текстовые модели работают только на llama.cpp. Для Linux ARM и Windows ARM сборки llama.cpp нет, поэтому там текстовых моделей нет: процесс `llm` не запускается, в `GET /` нет признака `llamacpp`, маршруты LLM отвечают 503.
+**Программа Ollama** не ставится и не запускается: текстовые модели работают только на llama.cpp. Для Linux ARM и Windows ARM сборки llama.cpp нет, поэтому там текстовых моделей нет: процесс `llm` не запускается, в `GET /` нет признака `llamacpp`, маршруты LLM отвечают 503. Папку `<data>/ollama`, куда Ollama ставили прежние версии, можно удалить; скачанные модели лежат отдельно, в `models/ollama`, их не трогайте.
 
 **Модели установленной Ollama** используются без перекачки, только на чтение: сервер дополнительно читает папку `OLLAMA_MODELS` из своего окружения, иначе `~/.ollama/models` (Windows: `%USERPROFILE%\.ollama\models`), а на Linux ещё `/usr/share/ollama/.ollama/models`. Подключённые папки пишутся в лог. Если модель есть в обоих местах, берётся своя. Удалить такую модель через сервер нельзя (409 с подсказкой `ollama rm`); `pull` всегда качает в свою папку. Модели, которые llama.cpp не открывает, в списках не показываются (свои — показываются в `/api/server/models/llm` с `unsupported`, чтобы их можно было удалить). Сервер, запущенный службой под другим пользователем, видит домашнюю папку этого пользователя. Выключить: `llm.read_ollama_models: false`.
 
@@ -167,7 +167,7 @@ processes:
     autostart: true
     restart: true
     max_restart: 5
-  llm:                        # llama-server, запускается только при active_llm: llamacpp
+  llm:                        # llama-server
     name: llama.cpp
     binary: engines/llama-cpp-linux/llama-server
     health_url: http://localhost:11434/health

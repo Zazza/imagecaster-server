@@ -109,7 +109,7 @@ If an old config has no `sdcpp` section and the Forge models folder exists, `sdc
 
 **Forge Neo** 2.31 (`forge-neo`, rollback option: `active_sd: forge-neo`, [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic), zip of the tag). After unpacking: git (if missing), uv (pinned version, checksum checked), `uv venv venv --python 3.13 --managed-python --seed`. Forge Neo starts with `launch.py --listen --api --uv` and installs PyTorch and its requirements itself on the first start (CUDA 13 build by default; on macOS `TORCH_COMMAND` installs the plain torch). The server sets `VIRTUAL_ENV` and the uv cache/python folders for it. If setup fails after the download, the next start only finishes the setup. A backend whose binary already exists is never reinstalled.
 
-**llama.cpp** (`active_llm: llamacpp`, the default for new installs). The server downloads a prebuilt `llama-server` `b12283` into `engines/llama-cpp-<OS>` and checks sha256:
+**llama.cpp** (`active_llm: llamacpp` — there is no other text engine). The server downloads a prebuilt `llama-server` `b12283` into `engines/llama-cpp-<OS>` and checks sha256:
 
 | System | NVIDIA | Vulkan | No GPU |
 |---|---|---|---|
@@ -119,7 +119,7 @@ If an old config has no `sdcpp` section and the Forge models folder exists, `sdc
 
 Linux builds need `libssl.so.3` in the system. `llama-server` runs in multi-model (router) mode on `127.0.0.1:11435`; the server itself answers on port `11434` and on `/api/llm/` as Ollama (see "API"). Models are used from `models/ollama` in Ollama format as is, without copying: the model blob and, for image models, the separate projector blob. Models that Ollama packed into its own format (for example `qwen2.5vl:7b`, one blob without a projector) cannot be opened by llama.cpp — requests to them and `/api/pull` answer with a clear error; use GGUF models from hf.co (`hf.co/<user>/<repo>:<quant>`).
 
-**The Ollama program** is neither installed nor started: text models run on llama.cpp only. Linux ARM and Windows ARM have no llama.cpp build, so they have no text models: the `llm` process does not start, `GET /` has no `llamacpp` feature, the LLM routes answer 503.
+**The Ollama program** is neither installed nor started: text models run on llama.cpp only. Linux ARM and Windows ARM have no llama.cpp build, so they have no text models: the `llm` process does not start, `GET /` has no `llamacpp` feature, the LLM routes answer 503. The `<data>/ollama` folder where older versions installed Ollama can be deleted; downloaded models live separately in `models/ollama`, keep them.
 
 **Models of an installed Ollama** are used without downloading them again, read-only: the server also reads the `OLLAMA_MODELS` folder from its own environment, otherwise `~/.ollama/models` (Windows: `%USERPROFILE%\.ollama\models`), and on Linux `/usr/share/ollama/.ollama/models`. Connected folders go to the log. If a model is in both places, the server's own copy wins. Such models cannot be deleted through the server (409 with a hint to run `ollama rm`); `pull` always downloads into the server's own folder. Models llama.cpp cannot open are not listed (own ones are listed in `/api/server/models/llm` with `unsupported`, so they can be deleted). A server running as a service under another user sees that user's home folder. Switch off: `llm.read_ollama_models: false`.
 
@@ -167,7 +167,7 @@ processes:
     autostart: true
     restart: true
     max_restart: 5
-  llm:                        # llama-server, started only with active_llm: llamacpp
+  llm:                        # llama-server
     name: llama.cpp
     binary: engines/llama-cpp-linux/llama-server
     health_url: http://localhost:11434/health

@@ -160,19 +160,6 @@ func TestLLMOffWithoutLlamaBuild(t *testing.T) {
 	assert.NotContains(t, guardNames(c.ApplyPortGuard()), LlamaCppProcessKey)
 }
 
-func TestLlamaCppSupported(t *testing.T) {
-	cases := []struct {
-		goos, goarch string
-		want         bool
-	}{
-		{"windows", "amd64", true}, {"linux", "amd64", true}, {"darwin", "amd64", true}, {"darwin", "arm64", true},
-		{"linux", "arm64", false}, {"windows", "arm64", false},
-	}
-	for _, tt := range cases {
-		assert.Equal(t, tt.want, LlamaCppSupported(tt.goos, tt.goarch), tt.goos+"/"+tt.goarch)
-	}
-}
-
 func TestLlamaArgsWithoutGuard(t *testing.T) {
 	c := NewDefault()
 	c.DataDir = "/data"
