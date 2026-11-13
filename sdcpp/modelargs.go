@@ -110,7 +110,7 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 	if len(modules) == 0 && !klein && !moss {
 		return []string{"--model", path}, nil
 	}
-	var vae, llm, tokenizer, clipL, t5 string
+	var vae, llm, vision, tokenizer, clipL, t5 string
 	for _, m := range modules {
 		mp := m
 		if !filepath.IsAbs(mp) {
@@ -131,6 +131,8 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 		switch {
 		case strings.EqualFold(filepath.Ext(mp), ".json"):
 			tokenizer = mp
+		case strings.Contains(base, "mmproj"):
+			vision = mp
 		case strings.Contains(base, "clip_l") || strings.Contains(base, "clip-l"):
 			clipL = mp
 		case strings.Contains(base, "t5xxl"):
@@ -169,6 +171,9 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 	}
 	if tokenizer != "" {
 		args = append(args, "--tokenizer", tokenizer)
+	}
+	if vision != "" {
+		args = append(args, "--llm_vision", vision)
 	}
 	return args, nil
 }
