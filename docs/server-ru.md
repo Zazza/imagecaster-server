@@ -22,9 +22,9 @@ Imagecaster Server запускает stable-diffusion.cpp и llama.cpp для �
 
 | Система | Архив | Внутри |
 |--------|---------|--------|
-| Windows amd64/arm64 | `.zip` | `imagecaster-server.exe` (окно установки + трей), `imagecaster-server-console.exe` (терминальный интерфейс) |
-| Linux amd64/arm64 | `.tar.gz` | `imagecaster-server` |
-| macOS amd64/arm64 | `.tar.gz` | `imagecaster-server`, `Imagecaster Server.command` |
+| Windows x64 | `.zip` | `imagecaster-server.exe` (окно установки + трей), `imagecaster-server-console.exe` (терминальный интерфейс) |
+| Linux x64 | `.tar.gz` | `imagecaster-server` |
+| macOS arm64 (Apple Silicon) | `.tar.gz` | `imagecaster-server`, `Imagecaster Server.command` |
 
 Рядом с каждым архивом лежит файл `.sha256`.
 
@@ -97,7 +97,7 @@ Imagecaster Server запускает stable-diffusion.cpp и llama.cpp для �
 | Linux x64 | своя сборка CUDA 12.8 (`sdcpp-linux-x86_64-cuda.tar.gz` из релиза `sdcpp-465adf3` этого репозитория) | своя сборка Vulkan (есть `/dev/dri/renderD*` и `libvulkan.so.1`) | своя сборка для процессора |
 | macOS arm64 | сборка upstream (Metal) | | |
 
-Свои Linux-сборки нужны потому, что сборки upstream требуют glibc 2.43 (Ubuntu 26.04) и не запускаются на Debian 13 и Ubuntu 24.04. Их собирает `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). Для Linux arm64, macOS Intel и Windows arm64 сборки sd.cpp нет, поэтому генерации картинок там нет: установка движка завершается ошибкой «no stable-diffusion.cpp build for this platform».
+Свои Linux-сборки нужны потому, что сборки upstream требуют glibc 2.43 (Ubuntu 26.04) и не запускаются на Debian 13 и Ubuntu 24.04. Их собирает `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). Сам сервер выпускается только для этих трёх платформ (Windows x64, Linux x64, macOS arm64): для Linux arm64, macOS Intel и Windows arm64 сборки sd.cpp нет.
 
 Вместе с движком ставятся ONNX Runtime 1.31.1 (в `engines/onnxruntime`) и модели DWPose с Hugging Face (`yzd-v/DWPose`, в `pose_models_dir`). Обрыв загрузки докачивается с того же места, уже лежащий файл с верной контрольной суммой не скачивается. Готовая установка отмечается файлом `engines/sd-cpp-<ОС>/.installed` с версией. Версия движка задаётся сервером, а не конфигом: новая версия сервера с новой версией sd.cpp ставит движок заново поверх (значение `install.version` в конфиге при загрузке заменяется). Модели картинок установщик не качает — их скачивает Imagecaster. Каталоги движков sd.cpp и llama.cpp получают суффикс платформы (`sd-cpp-windows`, `llama-cpp-linux`, …): папка данных может быть общим томом у Windows и Linux, а сборки движков несовместимы между ОС — каждая держит свою. Старый каталог без суффикса при первом запуске переносится на новое имя, если в нём лежит бинарник текущей ОС (чужая сборка остаётся на месте), пути в старых конфигах обновляются автоматически.
 
@@ -107,7 +107,7 @@ Imagecaster Server запускает stable-diffusion.cpp и llama.cpp для �
 |---|---|---|---|
 | Windows x64 | `win-cuda-12.4` (библиотеки CUDA берутся из `engines/sd-cpp-<ОС>`, если их там нет — качается `cudart-llama-bin-win-cuda-12.4`, 391 МБ) | `win-vulkan` | `win-cpu` |
 | Linux x64 | `ubuntu-cuda-12.8` (библиотеки CUDA — из `engines/sd-cpp-<ОС>`, иначе `cudart-…-ubuntu-cuda-12.8`, 594 МБ) | `ubuntu-vulkan` | `ubuntu-x64` |
-| macOS | `macos-arm64` / `macos-x64` (Metal) | | |
+| macOS | `macos-arm64` (Metal) | | |
 
 Сборки Linux требуют `libssl.so.3` в системе. `llama-server` работает в режиме нескольких моделей (router) на `127.0.0.1:11435`, а сервер сам отвечает на порту `11434` и на `/api/llm/` как Ollama (см. «API»). Модели берутся из `models/ollama` в формате Ollama как есть, без копирования: блоб модели и, у моделей с картинками, отдельный блоб projector. Модели, которые Ollama собрала в свой формат (например `qwen2.5vl:7b`, один блоб без projector), llama.cpp не открывает — запрос к ним и `/api/pull` отвечают понятной ошибкой; берите GGUF с hf.co (`hf.co/<user>/<repo>:<квант>`).
 

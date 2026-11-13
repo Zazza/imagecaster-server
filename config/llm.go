@@ -42,7 +42,7 @@ func defaultLLMConfig() LLMConfig {
 
 func LlamaCppSupported(goos, goarch string) bool {
 	switch goos + "/" + goarch {
-	case "windows/amd64", "linux/amd64", "darwin/amd64", "darwin/arm64":
+	case "windows/amd64", "linux/amd64", "darwin/arm64":
 		return true
 	}
 	return false

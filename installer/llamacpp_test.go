@@ -32,7 +32,6 @@ func TestLlamaCppArtifacts(t *testing.T) {
 		{"linux", "amd64", GPUVulkan, false, []string{"llama-b12283-bin-ubuntu-vulkan-x64.tar.gz"}},
 		{"linux", "amd64", GPUNone, false, []string{"llama-b12283-bin-ubuntu-x64.tar.gz"}},
 		{"darwin", "arm64", GPUNone, false, []string{"llama-b12283-bin-macos-arm64.tar.gz"}},
-		{"darwin", "amd64", GPUNone, false, []string{"llama-b12283-bin-macos-x64.tar.gz"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.goos+"/"+tt.goarch+"/"+tt.want[len(tt.want)-1], func(t *testing.T) {

@@ -22,9 +22,9 @@ Release archives (GitHub Releases, tag `v*`):
 
 | System | Archive | Inside |
 |--------|---------|--------|
-| Windows amd64/arm64 | `.zip` | `imagecaster-server.exe` (setup window + tray), `imagecaster-server-console.exe` (terminal UI) |
-| Linux amd64/arm64 | `.tar.gz` | `imagecaster-server` |
-| macOS amd64/arm64 | `.tar.gz` | `imagecaster-server`, `Imagecaster Server.command` |
+| Windows x64 | `.zip` | `imagecaster-server.exe` (setup window + tray), `imagecaster-server-console.exe` (terminal UI) |
+| Linux x64 | `.tar.gz` | `imagecaster-server` |
+| macOS arm64 (Apple Silicon) | `.tar.gz` | `imagecaster-server`, `Imagecaster Server.command` |
 
 Every archive has a `.sha256` file next to it.
 
@@ -97,7 +97,7 @@ Which folder: `--data` → the folder chosen at the first start (remembered in `
 | Linux x64 | own CUDA 12.8 build (`sdcpp-linux-x86_64-cuda.tar.gz` from release `sdcpp-465adf3` of this repository) | own Vulkan build (`/dev/dri/renderD*` and `libvulkan.so.1` present) | own CPU build |
 | macOS arm64 | upstream build (Metal) | | |
 
-Own Linux builds are needed because upstream builds require glibc 2.43 (Ubuntu 26.04) and do not start on Debian 13 or Ubuntu 24.04. They are built by `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). Linux arm64, Intel macOS and Windows arm64 have no sd.cpp build and therefore no image generation: the engine install fails with "no stable-diffusion.cpp build for this platform".
+Own Linux builds are needed because upstream builds require glibc 2.43 (Ubuntu 26.04) and do not start on Debian 13 or Ubuntu 24.04. They are built by `.github/workflows/sdcpp.yml` (`tools/sdcpp-build.sh`, Ubuntu 22.04, glibc 2.35). The server itself is released only for these three platforms (Windows x64, Linux x64, macOS arm64): there is no sd.cpp build for Linux arm64, Intel macOS or Windows arm64.
 
 ONNX Runtime 1.31.1 (into `engines/onnxruntime`) and the DWPose models from Hugging Face (`yzd-v/DWPose`, into `pose_models_dir`) are installed with the engine. A cut download resumes where it stopped; a file already in place with the right checksum is not downloaded. A finished install is marked by `engines/sd-cpp-<OS>/.installed` with the version. The engine version is set by the server, not the config: a newer server with a newer sd.cpp installs the engine again over the old one (`install.version` in the config is replaced on load). The installer does not download image models — Imagecaster does. Engine folders for sd.cpp and llama.cpp get a platform suffix (`sd-cpp-windows`, `llama-cpp-linux`, …): the data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place); paths in old configs are updated automatically.
 
@@ -107,7 +107,7 @@ ONNX Runtime 1.31.1 (into `engines/onnxruntime`) and the DWPose models from Hugg
 |---|---|---|---|
 | Windows x64 | `win-cuda-12.4` (CUDA libraries are taken from `engines/sd-cpp-<OS>`; if they are not there, `cudart-llama-bin-win-cuda-12.4`, 391 MB, is downloaded) | `win-vulkan` | `win-cpu` |
 | Linux x64 | `ubuntu-cuda-12.8` (CUDA libraries from `engines/sd-cpp-<OS>`, otherwise `cudart-…-ubuntu-cuda-12.8`, 594 MB) | `ubuntu-vulkan` | `ubuntu-x64` |
-| macOS | `macos-arm64` / `macos-x64` (Metal) | | |
+| macOS | `macos-arm64` (Metal) | | |
 
 Linux builds need `libssl.so.3` in the system. `llama-server` runs in multi-model (router) mode on `127.0.0.1:11435`; the server itself answers on port `11434` and on `/api/llm/` as Ollama (see "API"). Models are used from `models/ollama` in Ollama format as is, without copying: the model blob and, for image models, the separate projector blob. Models that Ollama packed into its own format (for example `qwen2.5vl:7b`, one blob without a projector) cannot be opened by llama.cpp — requests to them and `/api/pull` answer with a clear error; use GGUF models from hf.co (`hf.co/<user>/<repo>:<quant>`).
 

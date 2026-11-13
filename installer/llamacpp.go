@@ -42,8 +42,6 @@ func LlamaCppArtifacts(goos, goarch string, gpu GPUKind, sharedCUDA bool) ([]Art
 		return []Artifact{llamaArt("llama-b12283-bin-ubuntu-x64.tar.gz", "5f24a62b84a37c186efd1e3e1d77bfad3a1772d9aa35bfcc9e1572723d0c4faf", 23283834, "tgz", 1)}, nil
 	case goos == "darwin" && goarch == "arm64":
 		return []Artifact{llamaArt("llama-b12283-bin-macos-arm64.tar.gz", "bbc2abe2001293687540fb274bf4114b27b56af1fc166ee76730f64996d68b00", 16870708, "tgz", 1)}, nil
-	case goos == "darwin" && goarch == "amd64":
-		return []Artifact{llamaArt("llama-b12283-bin-macos-x64.tar.gz", "7179905c572cd11e9eadf9669058b49846cc9519f3d8d10497cad19fbf9eb8b0", 12613034, "tgz", 1)}, nil
 	}
 	return nil, fmt.Errorf("%w: %s/%s", ErrNoLlamaBuild, goos, goarch)
 }
