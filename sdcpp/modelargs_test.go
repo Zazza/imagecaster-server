@@ -140,7 +140,6 @@ func TestModelArgs_Errors(t *testing.T) {
 		{"moss without text encoder", "moss_v1.safetensors", []string{d.vae}},
 		{"z-image without alias", "z-image-turbo-aio.safetensors", nil},
 		{"zimage without alias", "zimage_turbo.safetensors", nil},
-		{"z-image without alias with modules", "z-image-turbo-aio.safetensors", []string{d.te, d.vae}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

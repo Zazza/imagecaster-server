@@ -76,11 +76,16 @@ func findCheckpoint(cfg Config, name string) (string, error) {
 	if filepath.IsAbs(name) {
 		return name, nil
 	}
+	base := name
 	if hasModelExt(name) {
-		return filepath.Join(cfg.ModelsDir, name), nil
+		p := filepath.Join(cfg.ModelsDir, name)
+		if fileExists(p) {
+			return p, nil
+		}
+		base = strings.TrimSuffix(name, filepath.Ext(name))
 	}
 	for _, ext := range modelExts {
-		p := filepath.Join(cfg.ModelsDir, name+ext)
+		p := filepath.Join(cfg.ModelsDir, base+ext)
 		if _, err := os.Stat(p); err == nil {
 			return p, nil
 		}
@@ -98,7 +103,7 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 	}
 	lower := strings.ToLower(stem(name))
 	zimage := strings.Contains(lower, "z-image") || strings.Contains(lower, "zimage") || strings.Contains(lower, "z_image")
-	if zimage && (len(modules) == 0 || strings.Contains(lower, "aio")) {
+	if zimage && len(modules) == 0 {
 		return nil, fmt.Errorf("model %q: sd.cpp cannot load an all-in-one Z-Image file; add an alias with a GGUF diffusion model, text encoder and VAE", name)
 	}
 	path, err := checkpointPath(cfg, name)
@@ -154,7 +159,11 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 		if t5 != "" {
 			args = append(args, "--t5xxl", t5)
 		}
-		return append(args, "--vae", vae), nil
+		args = append(args, "--vae", vae)
+		if strings.Contains(lower, "chroma") {
+			args = append(args, "--model-args", "chroma_use_dit_mask=false")
+		}
+		return args, nil
 	}
 	if llm == "" && !klein && !moss {
 		if vae == "" {

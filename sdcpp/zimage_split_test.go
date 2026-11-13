@@ -59,10 +59,34 @@ func TestModelArgs_ZImageSplitGGUF(t *testing.T) {
 	}
 }
 
-func TestModelArgs_ZImageAIORejected(t *testing.T) {
+func TestModelArgs_ZImageAIONameWithModulesIsSplit(t *testing.T) {
 	d := newZImageDirs(t)
 	args, err := ModelArgs(d.cfg, "z-image-turbo-aio.safetensors", []string{"qwen_3_4b.safetensors", "ae.safetensors"})
+	require.NoError(t, err)
+	require.NotEmpty(t, args)
+	assert.Equal(t, "--diffusion-model", args[0])
+	assert.Contains(t, args, "--llm")
+	assert.Contains(t, args, "--vae")
+}
+
+func TestFindCheckpoint_MissingExtensionFallsBackToStem(t *testing.T) {
+	d := newZImageDirs(t)
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"z_image_turbo-Q8_0.safetensors", d.gguf},
+		{"z_image_turbo-Q8_0.gguf", d.gguf},
+		{"z_image_turbo-Q8_0", d.gguf},
+		{"z-image-turbo-aio.gguf", d.aio},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := findCheckpoint(d.cfg, tc.name)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+	_, err := findCheckpoint(d.cfg, "missing-model.safetensors")
 	require.Error(t, err)
-	assert.NotEmpty(t, err.Error())
-	assert.Empty(t, args)
 }
