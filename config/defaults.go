@@ -42,7 +42,6 @@ func init() {
 		SDCppBackendKey: sdcppInstall(),
 	}
 	InstallDefaultsProcesses = map[string]InstallConfig{
-		"ollama":           {},
 		LlamaCppProcessKey: llamaInstall(),
 	}
 }
@@ -222,26 +221,6 @@ func NewDefault() Config {
 				Restart:      true,
 				MaxRestart:   5,
 				Env:          sdEnv(),
-			},
-			"ollama": {
-				Name:   "Ollama",
-				Binary: "ollama",
-				Args:   []string{"serve"},
-				Env: map[string]string{
-					"OLLAMA_HOST":         "0.0.0.0:11434",
-					"OLLAMA_MODELS":       "models/ollama",
-					"OLLAMA_KEEP_ALIVE":   "24h",
-					"OLLAMA_NUM_PARALLEL": "2",
-					"OLLAMA_NUM_GPU":      "-1",
-				},
-				HealthURL:    "http://localhost:11434/api/tags",
-				TargetURL:    "http://localhost:11434",
-				ProxyPath:    "/api/llm/",
-				InternalPort: 11435,
-				AutoStart:    true,
-				Restart:      true,
-				MaxRestart:   5,
-				Install:      InstallConfig{},
 			},
 			LlamaCppProcessKey: llamaProcess(),
 		},

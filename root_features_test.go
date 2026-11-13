@@ -18,18 +18,22 @@ func TestRootReportsFeatures(t *testing.T) {
 		activeSD string
 		kind     string
 		llm      string
+		facade   bool
 		want     []string
 	}{
-		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, []string{"sdcpp", "llamacpp", "download_stream"}},
-		{"forge and ollama rollback", "forge-neo", "", config.LLMOllama, []string{"forge", "ollama", "download_stream"}},
-		{"sd.cpp with ollama", "sdcpp", config.KindSDCpp, config.LLMOllama, []string{"sdcpp", "ollama", "download_stream"}},
-		{"unknown active backend", "nope", "", config.LLMLlamaCpp, []string{"forge", "llamacpp", "download_stream"}},
+		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, []string{"sdcpp", "llamacpp", "download_stream"}},
+		{"old active_llm ollama value", "forge-neo", "", "ollama", true, []string{"forge", "llamacpp", "download_stream"}},
+		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, []string{"sdcpp", "download_stream"}},
+		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, []string{"forge", "llamacpp", "download_stream"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandlers()
 			h.config.ActiveSD = tc.activeSD
 			h.config.ActiveLLM = tc.llm
+			if tc.facade {
+				h.llmRunning = func() []string { return nil }
+			}
 			h.config.Backends = map[string]config.BackendConfig{"sdcpp": {Kind: config.KindSDCpp}, "forge-neo": {}}
 			rec := httptest.NewRecorder()
 			h.handleRoot(rec, httptest.NewRequest(http.MethodGet, "/", nil))

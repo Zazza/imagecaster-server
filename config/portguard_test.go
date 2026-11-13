@@ -23,19 +23,19 @@ func TestApplyPortGuard_Disabled(t *testing.T) {
 
 func TestApplyPortGuard_Default(t *testing.T) {
 	t.Parallel()
-	c := ollamaDefault()
+	c := llmDefault()
 	guards := c.ApplyPortGuard()
 
 	assert.Equal(t, []PortGuard{
-		{Process: "ollama", ListenAddr: ":11434", ProxyPath: "/api/llm/"},
+		{Process: "llm", ListenAddr: ":11434", ProxyPath: "/api/llm/"},
 		{Process: "sd", ListenAddr: ":7860", ProxyPath: "/api/sd/"},
 	}, guards)
 
 	assert.Equal(t, "http://127.0.0.1:7861", c.Processes["sd"].TargetURL)
 	assert.Equal(t, "http://127.0.0.1:7861/sdapi/v1/options", c.Processes["sd"].HealthURL)
-	assert.Equal(t, "http://127.0.0.1:11435", c.Processes["ollama"].TargetURL)
-	assert.Equal(t, "http://127.0.0.1:11435/api/tags", c.Processes["ollama"].HealthURL)
-	assert.Equal(t, ollamaDefault().Processes["python"], c.Processes["python"])
+	assert.Equal(t, "http://127.0.0.1:11435", c.Processes["llm"].TargetURL)
+	assert.Equal(t, "http://127.0.0.1:11435/health", c.Processes["llm"].HealthURL)
+	assert.Equal(t, llmDefault().Processes["python"], c.Processes["python"])
 }
 
 func TestApplyPortGuard_LoopbackHosts(t *testing.T) {
@@ -158,73 +158,18 @@ func TestApplyPortGuard_NotGuarded(t *testing.T) {
 
 	c := guardCfg(map[string]ProcessConfig{
 		"sd":       remote,
-		"ollama":   remoteLLM,
+		"llm":      remoteLLM,
 		"python":   python,
 		"noproxy":  noProxy,
 		"notarget": noTarget,
 	})
 	assert.Empty(t, c.ApplyPortGuard())
 	assert.Equal(t, remote, c.Processes["sd"])
-	assert.Equal(t, "http://10.0.0.5:11434", c.Processes["ollama"].TargetURL)
-	assert.Equal(t, "0.0.0.0:11434", c.Processes["ollama"].Env["OLLAMA_HOST"])
+	assert.Equal(t, "http://10.0.0.5:11434", c.Processes["llm"].TargetURL)
+	assert.Equal(t, "0.0.0.0:11434", c.Processes["llm"].Env["OLLAMA_HOST"])
 	assert.Equal(t, python, c.Processes["python"])
 	assert.Equal(t, noProxy, c.Processes["noproxy"])
 	assert.Equal(t, noTarget, c.Processes["notarget"])
-}
-
-func TestApplyPortGuard_OllamaEnv(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		pc   ProcessConfig
-		want map[string]string
-	}{
-		{
-			"by proxy path",
-			ProcessConfig{
-				AutoStart: true, TargetURL: "http://localhost:11434", ProxyPath: "/api/llm/", InternalPort: 11435,
-				Env: map[string]string{"OLLAMA_HOST": "0.0.0.0:11434", "OLLAMA_MODELS": "m"},
-			},
-			map[string]string{"OLLAMA_HOST": "127.0.0.1:11435", "OLLAMA_MODELS": "m"},
-		},
-		{
-			"by proxy path without env",
-			ProcessConfig{AutoStart: true, TargetURL: "http://localhost:11434", ProxyPath: "/api/llm/", InternalPort: 11435},
-			map[string]string{"OLLAMA_HOST": "127.0.0.1:11435"},
-		},
-		{
-			"by OLLAMA_HOST env on other proxy path",
-			ProcessConfig{
-				AutoStart: true, TargetURL: "http://localhost:11434", ProxyPath: "/api/ollama2/", InternalPort: 11440,
-				Env: map[string]string{"OLLAMA_HOST": "0.0.0.0:11434", "X": "y"},
-			},
-			map[string]string{"OLLAMA_HOST": "127.0.0.1:11440", "X": "y"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			c := guardCfg(map[string]ProcessConfig{"llm": tt.pc})
-			require.Len(t, c.ApplyPortGuard(), 1)
-			assert.Equal(t, tt.want, c.Processes["llm"].Env)
-		})
-	}
-}
-
-func TestApplyPortGuard_OllamaEnvNotAliased(t *testing.T) {
-	t.Parallel()
-	shared := map[string]string{"OLLAMA_HOST": "0.0.0.0:11434", "OLLAMA_MODELS": "m"}
-	c := guardCfg(map[string]ProcessConfig{
-		"ollama": {AutoStart: true, TargetURL: "http://localhost:11434", ProxyPath: "/api/llm/", InternalPort: 11435, Env: shared},
-	})
-	require.Len(t, c.ApplyPortGuard(), 1)
-	assert.Equal(t, "127.0.0.1:11435", c.Processes["ollama"].Env["OLLAMA_HOST"])
-	assert.Equal(t, "0.0.0.0:11434", shared["OLLAMA_HOST"])
-
-	d := ollamaDefault()
-	d.ApplyPortGuard()
-	assert.Equal(t, "127.0.0.1:11435", d.Processes["ollama"].Env["OLLAMA_HOST"])
-	assert.Equal(t, "0.0.0.0:11434", ollamaDefault().Processes["ollama"].Env["OLLAMA_HOST"])
 }
 
 func TestApplyPortGuard_SDArgs(t *testing.T) {
@@ -330,7 +275,7 @@ func TestApplyPortGuard_AutoStartOnly(t *testing.T) {
 			0,
 		},
 		{
-			"system ollama not autostart left alone",
+			"system llm not autostart left alone",
 			ProcessConfig{
 				TargetURL: "http://localhost:11434", HealthURL: "http://localhost:11434/api/tags",
 				ProxyPath: "/api/llm/", InternalPort: 11435, Env: map[string]string{"OLLAMA_HOST": "0.0.0.0:11434"},
@@ -355,27 +300,27 @@ func TestApplyPortGuard_AutoStartOnly(t *testing.T) {
 
 func TestApplyPortGuard_DefaultAutoStartOff(t *testing.T) {
 	t.Parallel()
-	c := ollamaDefault()
-	o := c.Processes["ollama"]
+	c := llmDefault()
+	o := c.Processes["llm"]
 	o.AutoStart = false
-	c.Processes["ollama"] = o
+	c.Processes["llm"] = o
 
 	guards := c.ApplyPortGuard()
 	assert.Equal(t, []PortGuard{{Process: "sd", ListenAddr: ":7860", ProxyPath: "/api/sd/"}}, guards)
-	assert.Equal(t, o, c.Processes["ollama"])
+	assert.Equal(t, o, c.Processes["llm"])
 	assert.Equal(t, "http://127.0.0.1:7861", c.Processes["sd"].TargetURL)
 }
 
 func TestApplyPortGuardIf_AllowCalledPerCandidate(t *testing.T) {
 	t.Parallel()
-	c := ollamaDefault()
+	c := llmDefault()
 	var asked []PortGuard
 	guards := c.ApplyPortGuardIf(func(g PortGuard) bool {
 		asked = append(asked, g)
 		return true
 	})
 	want := []PortGuard{
-		{Process: "ollama", ListenAddr: ":11434", ProxyPath: "/api/llm/"},
+		{Process: "llm", ListenAddr: ":11434", ProxyPath: "/api/llm/"},
 		{Process: "sd", ListenAddr: ":7860", ProxyPath: "/api/sd/"},
 	}
 	assert.ElementsMatch(t, want, asked)
@@ -389,17 +334,17 @@ func TestApplyPortGuardIf_Deny(t *testing.T) {
 		deny       map[string]bool
 		wantGuards []string
 	}{
-		{"deny sd", map[string]bool{"sd": true}, []string{"ollama"}},
-		{"deny ollama", map[string]bool{"ollama": true}, []string{"sd"}},
-		{"deny all", map[string]bool{"sd": true, "ollama": true}, nil},
-		{"deny none", map[string]bool{}, []string{"ollama", "sd"}},
+		{"deny sd", map[string]bool{"sd": true}, []string{"llm"}},
+		{"deny llm", map[string]bool{"llm": true}, []string{"sd"}},
+		{"deny all", map[string]bool{"sd": true, "llm": true}, nil},
+		{"deny none", map[string]bool{}, []string{"llm", "sd"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := ollamaDefault()
-			before := ollamaDefault().Processes
-			guarded := ollamaDefault()
+			c := llmDefault()
+			before := llmDefault().Processes
+			guarded := llmDefault()
 			guarded.ApplyPortGuard()
 
 			guards := c.ApplyPortGuardIf(func(g PortGuard) bool { return !tt.deny[g.Process] })
@@ -409,7 +354,7 @@ func TestApplyPortGuardIf_Deny(t *testing.T) {
 				names = append(names, g.Process)
 			}
 			assert.Equal(t, tt.wantGuards, names)
-			for _, key := range []string{"sd", "ollama"} {
+			for _, key := range []string{"sd", "llm"} {
 				if tt.deny[key] {
 					assert.Equal(t, before[key], c.Processes[key], key)
 				} else {
@@ -462,8 +407,6 @@ func TestApplyPortGuardIf_Disabled(t *testing.T) {
 	assert.Equal(t, NewDefault().Processes, c.Processes)
 }
 
-func ollamaDefault() Config {
-	c := NewDefault()
-	c.ActiveLLM = LLMOllama
-	return c
+func llmDefault() Config {
+	return NewDefault()
 }

@@ -38,7 +38,12 @@ func TestInstallPlan(t *testing.T) {
 			c.ActiveSD = "custom"
 			c.Processes["sd2"] = config.ProcessConfig{AutoStart: false}
 		}, []string{config.LlamaCppProcessKey}},
-		{"rollback to ollama", func(c *config.Config) { c.ActiveLLM = config.LLMOllama }, []string{config.SDCppBackendKey, "ollama"}},
+		{"old active_llm ollama value", func(c *config.Config) { c.ActiveLLM = "ollama" }, []string{config.SDCppBackendKey, config.LlamaCppProcessKey}},
+		{"no llama.cpp build", func(c *config.Config) {
+			p := c.Processes[config.LlamaCppProcessKey]
+			p.AutoStart, p.ProxyPath, p.Install = false, "", config.InstallConfig{}
+			c.Processes[config.LlamaCppProcessKey] = p
+		}, []string{config.SDCppBackendKey}},
 		{"missing backend", func(c *config.Config) { c.ActiveSD = "nope" }, []string{config.LlamaCppProcessKey}},
 	}
 	for _, tt := range tests {

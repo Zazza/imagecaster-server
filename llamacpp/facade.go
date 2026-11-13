@@ -167,7 +167,7 @@ func (f *Facade) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/delete" && r.Method == http.MethodDelete:
 		f.handleDelete(w, r)
 	case p == "/api/embed" || p == "/api/embeddings" || p == "/v1/embeddings":
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "embeddings are not supported by the llama.cpp backend; switch active_llm to ollama"})
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "embeddings are not supported by the llama.cpp backend"})
 	case p == "/v1/models" && r.Method == http.MethodGet:
 		f.handleV1Models(w)
 	case (p == "/v1/chat/completions" || p == "/v1/completions") && r.Method == http.MethodPost:

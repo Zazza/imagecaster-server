@@ -124,13 +124,13 @@ func (m InstallModel) View() string {
 func installOrder(statuses map[string]ComponentInstallStatus) []string {
 	var order []string
 	for k := range statuses {
-		if k != "ollama" {
+		if k != "llm" {
 			order = append(order, k)
 		}
 	}
 	sort.Strings(order)
-	if _, ok := statuses["ollama"]; ok {
-		order = append(order, "ollama")
+	if _, ok := statuses["llm"]; ok {
+		order = append(order, "llm")
 	}
 	return order
 }
@@ -143,8 +143,6 @@ func componentLabel(key string) string {
 		return "Forge"
 	case "sdcpp":
 		return "stable-diffusion.cpp"
-	case "ollama":
-		return "Ollama"
 	case "llm":
 		return "llama.cpp"
 	default:

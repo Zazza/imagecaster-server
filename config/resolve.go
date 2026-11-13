@@ -301,9 +301,6 @@ func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
 	var guards []PortGuard
 	for _, key := range keys {
 		pc := c.Processes[key]
-		if c.inactiveLLM(key) {
-			continue
-		}
 		if !pc.AutoStart || pc.ProxyPath == "" || pc.TargetURL == "" {
 			continue
 		}
@@ -343,10 +340,6 @@ func (c *Config) ApplyPortGuardIf(allow func(PortGuard) bool) []PortGuard {
 		env := make(map[string]string, len(pc.Env)+1)
 		for k, v := range pc.Env {
 			env[k] = v
-		}
-		_, hasOllamaHost := env["OLLAMA_HOST"]
-		if hasOllamaHost || pc.ProxyPath == "/api/llm/" {
-			env["OLLAMA_HOST"] = internalHost
 		}
 		pc.Env = env
 

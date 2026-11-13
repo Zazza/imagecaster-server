@@ -52,10 +52,10 @@ func TestInstallOrder(t *testing.T) {
 		want []string
 	}{
 		{"empty", nil, nil},
-		{"only ollama", []string{"ollama"}, []string{"ollama"}},
-		{"ollama last", []string{"ollama", "forge-neo"}, []string{"forge-neo", "ollama"}},
-		{"sorted rest", []string{"zeta", "ollama", "alpha", "forge-neo"}, []string{"alpha", "forge-neo", "zeta", "ollama"}},
-		{"no ollama", []string{"b", "a"}, []string{"a", "b"}},
+		{"only llm", []string{"llm"}, []string{"llm"}},
+		{"llm last", []string{"llm", "sdcpp"}, []string{"sdcpp", "llm"}},
+		{"sorted rest", []string{"zeta", "llm", "alpha", "forge-neo"}, []string{"alpha", "forge-neo", "zeta", "llm"}},
+		{"no llm", []string{"b", "a"}, []string{"a", "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

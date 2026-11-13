@@ -2,16 +2,16 @@
 
 [Русский](README-ru.md)
 
-Runs image generation (**Stable Diffusion Forge Neo**) and the text model (**Ollama**) on a computer with a graphics card for the [Imagecaster](https://github.com/Zazza/imagecaster) app. It installs everything itself into one folder, starts and restarts the services, and puts every GPU request through one queue so the card doesn't run out of memory. Imagecaster finds the server on the local network by itself (mDNS).
+Runs image generation (**Stable Diffusion Forge Neo**) and text models (**llama.cpp**, with an Ollama-compatible API) on a computer with a graphics card for the [Imagecaster](https://github.com/Zazza/imagecaster) app. It installs everything itself into one folder, starts and restarts the services, and puts every GPU request through one queue so the card doesn't run out of memory. Imagecaster finds the server on the local network by itself (mDNS).
 
 - Windows, Linux, macOS — no WSL, no Docker
-- Forge Neo is installed automatically (with its own Python 3.13 and PyTorch); Ollama is used if it is already installed, otherwise it is installed into the same folder
+- Forge Neo is installed automatically (with its own Python 3.13 and PyTorch); llama.cpp for text models is installed into the same folder (no build for Linux ARM and Windows ARM — no text models there)
 - Nothing is registered in the system and nothing starts with it: you start the server when you need it
 - Interface in English or Russian, chosen from the system language
 
 ## Install
 
-Download the archive for your system from [Releases](https://github.com/Zazza/imagecaster-server/releases) and unpack it anywhere. The first start downloads Forge Neo, Python, PyTorch and Ollama — about 20 GB without models, so it takes a while.
+Download the archive for your system from [Releases](https://github.com/Zazza/imagecaster-server/releases) and unpack it anywhere. The first start downloads Forge Neo, Python, PyTorch and llama.cpp — about 20 GB without models, so it takes a while.
 
 ### Windows
 
@@ -19,7 +19,7 @@ Download the archive for your system from [Releases](https://github.com/Zazza/im
 2. In the setup window choose the data folder (a drive with free space; not necessarily C:) and press **Install**.
 3. When it says **Ready**, the window can be closed: the server keeps running, its icon is in the tray (by the clock).
 
-The tray menu shows the state of Forge Neo and Ollama and has: the address for the app (click to copy), **Dashboard** (console with services, logs and the GPU queue), the log, and **Exit** — it stops everything. Next time just start `imagecaster-server.exe` again.
+The tray menu shows the state of the image engine and the LLM and has: the address for the app (click to copy), **Dashboard** (console with services, logs and the GPU queue), the log, and **Exit** — it stops everything. Next time just start `imagecaster-server.exe` again.
 
 The setup window can be closed during installation — it continues in the background. A second start with the same folder only says that the server is already running.
 
@@ -77,14 +77,14 @@ Environment: `IMAGECASTER_LANG=ru|en` — interface language; `SD_PORT`, `SD_DAT
 ```
  Imagecaster / any program in the LAN
         │                     │
-   :8080 /api/sd/  /api/llm/  │ :7860 (Forge)  :11434 (Ollama)
+   :8080 /api/sd/  /api/llm/  │ :7860 (Forge)  :11434 (LLM)
         └──────────┬──────────┘
            Imagecaster Server ── GPU queue (VRAM budget)
              │            │
-     Forge Neo :7861   Ollama :11435   (loopback only)
+     Forge Neo :7861   llama.cpp :11435   (loopback only)
 ```
 
-The server takes the standard Forge (`7860`) and Ollama (`11434`) ports and moves the services to loopback ports, so every request — from Imagecaster or any other program — goes through the same GPU queue. Details: [docs/server-en.md](docs/server-en.md).
+The server takes the standard Forge (`7860`) and Ollama-compatible LLM (`11434`) ports and moves the services to loopback ports, so every request — from Imagecaster or any other program — goes through the same GPU queue. Details: [docs/server-en.md](docs/server-en.md).
 
 ## Development
 

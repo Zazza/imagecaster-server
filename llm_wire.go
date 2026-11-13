@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 
+	"imagecaster-server/api"
 	"imagecaster-server/config"
 	"imagecaster-server/installer"
 	"imagecaster-server/llamacpp"
@@ -16,7 +18,7 @@ import (
 
 func applyLlamaEnv(cfg *config.Config) {
 	pc, ok := cfg.Process(config.LlamaCppProcessKey)
-	if !ok || cfg.LLMProcessKey() != config.LlamaCppProcessKey {
+	if !ok || pc.ProxyPath == "" {
 		return
 	}
 	pc.Env = installer.LlamaEnv(pc.Env, pc.Binary, installer.SDCppEngineDir(cfg), runtime.GOOS)
@@ -72,22 +74,19 @@ func waitHealthy(ctx context.Context, url string, timeout time.Duration) error {
 }
 
 func newLlamaFacade(cfg *config.Config, pm *process.ProcessManager) *llamacpp.Facade {
-	if cfg.LLMProcessKey() != config.LlamaCppProcessKey {
-		return nil
-	}
 	pc, ok := cfg.Process(config.LlamaCppProcessKey)
-	if !ok || pc.TargetURL == "" {
+	if !ok || pc.ProxyPath == "" || pc.TargetURL == "" {
 		return nil
 	}
 	s := cfg.LLMSettings()
 	kaText := cfg.LlamaKeepAlive(cfg.DetectedVRAMMB)
 	ka, err := llamacpp.ParseKeepAlive(kaText)
 	if err != nil {
-		log.Printf("[llamacpp] OLLAMA_KEEP_ALIVE %q: %v, using 5m", kaText, err)
+		log.Printf("[llamacpp] llm.keep_alive %q: %v, using 5m", kaText, err)
 		ka = 5 * time.Minute
 	}
 	log.Printf("[llamacpp] default keep_alive %s (VRAM %dMB)", ka, cfg.DetectedVRAMMB)
-	store := &llamacpp.Store{Root: cfg.OllamaModelsDir()}
+	store := &llamacpp.Store{Root: cfg.LLMModelsDir()}
 	reload := &llamaReloader{pm: pm, key: config.LlamaCppProcessKey, health: pc.HealthURL, wait: 60 * time.Second}
 	f := llamacpp.New(llamacpp.Config{
 		Store:       store,
@@ -121,12 +120,15 @@ func llmEvictor(u idleUnloader, budget func() int, llmWeightMB int) func(context
 	}
 }
 
+const llmUnavailable = "LLM (llama.cpp) is not available on this server"
+
 func withLLMServerRoutes(f *llamacpp.Facade, next http.Handler) http.Handler {
-	if f == nil {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if llamacpp.IsServerRoute(r.URL.Path) {
+		if f == nil && (llamacpp.IsServerRoute(r.URL.Path) || strings.HasPrefix(r.URL.Path, "/api/llm/")) {
+			api.WriteError(w, llmUnavailable, http.StatusServiceUnavailable)
+			return
+		}
+		if f != nil && llamacpp.IsServerRoute(r.URL.Path) {
 			f.ServeServerModels(w, r)
 			return
 		}

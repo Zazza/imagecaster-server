@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -172,7 +171,7 @@ func initApp(cfg *config.Config) *appDeps {
 	if lf != nil {
 		proxy.SetHandler("/api/llm/", lf)
 		gate.SetBeforeSD(llmEvictor(lf, q.Budget, cfg.GPU.LLMWeightMB))
-		log.Printf("LLM backend: llama.cpp with Ollama API on /api/llm/")
+		log.Printf("LLM backend: llama.cpp on /api/llm/")
 	}
 	handlers := NewHandlers(pm, hm, gm, cfg, inst)
 	if lf != nil {
@@ -205,9 +204,6 @@ func (d *appDeps) startMonitors(ctx context.Context) {
 
 func (d *appDeps) ensureInstalled() {
 	d.inst.EnsureAllInstalled()
-	if d.cfg.LLMProcessKey() == "ollama" {
-		ensureOllamaBinary(d.cfg, d.pm, d.inst, d.gm)
-	}
 }
 
 func (d *appDeps) newServer() *http.Server {
@@ -571,56 +567,4 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func ensureOllamaBinary(cfg *config.Config, pm *process.ProcessManager, inst *installer.Installer, gm *sdgpu.GPUMonitor) {
-	ollamaPath := inst.EnsureOllama()
-	if ollamaPath == "" {
-		return
-	}
-	pc, ok := cfg.Process("ollama")
-	if !ok {
-		return
-	}
-	pc.Binary = ollamaPath
-	pc.Env = maps.Clone(pc.Env)
-	libDir := filepath.Join(filepath.Dir(filepath.Dir(ollamaPath)), "lib")
-	if info, err := os.Stat(libDir); err == nil && info.IsDir() {
-		if pc.Env == nil {
-			pc.Env = make(map[string]string)
-		}
-		existing := pc.Env["LD_LIBRARY_PATH"]
-		if existing == "" {
-			existing = os.Getenv("LD_LIBRARY_PATH")
-		}
-		if existing != "" {
-			pc.Env["LD_LIBRARY_PATH"] = libDir + string(os.PathListSeparator) + existing
-		} else {
-			pc.Env["LD_LIBRARY_PATH"] = libDir
-		}
-	}
-	configureOllamaGPU(&pc, gm)
-	cfg.SetProcess("ollama", pc)
-	pm.UpdateProcessConfig("ollama", pc)
-}
-
-func configureOllamaGPU(pc *config.ProcessConfig, gm *sdgpu.GPUMonitor) {
-	info := gm.Detect()
-	if !info.Available {
-		return
-	}
-	if info.MemoryTotal >= 24000 {
-		return
-	}
-	if pc.Env == nil {
-		pc.Env = make(map[string]string)
-	}
-	if info.MemoryTotal < 16000 {
-		pc.Env["OLLAMA_NUM_GPU"] = "0"
-		pc.Env["OLLAMA_KEEP_ALIVE"] = "5m"
-		log.Printf("[ollama] VRAM %dMB < 16GB: running on CPU to free VRAM for SD", info.MemoryTotal)
-	} else {
-		pc.Env["OLLAMA_KEEP_ALIVE"] = "5m"
-		log.Printf("[ollama] VRAM %dMB < 24GB: using shorter keep_alive to share VRAM with SD", info.MemoryTotal)
-	}
 }

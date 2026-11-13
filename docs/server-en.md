@@ -2,7 +2,7 @@
 
 [Русский](server-ru.md) · [README](../README.md)
 
-Imagecaster Server runs Stable Diffusion Forge Neo and Ollama for the Imagecaster app on a computer with a graphics card: installs them into one data folder, starts and restarts them, checks their health, puts every GPU request through one VRAM-budget queue and announces itself on the LAN over mDNS.
+Imagecaster Server runs stable-diffusion.cpp (or Forge Neo) and llama.cpp for the Imagecaster app on a computer with a graphics card: installs them into one data folder, starts and restarts them, checks their health, puts every GPU request through one VRAM-budget queue and announces itself on the LAN over mDNS.
 
 ## Contents
 
@@ -28,9 +28,9 @@ Release archives (GitHub Releases, tag `v*`):
 
 Every archive has a `.sha256` file next to it.
 
-**Windows.** `imagecaster-server.exe` opens the setup window: welcome (graphics card from `nvidia-smi`), data folder (with free space), install progress (stable-diffusion.cpp, Ollama, first start), ready (address for the app). Then the server runs with a tray icon. The window may be closed at any time after **Install** — installing continues, the tray shows the state. Next starts go straight to the tray if everything is installed, or to the install step if it isn't finished. A second start with the same folder shows "already running"; a busy port 8080 shows a clear error. Child processes run without console windows and are stopped together with the server (a Windows job object).
+**Windows.** `imagecaster-server.exe` opens the setup window: welcome (graphics card from `nvidia-smi`), data folder (with free space), install progress (stable-diffusion.cpp, llama.cpp, first start), ready (address for the app). Then the server runs with a tray icon. The window may be closed at any time after **Install** — installing continues, the tray shows the state. Next starts go straight to the tray if everything is installed, or to the install step if it isn't finished. A second start with the same folder shows "already running"; a busy port 8080 shows a clear error. Child processes run without console windows and are stopped together with the server (a Windows job object).
 
-Tray menu: Stable Diffusion and Ollama state, address (click copies it), open Stable Diffusion in the browser (`http://127.0.0.1:7860`), **Dashboard** (starts `imagecaster-server-console.exe attach` in a console), log (`<data>/logs/server.log` in Notepad), **Exit** (asks first if the GPU queue has jobs).
+Tray menu: Stable Diffusion and LLM state, address (click copies it), open Stable Diffusion in the browser (`http://127.0.0.1:7860`), **Dashboard** (starts `imagecaster-server-console.exe attach` in a console), log (`<data>/logs/server.log` in Notepad), **Exit** (asks first if the GPU queue has jobs).
 
 **Linux.** `./imagecaster-server` — the first start asks for the data folder (Enter keeps the default), installs everything and shows the dashboard.
 
@@ -84,8 +84,7 @@ Everything lives in one folder:
   uv-cache/                  uv package cache (PyTorch wheels)
   engines/llama-cpp-<OS>/   llama.cpp (llama-server) for text models (platform suffix, like sd-cpp)
   llamacpp-models.ini        model list for llama-server, written by the server from models/ollama
-  ollama/                    Ollama, only for the rollback (active_llm: ollama) when it isn't in the system
-  models/ollama/             text models in Ollama format (manifests + blobs), shared by llama.cpp and Ollama
+  models/ollama/             text models in the Ollama layout (manifests + blobs), used by llama.cpp (`llm.models_dir`)
   logs/server.log            server log (Windows window build)
   imagecaster-server.lock    one server per folder (Windows window build)
 ```
@@ -120,9 +119,11 @@ If an old config has no `sdcpp` section and the Forge models folder exists, `sdc
 
 Linux builds need `libssl.so.3` in the system. `llama-server` runs in multi-model (router) mode on `127.0.0.1:11435`; the server itself answers on port `11434` and on `/api/llm/` as Ollama (see "API"). Models are used from `models/ollama` in Ollama format as is, without copying: the model blob and, for image models, the separate projector blob. Models that Ollama packed into its own format (for example `qwen2.5vl:7b`, one blob without a projector) cannot be opened by llama.cpp — requests to them and `/api/pull` answer with a clear error; use GGUF models from hf.co (`hf.co/<user>/<repo>:<quant>`).
 
-**Ollama** is the rollback option (`active_llm: ollama`); by default it is neither installed nor started. On rollback an Ollama already in the system (or already running on 11434) is used. Otherwise it is installed into `<data>/ollama`: Windows — the standalone zip (no system install, no autostart), Linux — the `.tar.zst` archive, macOS — Homebrew, or the universal `ollama-darwin.tgz`. Extraction goes into a temporary folder first, so an interrupted install is redone.
+**The Ollama program** is neither installed nor started: text models run on llama.cpp only. Linux ARM and Windows ARM have no llama.cpp build, so they have no text models: the `llm` process does not start, `GET /` has no `llamacpp` feature, the LLM routes answer 503.
 
-**Upgrading from an old version.** A config without `active_llm` (written by a version before llama.cpp) is moved to the new engines on the first start of the new version: `active_sd: sdcpp` and `active_llm: llamacpp`. Only on systems with an sd.cpp build (Windows x64, Linux x64, macOS Apple Silicon); elsewhere the config stays on Forge Neo and Ollama. The previous config is saved next to it as `server-config.yaml.bak-before-sdcpp` (an existing copy is not overwritten); comments in the config stay. Models are neither copied nor downloaded: sd.cpp uses the Forge folders (see above), llama.cpp the Ollama store (`models/ollama`, or the `OLLAMA_MODELS` folder of the `ollama` process). Forge Neo and Ollama are not removed. If the config cannot be written, the switch applies to this run only and the reason goes to the log. Rollback: restore the copy (while `.bak-before-sdcpp` is next to it, a config without `active_llm` is not switched again and runs on Forge Neo and Ollama), or change one line to `active_sd: forge-neo` / `active_llm: ollama`. A config that already has `active_llm` is left alone; on later starts the model folders come from the same previous backend as on the first start.
+**Upgrading from an old version.** A config without `active_llm` (written by a version before llama.cpp) is moved to the new engines on the first start of the new version: `active_sd: sdcpp` and `active_llm: llamacpp`. Only on systems with an sd.cpp build (Windows x64, Linux x64, macOS Apple Silicon); elsewhere the config stays on Forge Neo. The previous config is saved next to it as `server-config.yaml.bak-before-sdcpp` (an existing copy is not overwritten); comments in the config stay. Models are neither copied nor downloaded: sd.cpp uses the Forge folders (see above), llama.cpp the Ollama model store (`models/ollama`, or the `OLLAMA_MODELS` folder of the old `ollama` process). Forge Neo is not removed. If the config cannot be written, the switch applies to this run only and the reason goes to the log. Rollback: restore the copy (while `.bak-before-sdcpp` is next to it, a config without `active_llm` is not switched again and runs on Forge Neo), or change one line to `active_sd: forge-neo`. A config that already has `active_llm` is left alone; on later starts the model folders come from the same previous backend as on the first start.
+
+**An old `ollama` process** in the config is taken over on start, the file is not rewritten: its `OLLAMA_MODELS` becomes `llm.models_dir` and `OLLAMA_KEEP_ALIVE` becomes `llm.keep_alive` (values set in `llm:` win), the process itself is dropped, `active_llm: ollama` is read as `llamacpp`.
 
 Old configs: `active_sd: forge` (classic Forge) switches to Forge Neo; the old Forge folder stays on disk — move its models to `sd-webui-forge-neo/models`. The old `python` process entry is dropped.
 
@@ -136,10 +137,12 @@ mdns: true
 lang: ""                      # "", "ru" or "en"
 data_dir: /home/user/imagecaster-server
 active_sd: forge-neo
-active_llm: llamacpp          # llamacpp (default for new installs) or ollama (rollback)
-llm:                          # llamacpp only
+active_llm: llamacpp          # always llamacpp
+llm:
   context_size: 8192          # context of every model (-c), one value for all requests; options.num_ctx in a request is ignored
   models_max: 1               # how many models stay loaded at the same time
+  models_dir: models/ollama   # text models folder (Ollama layout); default <data_dir>/models/ollama
+  keep_alive: 24h             # how long a model stays loaded without keep_alive in the request; cards under 24 GB — 5m
 
 gpu:
   total_budget_mb: 0          # 0 = detected VRAM - reserve_mb; <= 0 disables the queue
@@ -158,23 +161,6 @@ processes:
     target_url: http://localhost:7860
     proxy_path: /api/sd/
     internal_port: 7861
-    autostart: true
-    restart: true
-    max_restart: 5
-  ollama:
-    name: Ollama
-    binary: ollama
-    args: [serve]
-    env:
-      OLLAMA_HOST: 0.0.0.0:11434
-      OLLAMA_MODELS: models/ollama
-      OLLAMA_KEEP_ALIVE: 24h
-      OLLAMA_NUM_PARALLEL: "2"
-      OLLAMA_NUM_GPU: "-1"
-    health_url: http://localhost:11434/api/tags
-    target_url: http://localhost:11434
-    proxy_path: /api/llm/
-    internal_port: 11435
     autostart: true
     restart: true
     max_restart: 5
@@ -221,8 +207,6 @@ Relative paths are resolved against the data folder.
 - `pose_models_dir` — folder with `yolox_l.onnx` and `dw-ll_ucoco_384.onnx` for `/controlnet/detect` (`dw_openpose_full`). Default: `<models_dir>/../ControlNetPreprocessor/openpose`;
 - `onnxruntime_lib` — path to the ONNX Runtime library. If unset, the library is looked up next to the server executable (and in an `onnxruntime/` folder next to it), and on Linux also through the system loader. Without the library or the models, `/controlnet/detect` returns 503 and the rest of the server keeps working.
 
-**Rollback to Ollama.** In `server-config.yaml` change `active_llm: llamacpp` to `active_llm: ollama` and restart the server. The server installs Ollama (if it is not in the system), starts it on `127.0.0.1:11435` and passes `/api/llm/` and port `11434` to it, as before the switch. The model folder is the same, so Ollama sees models pulled through llama.cpp. Back — `active_llm: llamacpp`. The `ollama` process entry is not changed; its settings (`env`, `autostart`) work as before.
-
 Environment overrides: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 ## GPU queue and port guard
@@ -246,11 +230,11 @@ Environment overrides: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 ### Port guard
 
-With `gpu.guard_ports: true` (default) the server listens on the public Forge port `7860` and Ollama port `11434` itself and moves the services it starts to `127.0.0.1:7861` / `127.0.0.1:11435`. Any program in the LAN talking to Forge or Ollama directly goes through the same queue as `/api/sd/` and `/api/llm/`.
+With `gpu.guard_ports: true` (default) the server listens on the public Forge port `7860` and the Ollama-compatible LLM port `11434` itself and moves the services it starts to `127.0.0.1:7861` / `127.0.0.1:11435`. Any program in the LAN talking to these ports directly goes through the same queue as `/api/sd/` and `/api/llm/`.
 
 - Only services with `autostart` and a loopback `target_url` are guarded.
 - A busy public port (for example, an Ollama already running in the system) is left alone; the queue status shows a warning, and that service is used as is.
-- For Forge the server replaces `--listen/--port/--server-name` with `--port <internal>`; for Ollama it sets `OLLAMA_HOST=127.0.0.1:<internal>`.
+- For Forge the server replaces `--listen/--port/--server-name` with `--port <internal>`; for llama-server — `--host 127.0.0.1 --port <internal>`.
 
 ### Lease API (external GPU consumers)
 
@@ -275,7 +259,7 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 
 | Endpoint | Method | What it does |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` or `forge`, `llamacpp` or `ollama`, `download_stream`. Old server versions don't send it |
+| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` or `forge`, `llamacpp` (when text models are available), `download_stream`. Old server versions don't send it |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, host CPU/RAM `sys` |
 | `/api/server/start/{name}` | POST | start a process |
 | `/api/server/stop/{name}` | POST | stop a process |
@@ -290,15 +274,15 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 | `/api/server/models/lora` | GET / POST | the same for LoRA |
 | `/api/server/models/vae` | GET / POST | the same for VAE |
 | `/api/server/models/text_encoder` | GET / POST | the same for text encoders and tokenizers (`.json`); for Forge the `models/text_encoder` folder |
-| `/api/server/models/llm` | GET / POST | list text models / pull one (with llama.cpp — without Ollama, the same code as `/api/pull`) |
+| `/api/server/models/llm` | GET / POST | list text models / pull one (the same code as `/api/pull`; 503 when there is no llama.cpp) |
 | `/api/server/models/llm/pull` | GET | pull a text model with streamed progress, `?name=` |
 | `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae\|text_encoder&url=&filename=` |
 | `/api/server/models/delete/{sd,lora,vae,text_encoder,llm}/{name}` | DELETE | delete a model |
 | `/api/gpu/*` | | queue and leases, see above |
 | `/api/sd/*` | * | proxy to Forge Neo (through the queue) |
-| `/api/llm/*` | * | Ollama API (through the queue): with llama.cpp the server answers itself, with Ollama it proxies to it |
+| `/api/llm/*` | * | Ollama-compatible API (through the queue), answered by the server over llama.cpp; 503 when there is no llama.cpp |
 
-**Ollama API over llama.cpp** (`/api/llm/…` and port `11434`): `GET /api/tags`, `GET /api/ps`, `POST /api/show`, `GET /api/version`, `POST /api/chat` and `POST /api/generate` (NDJSON stream by default, `stream:false` — one response; `images` go to llama-server as images; an empty `prompt`/`messages` loads the model, with `keep_alive: 0` it unloads it), `POST /api/pull` (from `registry.ollama.ai` and `hf.co`, resume, sha256 check), `DELETE /api/delete`, plus `GET /v1/models`, `POST /v1/chat/completions` and `/v1/completions` with Ollama model names. `keep_alive` is read as Ollama does (seconds, `"10m"`, `-1` — keep, `0` — unload right after the answer; if the model is answering another request, right after that one). Without `keep_alive` in the request, `OLLAMA_KEEP_ALIVE` of the `ollama` process applies (24h by default), and on cards under 24 GB — 5 minutes, as with Ollama. The context size is `llm.context_size` (8192) for every request: `options.num_ctx` is ignored, and llama-server rejects a request longer than the context with an error (Ollama accepts such a request with a larger `num_ctx`). llama-server always listens on `127.0.0.1:11435`; if port `11434` is busy (for example Ollama already runs in the system as a service), the server leaves it alone and the Ollama API is available at `http://<host>:8080/api/llm/`. The system prompt and parameters stored with the Ollama model (`system`, `params`) are added when the request has none; the Ollama template is not used — llama.cpp takes the template from the GGUF itself.
+**Ollama API over llama.cpp** (`/api/llm/…` and port `11434`): `GET /api/tags`, `GET /api/ps`, `POST /api/show`, `GET /api/version`, `POST /api/chat` and `POST /api/generate` (NDJSON stream by default, `stream:false` — one response; `images` go to llama-server as images; an empty `prompt`/`messages` loads the model, with `keep_alive: 0` it unloads it), `POST /api/pull` (from `registry.ollama.ai` and `hf.co`, resume, sha256 check), `DELETE /api/delete`, plus `GET /v1/models`, `POST /v1/chat/completions` and `/v1/completions` with Ollama model names. `keep_alive` is read as Ollama does (seconds, `"10m"`, `-1` — keep, `0` — unload right after the answer; if the model is answering another request, right after that one). Without `keep_alive` in the request, `llm.keep_alive` applies (24h by default), and on cards under 24 GB — 5 minutes. The context size is `llm.context_size` (8192) for every request: `options.num_ctx` is ignored, and llama-server rejects a request longer than the context with an error (Ollama accepts such a request with a larger `num_ctx`). llama-server always listens on `127.0.0.1:11435`; if port `11434` is busy (for example Ollama already runs in the system as a service), the server leaves it alone and the Ollama API is available at `http://<host>:8080/api/llm/`. The system prompt and parameters stored with the Ollama model (`system`, `params`) are added when the request has none; the Ollama template is not used — llama.cpp takes the template from the GGUF itself.
 
 mDNS: service `_imagecaster._tcp`, instance "Imagecaster Server", TXT `version=<version>`; `mdns: false` turns it off.
 
@@ -319,7 +303,7 @@ gpuqueue/          VRAM budget queue and Lease API
 health/            HTTP health checks
 hide/              start child processes without console windows on Windows
 i18n/              English/Russian strings and language detection
-installer/         stable-diffusion.cpp, ONNX Runtime, DWPose (release.go), llama.cpp (llamacpp.go), Forge Neo (zip + uv venv), uv, git, Ollama
+installer/         stable-diffusion.cpp, ONNX Runtime, DWPose (release.go), llama.cpp (llamacpp.go), Forge Neo (zip + uv venv), uv, git
 llamacpp/          Ollama API over llama-server router: model store, pull, chat/generate conversion, keep_alive
 llm_wire.go        llama.cpp wiring: facade on /api/llm/, unload before SD jobs, /api/server/models/llm*
 models/            checkpoints, LoRA, VAE, Ollama models
@@ -331,7 +315,7 @@ tui/               terminal dashboard (Bubble Tea)
 
 - The Forge web UI opened directly at `:7860` passes the guard, but its generation requests are not all weighted by the queue (only the API paths in the table are).
 - Not tested on real hardware yet: the Windows window and tray, the macOS launcher and Forge Neo on macOS. CUDA 13 PyTorch needs a recent NVIDIA driver (not checked which minimum).
-- About 8 GB without models is an estimate: sd.cpp with CUDA libraries, ONNX Runtime and DWPose — up to 3 GB, llama.cpp — 0.2–1 GB (with CUDA; up to 1.4 GB without the shared sd.cpp libraries); Ollama on rollback — about 4 GB. Forge Neo takes about 20 GB.
+- About 8 GB without models is an estimate: sd.cpp with CUDA libraries, ONNX Runtime and DWPose — up to 3 GB, llama.cpp — 0.2–1 GB (with CUDA; up to 1.4 GB without the shared sd.cpp libraries). Forge Neo takes about 20 GB.
 - With llama.cpp: embeddings (`/api/embed`) are not supported (501); `tools` in `/api/chat` are not passed on; the context size is one value for all models (`llm.context_size`), `options.num_ctx` in a request does not change it. Sharing the sd.cpp CUDA libraries with llama.cpp on Windows is not checked live (the versions match: cudart 12.8 in sd.cpp, llama.cpp built for 12.4).
 - The minimum NVIDIA driver for the CUDA 12 builds is not verified; with an old driver sd-server will not start — update the driver or switch to Forge Neo.
 - No authorization; don't expose the API outside a trusted LAN. Lease IDs are not tied to their owner — any LAN client can renew or cancel any lease.

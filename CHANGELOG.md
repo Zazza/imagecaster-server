@@ -3,7 +3,8 @@
 ## [Unreleased]
 
 ### Changed
-- Upgrading from an old version moves the server to sd.cpp and llama.cpp on the first start: models stay where they are (Forge folders, Ollama store), nothing is downloaded; the old config is kept as `server-config.yaml.bak-before-sdcpp`, Forge Neo and Ollama stay for rollback. Systems without an sd.cpp build (Linux ARM, Intel Mac, Windows ARM) stay on Forge Neo and Ollama
+- Upgrading from an old version moves the server to sd.cpp and llama.cpp on the first start: models stay where they are (Forge folders, Ollama model store), nothing is downloaded; the old config is kept as `server-config.yaml.bak-before-sdcpp`, Forge Neo stays for rollback. Systems without an sd.cpp build (Linux ARM, Intel Mac, Windows ARM) stay on Forge Neo
+- The server no longer installs or starts the Ollama program: text models run on llama.cpp only (Ollama-compatible API on `:11434` and `/api/llm/`, models in the Ollama layout). An old config is taken over on start without rewriting the file: `OLLAMA_MODELS` becomes `llm.models_dir`, `OLLAMA_KEEP_ALIVE` becomes `llm.keep_alive` (default 24h, 5m on cards under 24 GB), the `ollama` process is dropped. Linux ARM and Windows ARM have no llama.cpp build, so they have no text models; `GET /` then has no `llamacpp` feature and the LLM routes answer 503. Intel Mac has llama.cpp
 - Engine folders get a platform suffix: `engines/sd-cpp-windows`, `engines/llama-cpp-linux` and so on. The data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each OS now keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place and its OS reinstalls fresh), and engine paths in old configs are updated automatically
 
 ### Added

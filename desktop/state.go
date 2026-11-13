@@ -37,7 +37,7 @@ type Component struct {
 type Snapshot struct {
 	Components []Component `json:"components"`
 	SD         string      `json:"sd"`
-	Ollama     string      `json:"ollama"`
+	LLM        string      `json:"llm"`
 	Lines      []string    `json:"lines"`
 	Phase      string      `json:"phase"`
 	Error      string      `json:"error"`

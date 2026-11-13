@@ -89,7 +89,7 @@ func TestRestoredBackupIsNotMigratedAgain(t *testing.T) {
 	cfg, err = Load(path)
 	require.NoError(t, err)
 	assert.Equal(t, NeoBackendKey, cfg.ActiveSD)
-	assert.Equal(t, LLMOllama, cfg.ActiveLLM)
+	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
 	saved, _ := os.ReadFile(path)
 	assert.Equal(t, "active_sd: forge-neo\n", string(saved))
 }
@@ -175,7 +175,9 @@ func TestNoMigrationWithoutSDCppBuild(t *testing.T) {
 			cfg, err := load(path)
 			require.NoError(t, err)
 			assert.Equal(t, "forge-neo", cfg.ActiveSD)
-			assert.Equal(t, LLMOllama, cfg.ActiveLLM)
+			assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
+			_, hasOllama := cfg.Processes["ollama"]
+			assert.False(t, hasOllama)
 			saved, _ := os.ReadFile(path)
 			assert.Equal(t, body, string(saved))
 			_, err = os.Stat(path + EngineMigrationBackupSuffix)

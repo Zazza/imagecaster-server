@@ -34,10 +34,6 @@ func Load(path string) (*Config, error) {
 		cfg.DataDir = DefaultDataDir()
 	}
 
-	if !fileHasKey(data, "active_llm") {
-		cfg.ActiveLLM = LLMOllama
-	}
-
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -46,6 +42,7 @@ func Load(path string) (*Config, error) {
 	cfg.ApplyEnvOverrides()
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
+	cfg.adoptOllamaProcess()
 	cfg.migrateLegacy()
 	if !fileHasBackend(data, SDCppBackendKey) {
 		cfg.adoptForgeModels(prevSD)
@@ -80,10 +77,6 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 		cfg.DataDir = dataDir
 	}
 
-	if !fileHasKey(data, "active_llm") {
-		cfg.ActiveLLM = LLMOllama
-	}
-
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -92,6 +85,7 @@ func LoadWithDir(path, dataDir string) (*Config, error) {
 	cfg.ApplyEnvOverrides()
 	cfg.ApplyInstallDefaults()
 	cfg.ResolvePaths()
+	cfg.adoptOllamaProcess()
 	cfg.migrateLegacy()
 	if !fileHasBackend(data, SDCppBackendKey) {
 		cfg.adoptForgeModels(prevSD)

@@ -1,9 +1,11 @@
 package config
 
 import (
+	"log"
 	"net"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -12,24 +14,37 @@ import (
 
 const (
 	LLMLlamaCpp        = "llamacpp"
-	LLMOllama          = "ollama"
+	legacyOllamaKey    = "ollama"
 	LlamaCppProcessKey = "llm"
 	LlamaCppVersion    = "b12283"
 	LlamaCppDirLegacy  = "engines/llama-cpp"
 	LlamaPresetName    = "llamacpp-models.ini"
 	llamaPublicPort    = 11434
+	defaultKeepAlive   = "24h"
 )
 
 // LlamaCppDir — суффикс платформы, чтобы Windows и Linux держали свои сборки.
 var LlamaCppDir = engineDir(LlamaCppDirLegacy)
 
+var llamaCppOnThisPlatform = func() bool { return LlamaCppSupported(runtime.GOOS, runtime.GOARCH) }
+
 type LLMConfig struct {
-	ContextSize int `yaml:"context_size,omitempty"`
-	ModelsMax   int `yaml:"models_max,omitempty"`
+	ContextSize int    `yaml:"context_size,omitempty"`
+	ModelsMax   int    `yaml:"models_max,omitempty"`
+	ModelsDir   string `yaml:"models_dir,omitempty"`
+	KeepAlive   string `yaml:"keep_alive,omitempty"`
 }
 
 func defaultLLMConfig() LLMConfig {
 	return LLMConfig{ContextSize: 8192, ModelsMax: 1}
+}
+
+func LlamaCppSupported(goos, goarch string) bool {
+	switch goos + "/" + goarch {
+	case "windows/amd64", "linux/amd64", "darwin/amd64", "darwin/arm64":
+		return true
+	}
+	return false
 }
 
 func llamaInstall() InstallConfig {
@@ -60,20 +75,6 @@ func fileHasKey(data []byte, key string) bool {
 	return ok
 }
 
-func (c *Config) LLMActive() string {
-	if c.ActiveLLM == LLMOllama {
-		return LLMOllama
-	}
-	return LLMLlamaCpp
-}
-
-func (c *Config) LLMProcessKey() string {
-	if c.LLMActive() == LLMOllama {
-		return "ollama"
-	}
-	return LlamaCppProcessKey
-}
-
 func (c *Config) LlamaPresetPath() string {
 	return filepath.Join(c.DataDir, LlamaPresetName)
 }
@@ -87,6 +88,9 @@ func (c *Config) LLMSettings() LLMConfig {
 	if l.ModelsMax <= 0 {
 		l.ModelsMax = def.ModelsMax
 	}
+	if l.KeepAlive == "" {
+		l.KeepAlive = defaultKeepAlive
+	}
 	return l
 }
 
@@ -94,15 +98,12 @@ func (c *Config) LlamaKeepAlive(vramMB int) string {
 	if vramMB > 0 && vramMB < 24000 {
 		return "5m"
 	}
-	if pc, ok := c.Processes["ollama"]; ok && pc.Env["OLLAMA_KEEP_ALIVE"] != "" {
-		return pc.Env["OLLAMA_KEEP_ALIVE"]
-	}
-	return "5m"
+	return c.LLMSettings().KeepAlive
 }
 
 func (c *Config) PinLlamaInternal() {
 	pc, ok := c.Processes[LlamaCppProcessKey]
-	if !ok || c.LLMProcessKey() != LlamaCppProcessKey {
+	if !ok || !llamaCppOnThisPlatform() {
 		return
 	}
 	internal := pc.InternalPort
@@ -124,13 +125,28 @@ func (c *Config) PinLlamaInternal() {
 	c.Processes[LlamaCppProcessKey] = pc
 }
 
-func (c *Config) OllamaModelsDir() string {
-	if pc, ok := c.Processes["ollama"]; ok {
-		if d := pc.Env["OLLAMA_MODELS"]; d != "" {
-			return resolveDirPath(c.DataDir, d)
-		}
+func (c *Config) LLMModelsDir() string {
+	if c.LLM.ModelsDir != "" {
+		return resolveDirPath(c.DataDir, c.LLM.ModelsDir)
 	}
 	return filepath.Join(c.DataDir, "models", "ollama")
+}
+
+func (c *Config) adoptOllamaProcess() {
+	old, had := c.Processes[legacyOllamaKey]
+	if had {
+		if c.LLM.ModelsDir == "" && old.Env["OLLAMA_MODELS"] != "" {
+			c.LLM.ModelsDir = resolveDirPath(c.DataDir, old.Env["OLLAMA_MODELS"])
+		}
+		if c.LLM.KeepAlive == "" && old.Env["OLLAMA_KEEP_ALIVE"] != "" {
+			c.LLM.KeepAlive = old.Env["OLLAMA_KEEP_ALIVE"]
+		}
+		delete(c.Processes, legacyOllamaKey)
+	}
+	if c.ActiveLLM == legacyOllamaKey {
+		log.Printf("[config] Ollama is no longer started; text models from %s run on llama.cpp", c.LLMModelsDir())
+	}
+	c.ActiveLLM = LLMLlamaCpp
 }
 
 func (c *Config) pinLlamaVersion() {
@@ -141,27 +157,17 @@ func (c *Config) pinLlamaVersion() {
 }
 
 func (c *Config) ApplyLLMBackend() {
-	active := c.LLMProcessKey()
-	if active == LlamaCppProcessKey {
-		if _, ok := c.Processes[LlamaCppProcessKey]; !ok {
-			pc := llamaProcess()
-			pc.Binary = resolveRelPath(c.DataDir, pc.Binary)
-			pc.Install.Target = resolveInstallTarget(c.DataDir, pc.Install)
-			c.Processes[LlamaCppProcessKey] = pc
-		}
+	pc, ok := c.Processes[LlamaCppProcessKey]
+	if !ok {
+		pc = llamaProcess()
+		pc.Binary = resolveRelPath(c.DataDir, pc.Binary)
+		pc.Install.Target = resolveInstallTarget(c.DataDir, pc.Install)
 	}
-	for _, key := range []string{"ollama", LlamaCppProcessKey} {
-		pc, ok := c.Processes[key]
-		if !ok || key == active {
-			continue
-		}
+	if !llamaCppOnThisPlatform() {
 		pc.AutoStart = false
 		pc.ProxyPath = ""
 		pc.Install = InstallConfig{}
-		c.Processes[key] = pc
-	}
-	pc, ok := c.Processes[LlamaCppProcessKey]
-	if !ok || active != LlamaCppProcessKey {
+		c.Processes[LlamaCppProcessKey] = pc
 		return
 	}
 	internal := pc.InternalPort
@@ -200,11 +206,4 @@ func llamaArgsOnPort(args []string, port int) []string {
 		}
 	}
 	return append(out, "--host", "127.0.0.1", "--port", strconv.Itoa(port))
-}
-
-func (c *Config) inactiveLLM(key string) bool {
-	if c.ActiveLLM == "" {
-		return false
-	}
-	return (key == "ollama" || key == LlamaCppProcessKey) && key != c.LLMProcessKey()
 }

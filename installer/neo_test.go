@@ -66,40 +66,6 @@ func exe(name string) string {
 	return name
 }
 
-func TestFindOllamaBinaryDataDir(t *testing.T) {
-	tests := []struct {
-		name string
-		rel  []string
-	}{
-		{"bin layout", []string{"ollama", "bin", exe("ollama")}},
-		{"flat layout", []string{"ollama", exe("ollama")}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PATH", t.TempDir())
-			dataDir := t.TempDir()
-			want := filepath.Join(append([]string{dataDir}, tt.rel...)...)
-			touch(t, want)
-
-			got := findOllamaBinary(dataDir)
-
-			if got != "" && !strings.HasPrefix(got, dataDir) {
-				t.Skipf("system ollama found at %s", got)
-			}
-			assert.Equal(t, want, got)
-		})
-	}
-}
-
-func TestFindOllamaBinaryEmptyDataDir(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	dataDir := t.TempDir()
-
-	got := findOllamaBinary(dataDir)
-
-	assert.False(t, got != "" && strings.HasPrefix(got, dataDir), got)
-}
-
 func TestExtractZipFlat(t *testing.T) {
 	zp := writeZipFile(t, map[string]string{
 		"ollama.exe":       "bin",

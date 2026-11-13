@@ -107,12 +107,8 @@ func (inst *Installer) installPlan() []string {
 	if inst.backendAutoStarts() {
 		plan = append(plan, inst.config.ActiveSD)
 	}
-	llm := inst.config.LLMProcessKey()
-	if inst.config.ActiveLLM == "" {
-		llm = "ollama"
-	}
-	if pc, ok := inst.config.Process(llm); ok && pc.AutoStart && (llm == "ollama" || pc.Install.Method != "") {
-		plan = append(plan, llm)
+	if pc, ok := inst.config.Process(config.LlamaCppProcessKey); ok && pc.AutoStart && pc.Install.Method != "" {
+		plan = append(plan, config.LlamaCppProcessKey)
 	}
 	return plan
 }
@@ -133,53 +129,6 @@ func (inst *Installer) isBackendProcess(key string) bool {
 
 func (inst *Installer) EnsureAllInstalled() {
 	for _, key := range inst.installPlan() {
-		if key == "ollama" {
-			if findOllamaBinary(inst.config.DataDir) != "" {
-				inst.mu.Lock()
-				if s, ok := inst.statuses[key]; ok {
-					s.Installed = true
-					s.Progress = "done"
-					inst.statuses[key] = s
-				}
-				inst.mu.Unlock()
-				log.Printf("[ollama] already installed, skipping")
-				continue
-			}
-			log.Printf("[ollama] installing...")
-			inst.mu.Lock()
-			s, ok := inst.statuses[key]
-			if !ok {
-				s = &InstallStatus{Key: key}
-				inst.statuses[key] = s
-			}
-			s.Installing = true
-			s.Progress = "installing"
-			inst.statuses[key] = s
-			inst.mu.Unlock()
-			inst.setProgress(key, "installing")
-			if path, err := inst.installOllama(); err != nil {
-				inst.mu.Lock()
-				s = inst.statuses[key]
-				s.Installing = false
-				s.Error = err.Error()
-				s.Progress = "failed"
-				inst.statuses[key] = s
-				inst.mu.Unlock()
-				inst.setProgress(key, "failed")
-				log.Printf("[ollama] install failed: %v", err)
-			} else {
-				inst.mu.Lock()
-				s = inst.statuses[key]
-				s.Installed = true
-				s.Installing = false
-				s.Progress = "done"
-				inst.statuses[key] = s
-				inst.mu.Unlock()
-				inst.setProgress(key, "done")
-				log.Printf("[ollama] installed at %s", path)
-			}
-			continue
-		}
 		if key == inst.config.ActiveSD && !inst.isRelease(key) && inst.backendBinaryExists() {
 			log.Printf("[%s] backend binary present, skipping install", key)
 			continue

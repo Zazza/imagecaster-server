@@ -63,8 +63,14 @@ func TestEvictorSkipsWhenBothFit(t *testing.T) {
 
 func TestLLMServerRoutesOnlyWithFacade(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) })
+	for _, path := range []string{"/api/server/models/llm", "/api/server/models/llm/pull", "/api/server/models/delete/llm/qwen3:8b", "/api/llm/api/tags"} {
+		rec := httptest.NewRecorder()
+		withLLMServerRoutes(nil, next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, path)
+		assert.Contains(t, rec.Body.String(), "llama.cpp", path)
+	}
 	rec := httptest.NewRecorder()
-	withLLMServerRoutes(nil, next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/server/models/llm", nil))
+	withLLMServerRoutes(nil, next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/server/models/sd", nil))
 	assert.Equal(t, 299, rec.Code)
 
 	f := llamacpp.New(llamacpp.Config{Store: &llamacpp.Store{Root: t.TempDir()}, PresetPath: t.TempDir() + "/p.ini"})
@@ -80,23 +86,21 @@ func TestLLMServerRoutesOnlyWithFacade(t *testing.T) {
 
 func TestLlamaFacadeKeepAliveWiring(t *testing.T) {
 	cases := []struct {
-		name   string
-		env    string
-		vramMB int
-		want   time.Duration
+		name      string
+		keepAlive string
+		vramMB    int
+		want      time.Duration
 	}{
-		{"16 GB card: 5m like Ollama", "24h", 16376, 5 * time.Minute},
-		{"24 GB card: OLLAMA_KEEP_ALIVE", "24h", 24576, 24 * time.Hour},
-		{"no env", "", 24576, 5 * time.Minute},
+		{"16 GB card: 5m", "24h", 16376, 5 * time.Minute},
+		{"24 GB card: llm.keep_alive", "2h", 24576, 2 * time.Hour},
+		{"default", "", 24576, 24 * time.Hour},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.NewDefault()
 			cfg.DataDir = t.TempDir()
 			cfg.DetectedVRAMMB = tt.vramMB
-			o := cfg.Processes["ollama"]
-			o.Env = map[string]string{"OLLAMA_KEEP_ALIVE": tt.env}
-			cfg.Processes["ollama"] = o
+			cfg.LLM.KeepAlive = tt.keepAlive
 			cfg.ApplyLLMBackend()
 			cfg.PinLlamaInternal()
 			f := newLlamaFacade(&cfg, nil)
@@ -104,6 +108,15 @@ func TestLlamaFacadeKeepAliveWiring(t *testing.T) {
 			assert.Equal(t, tt.want, f.KeepAlive())
 		})
 	}
+}
+
+func TestNoLlamaFacadeWhenLLMOff(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.DataDir = t.TempDir()
+	p := cfg.Processes[config.LlamaCppProcessKey]
+	p.AutoStart, p.ProxyPath, p.Install = false, "", config.InstallConfig{}
+	cfg.Processes[config.LlamaCppProcessKey] = p
+	assert.Nil(t, newLlamaFacade(&cfg, nil))
 }
 
 func TestWaitHealthy(t *testing.T) {

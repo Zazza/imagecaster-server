@@ -100,18 +100,3 @@ func (m *ModelManager) DeleteModel(dir, filename string) error {
 	}
 	return nil
 }
-
-func (m *ModelManager) ollamaBinary() string {
-	if pc, ok := m.config.Process("ollama"); ok && pc.Binary != "" {
-		return pc.Binary
-	}
-	return "ollama"
-}
-
-func (m *ModelManager) ollamaModelsDir() string {
-	return filepath.Join(m.config.DataDir, "models", "ollama")
-}
-
-func (m *ModelManager) ollamaEnv() []string {
-	return append(os.Environ(), "OLLAMA_MODELS="+m.ollamaModelsDir())
-}

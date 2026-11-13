@@ -30,8 +30,8 @@ func (a *app) trayReady() {
 
 	mSD := systray.AddMenuItem(serviceText("Stable Diffusion", ServiceStarting), "")
 	mSD.Disable()
-	mOllama := systray.AddMenuItem(serviceText("LLM", ServiceStarting), "")
-	mOllama.Disable()
+	mLLM := systray.AddMenuItem(serviceText("LLM", ServiceStarting), "")
+	mLLM.Disable()
 	systray.AddSeparator()
 	mAddr := systray.AddMenuItem("", i18n.T("desktop.tray.copy_hint"))
 	var mConsole *systray.MenuItem
@@ -45,7 +45,7 @@ func (a *app) trayReady() {
 	refresh := func() Snapshot {
 		s := e.Snapshot()
 		mSD.SetTitle(serviceText("Stable Diffusion", sdTrayState(s)))
-		mOllama.SetTitle(serviceText("LLM", s.Ollama))
+		mLLM.SetTitle(serviceText("LLM", s.LLM))
 		mAddr.SetTitle(i18n.T("desktop.tray.addr") + " " + s.Addr)
 		systray.SetTooltip("Imagecaster Server — " + serviceText("Stable Diffusion", sdTrayState(s)))
 		return s

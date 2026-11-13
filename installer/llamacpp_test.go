@@ -147,3 +147,12 @@ func TestTarSymlinkEscapeRejected(t *testing.T) {
 		})
 	}
 }
+
+func TestLlamaCppSupportedMatchesArtifacts(t *testing.T) {
+	for _, goos := range []string{"windows", "linux", "darwin", "freebsd"} {
+		for _, goarch := range []string{"amd64", "arm64", "386"} {
+			_, err := LlamaCppArtifacts(goos, goarch, GPUNone, false)
+			assert.Equal(t, err == nil, config.LlamaCppSupported(goos, goarch), goos+"/"+goarch)
+		}
+	}
+}

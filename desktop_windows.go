@@ -246,12 +246,6 @@ func (e *desktopEngine) Snapshot() desktop.Snapshot {
 		comps = append(comps, c)
 	}
 
-	if _, ok := statuses["ollama"]; !ok {
-		if pc, ok := cfg.Process("ollama"); ok && pc.AutoStart && !d.inst.OllamaFound() {
-			comps = append(comps, desktop.Component{Key: "ollama", Label: componentName("ollama"), State: desktop.StateWait})
-		}
-	}
-
 	sdKey := "sd"
 	if b := cfg.GetActiveBackend(); b != nil && b.ProcessKey != "" {
 		sdKey = b.ProcessKey
@@ -269,7 +263,7 @@ func (e *desktopEngine) Snapshot() desktop.Snapshot {
 	snap := desktop.Snapshot{
 		Components: comps,
 		SD:         svc(sdKey),
-		Ollama:     svc(cfg.LLMProcessKey()),
+		LLM:        svc(config.LlamaCppProcessKey),
 		Addr:       desktop.ConnectAddr(desktop.LANIPs(), cfg.Port),
 	}
 	snap.Phase, snap.Error = desktop.PhaseOf(comps, snap.SD)
@@ -287,7 +281,7 @@ func componentRank(key string, cfg *config.Config) int {
 	switch {
 	case key == cfg.ActiveSD:
 		return 0
-	case key == "ollama", key == config.LlamaCppProcessKey:
+	case key == config.LlamaCppProcessKey:
 		return 2
 	}
 	return 1
@@ -299,8 +293,6 @@ func componentName(key string) string {
 		return "Forge Neo"
 	case config.SDCppBackendKey:
 		return "stable-diffusion.cpp"
-	case "ollama":
-		return "Ollama"
 	case config.LlamaCppProcessKey:
 		return "llama.cpp"
 	}

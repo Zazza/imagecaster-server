@@ -212,39 +212,9 @@ func (h *Handlers) fetchModels() map[string]interface{} {
 		if names := h.llmRunning(); len(names) > 0 {
 			models["llm_running"] = names
 		}
-	} else if pc, ok := h.config.Process("ollama"); ok && pc.TargetURL != "" {
-		llmModels := h.fetchOllamaRunningModels(client, pc.TargetURL)
-		if len(llmModels) > 0 {
-			models["llm_running"] = llmModels
-		}
 	}
 
 	return models
-}
-
-func (h *Handlers) fetchOllamaRunningModels(client *http.Client, baseURL string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/ps", nil)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Models []struct {
-			Name string `json:"name"`
-		} `json:"models"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&result) != nil {
-		return nil
-	}
-	names := make([]string, 0, len(result.Models))
-	for _, m := range result.Models {
-		names = append(names, m.Name)
-	}
-	return names
 }
 
 func (h *Handlers) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +237,9 @@ func (h *Handlers) features() []string {
 	} else {
 		out = append(out, "forge")
 	}
-	out = append(out, h.config.LLMActive(), "download_stream")
+	if h.llmRunning != nil {
+		out = append(out, config.LLMLlamaCpp)
+	}
+	out = append(out, "download_stream")
 	return out
 }

@@ -16,8 +16,6 @@ func (m *ModelManager) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/server/models/lora", m.handleLoRAModels)
 	mux.HandleFunc("/api/server/models/vae", m.handleVAEModels)
 	mux.HandleFunc("/api/server/models/text_encoder", m.handleTextEncoderModels)
-	mux.HandleFunc("/api/server/models/llm", m.handleLLMModels)
-	mux.HandleFunc("/api/server/models/llm/pull", m.handleLLMPullStream)
 	mux.HandleFunc("/api/server/models/download/stream", m.handleDownloadStream)
 }
 
@@ -149,7 +147,6 @@ func (m *ModelManager) RegisterDeleteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/server/models/delete/lora/", m.handleDeleteLoRA)
 	mux.HandleFunc("/api/server/models/delete/vae/", m.handleDeleteVAE)
 	mux.HandleFunc("/api/server/models/delete/text_encoder/", m.handleDeleteTextEncoder)
-	mux.HandleFunc("/api/server/models/delete/llm/", m.handleDeleteLLM)
 }
 
 func (m *ModelManager) activeDir(pick func(*config.BackendConfig) string) string {
@@ -201,19 +198,4 @@ func (m *ModelManager) handleDeleteFromDir(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	api.WriteJSON(w, map[string]string{"status": "deleted", "filename": filename})
-}
-
-func (m *ModelManager) handleDeleteLLM(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	name := strings.TrimPrefix(r.URL.Path, "/api/server/models/delete/llm/")
-	name = filepath.Base(name)
-
-	if err := m.DeleteLLMModel(name); err != nil {
-		api.WriteError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	api.WriteJSON(w, map[string]string{"status": "deleted", "name": name})
 }
