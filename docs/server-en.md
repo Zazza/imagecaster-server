@@ -121,6 +121,8 @@ Linux builds need `libssl.so.3` in the system. `llama-server` runs in multi-mode
 
 **The Ollama program** is neither installed nor started: text models run on llama.cpp only. Linux ARM and Windows ARM have no llama.cpp build, so they have no text models: the `llm` process does not start, `GET /` has no `llamacpp` feature, the LLM routes answer 503.
 
+**Models of an installed Ollama** are used without downloading them again, read-only: the server also reads the `OLLAMA_MODELS` folder from its own environment, otherwise `~/.ollama/models` (Windows: `%USERPROFILE%\.ollama\models`), and on Linux `/usr/share/ollama/.ollama/models`. Connected folders go to the log. If a model is in both places, the server's own copy wins. Such models cannot be deleted through the server (409 with a hint to run `ollama rm`); `pull` always downloads into the server's own folder. Models llama.cpp cannot open are not listed (own ones are listed in `/api/server/models/llm` with `unsupported`, so they can be deleted). A server running as a service under another user sees that user's home folder. Switch off: `llm.read_ollama_models: false`.
+
 **Upgrading from an old version.** A config without `active_llm` (written by a version before llama.cpp) is moved to the new engines on the first start of the new version: `active_sd: sdcpp` and `active_llm: llamacpp`. Only on systems with an sd.cpp build (Windows x64, Linux x64, macOS Apple Silicon); elsewhere the config stays on Forge Neo. The previous config is saved next to it as `server-config.yaml.bak-before-sdcpp` (an existing copy is not overwritten); comments in the config stay. Models are neither copied nor downloaded: sd.cpp uses the Forge folders (see above), llama.cpp the Ollama model store (`models/ollama`, or the `OLLAMA_MODELS` folder of the old `ollama` process). Forge Neo is not removed. If the config cannot be written, the switch applies to this run only and the reason goes to the log. Rollback: restore the copy (while `.bak-before-sdcpp` is next to it, a config without `active_llm` is not switched again and runs on Forge Neo), or change one line to `active_sd: forge-neo`. A config that already has `active_llm` is left alone; on later starts the model folders come from the same previous backend as on the first start.
 
 **An old `ollama` process** in the config is taken over on start, the file is not rewritten: its `OLLAMA_MODELS` becomes `llm.models_dir` and `OLLAMA_KEEP_ALIVE` becomes `llm.keep_alive` (values set in `llm:` win), the process itself is dropped, `active_llm: ollama` is read as `llamacpp`.
@@ -143,6 +145,7 @@ llm:
   models_max: 1               # how many models stay loaded at the same time
   models_dir: models/ollama   # text models folder (Ollama layout); default <data_dir>/models/ollama
   keep_alive: 24h             # how long a model stays loaded without keep_alive in the request; cards under 24 GB — 5m
+  read_ollama_models: true    # also use models of an installed Ollama, read-only
 
 gpu:
   total_budget_mb: 0          # 0 = detected VRAM - reserve_mb; <= 0 disables the queue

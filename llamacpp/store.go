@@ -32,6 +32,7 @@ var (
 	ErrNotFound    = errors.New("model not found")
 	ErrBadName     = errors.New("invalid model name")
 	ErrUnsupported = errors.New("model is in Ollama's own format, llama.cpp cannot open it")
+	ErrReadOnly    = errors.New("model belongs to a separate Ollama install")
 )
 
 var unsupportedFamilies = map[string]bool{"qwen25vl": true}
@@ -126,6 +127,8 @@ type Model struct {
 	ModelPath string
 	Projector string
 	Size      int64
+	ReadOnly  bool
+	store     *Store
 }
 
 func (m Model) Family() string {
@@ -151,7 +154,8 @@ func (m Model) Supported() error {
 }
 
 type Store struct {
-	Root string
+	Root     string
+	ReadOnly bool
 }
 
 func (s *Store) manifestsDir() string { return filepath.Join(s.Root, "manifests") }
@@ -197,7 +201,7 @@ func (s *Store) load(n Name, raw []byte, mod time.Time) (Model, error) {
 		return Model{}, fmt.Errorf("manifest %s: %w", n, err)
 	}
 	sum := sha256.Sum256(raw)
-	m := Model{Name: n, Manifest: mf, Digest: hex.EncodeToString(sum[:]), Modified: mod, Size: mf.Config.Size}
+	m := Model{Name: n, Manifest: mf, Digest: hex.EncodeToString(sum[:]), Modified: mod, Size: mf.Config.Size, ReadOnly: s.ReadOnly, store: s}
 	if b, err := s.readBlob(mf.Config.Digest, 1<<20); err == nil {
 		_ = json.Unmarshal(b, &m.Config)
 	}
@@ -226,22 +230,28 @@ func (s *Store) Resolve(name string) (Model, error) {
 	if err != nil {
 		return Model{}, err
 	}
-	p := filepath.Join(s.manifestsDir(), n.manifestRel())
-	raw, st, err := readFileStat(p)
-	if err != nil {
-		if m, ok := s.findFold(n); ok {
+	if m, ok := s.exact(n); ok {
+		return m, nil
+	}
+	list, err := s.List()
+	if err == nil {
+		if m, ok := findFold(list, n); ok {
 			return m, nil
 		}
-		return Model{}, fmt.Errorf("%w: %s", ErrNotFound, n)
 	}
-	return s.load(n, raw, st.ModTime())
+	return Model{}, fmt.Errorf("%w: %s", ErrNotFound, n)
 }
 
-func (s *Store) findFold(n Name) (Model, bool) {
-	list, err := s.List()
+func (s *Store) exact(n Name) (Model, bool) {
+	raw, st, err := readFileStat(filepath.Join(s.manifestsDir(), n.manifestRel()))
 	if err != nil {
 		return Model{}, false
 	}
+	m, err := s.load(n, raw, st.ModTime())
+	return m, err == nil
+}
+
+func findFold(list []Model, n Name) (Model, bool) {
 	want := strings.ToLower(n.String())
 	for _, m := range list {
 		if strings.ToLower(m.Name.String()) == want {
@@ -349,9 +359,13 @@ func (s *Store) pruneDirs(dir string) {
 }
 
 func (s *Store) Text(m Model, mediaType string) string {
+	src := s
+	if m.store != nil {
+		src = m.store
+	}
 	for _, l := range m.Manifest.Layers {
 		if l.MediaType == mediaType {
-			b, err := s.readBlob(l.Digest, 1<<20)
+			b, err := src.readBlob(l.Digest, 1<<20)
 			if err == nil {
 				return string(b)
 			}
@@ -387,6 +401,10 @@ func (s *Store) WritePreset(path string, opt PresetOptions) (map[string]string, 
 	if err != nil {
 		return nil, err
 	}
+	return writePreset(list, path, opt)
+}
+
+func writePreset(list []Model, path string, opt PresetOptions) (map[string]string, error) {
 	ids := map[string]string{}
 	seen := map[string]bool{}
 	var b strings.Builder

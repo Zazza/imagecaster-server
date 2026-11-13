@@ -87,9 +87,15 @@ func newLlamaFacade(cfg *config.Config, pm *process.ProcessManager) *llamacpp.Fa
 	}
 	log.Printf("[llamacpp] default keep_alive %s (VRAM %dMB)", ka, cfg.DetectedVRAMMB)
 	store := &llamacpp.Store{Root: cfg.LLMModelsDir()}
+	var foreign []*llamacpp.Store
+	for _, d := range cfg.ForeignOllamaDirs() {
+		log.Printf("[llamacpp] reading models of the installed Ollama in %s (read-only)", d)
+		foreign = append(foreign, &llamacpp.Store{Root: d, ReadOnly: true})
+	}
 	reload := &llamaReloader{pm: pm, key: config.LlamaCppProcessKey, health: pc.HealthURL, wait: 60 * time.Second}
 	f := llamacpp.New(llamacpp.Config{
 		Store:       store,
+		Foreign:     foreign,
 		RouterURL:   pc.TargetURL,
 		PresetPath:  cfg.LlamaPresetPath(),
 		ContextSize: s.ContextSize,

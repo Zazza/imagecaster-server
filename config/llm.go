@@ -33,6 +33,7 @@ type LLMConfig struct {
 	ModelsMax   int    `yaml:"models_max,omitempty"`
 	ModelsDir   string `yaml:"models_dir,omitempty"`
 	KeepAlive   string `yaml:"keep_alive,omitempty"`
+	ReadOllama  *bool  `yaml:"read_ollama_models,omitempty"`
 }
 
 func defaultLLMConfig() LLMConfig {

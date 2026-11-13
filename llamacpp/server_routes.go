@@ -38,9 +38,19 @@ func (f *Facade) serverModels(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		out := make([]map[string]string, 0, len(list))
+		out := make([]map[string]any, 0, len(list))
 		for _, m := range list {
-			out = append(out, map[string]string{"name": m.Name.String(), "size": gb(m.Size)})
+			item := map[string]any{"name": m.Name.String(), "size": gb(m.Size)}
+			err := m.Supported()
+			switch {
+			case err != nil && m.ReadOnly:
+				continue
+			case err != nil:
+				item["unsupported"] = err.Error()
+			case m.ReadOnly:
+				item["readonly"] = true
+			}
+			out = append(out, item)
 		}
 		writeJSON(w, 200, out)
 	case http.MethodPost:

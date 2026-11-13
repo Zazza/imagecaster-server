@@ -24,6 +24,7 @@ const (
 
 type Config struct {
 	Store       *Store
+	Foreign     []*Store
 	RouterURL   string
 	PresetPath  string
 	ContextSize int
@@ -37,7 +38,7 @@ type Config struct {
 
 type Facade struct {
 	cfg    Config
-	store  *Store
+	store  *Library
 	router *Router
 	http   *http.Client
 	now    func() time.Time
@@ -65,7 +66,7 @@ func New(cfg Config) *Facade {
 	}
 	return &Facade{
 		cfg:     cfg,
-		store:   cfg.Store,
+		store:   &Library{Own: cfg.Store, Foreign: cfg.Foreign},
 		router:  &Router{BaseURL: cfg.RouterURL, HTTP: hc, Poll: cfg.Poll},
 		http:    hc,
 		now:     now,
@@ -128,6 +129,8 @@ func errCode(err error) int {
 		return he.code
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, ErrReadOnly):
+		return http.StatusConflict
 	case errors.Is(err, ErrBadName), errors.Is(err, ErrUnsupported):
 		return http.StatusBadRequest
 	}
@@ -185,6 +188,9 @@ func (f *Facade) handleTags(w http.ResponseWriter) {
 	}
 	out := make([]map[string]any, 0, len(list))
 	for _, m := range list {
+		if m.Supported() != nil {
+			continue
+		}
 		out = append(out, map[string]any{
 			"name":        m.Name.String(),
 			"model":       m.Name.String(),
@@ -227,6 +233,9 @@ func (f *Facade) handleV1Models(w http.ResponseWriter) {
 	}
 	data := make([]map[string]any, 0, len(list))
 	for _, m := range list {
+		if m.Supported() != nil {
+			continue
+		}
 		data = append(data, map[string]any{"id": m.Name.String(), "object": "model", "created": m.Modified.Unix(), "owned_by": m.Name.Namespace})
 	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
@@ -355,6 +364,9 @@ func (f *Facade) Delete(ctx context.Context, name string) error {
 	m, err := f.store.Resolve(name)
 	if err != nil {
 		return err
+	}
+	if m.ReadOnly {
+		return readOnlyError(m)
 	}
 	f.mu.Lock()
 	id, ok := f.ids[m.Name.String()]

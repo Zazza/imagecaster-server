@@ -8,6 +8,7 @@
 - Engine folders get a platform suffix: `engines/sd-cpp-windows`, `engines/llama-cpp-linux` and so on. The data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each OS now keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place and its OS reinstalls fresh), and engine paths in old configs are updated automatically
 
 ### Added
+- Models of an installed Ollama (`OLLAMA_MODELS`, `~/.ollama/models`, on Linux `/usr/share/ollama/.ollama/models`) are used without downloading again, read-only: the server's own copy wins, deleting them answers 409 with a hint to run `ollama rm`, models llama.cpp cannot open are not listed. Switch off: `llm.read_ollama_models: false`
 - `GET /` lists `features` (active engines and capabilities), so Imagecaster can tell an old server from a new one
 
 ### Fixed
