@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -211,7 +212,7 @@ func (inst *Installer) artifactDest(key string, a Artifact) string {
 	return inst.resolveTarget(a.Dest)
 }
 
-func (inst *Installer) installRelease(key string, ic config.InstallConfig, lb *process.RingBuffer) error {
+func (inst *Installer) installRelease(ctx context.Context, key string, ic config.InstallConfig, lb *process.RingBuffer) error {
 	arts, err := inst.artifactsFor(key)
 	if err != nil {
 		return err
@@ -221,7 +222,10 @@ func (inst *Installer) installRelease(key string, ic config.InstallConfig, lb *p
 		return err
 	}
 	for _, a := range arts {
-		if err := inst.fetchArtifact(key, a, inst.artifactDest(key, a), ic.Version, lb); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := inst.fetchArtifact(ctx, key, a, inst.artifactDest(key, a), ic.Version, lb); err != nil {
 			return fmt.Errorf("%s: %w", a.Name, err)
 		}
 	}
@@ -245,10 +249,10 @@ func (inst *Installer) installRelease(key string, ic config.InstallConfig, lb *p
 	return nil
 }
 
-func (inst *Installer) fetchArtifact(key string, a Artifact, dest, version string, lb *process.RingBuffer) error {
+func (inst *Installer) fetchArtifact(ctx context.Context, key string, a Artifact, dest, version string, lb *process.RingBuffer) error {
 	want := a.SHA256
 	if want == "" && a.SHAURL != "" {
-		s, err := fetchSHA(a.SHAURL)
+		s, err := fetchSHA(ctx, a.SHAURL)
 		if err != nil {
 			return fmt.Errorf("checksum: %w", err)
 		}
@@ -272,7 +276,7 @@ func (inst *Installer) fetchArtifact(key string, a Artifact, dest, version strin
 		return err
 	}
 	part := filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+"."+safeName(a.Name)+".part")
-	if err := inst.downloadResumable(key, a, part, want, lb); err != nil {
+	if err := inst.downloadResumable(ctx, key, a, part, want, lb); err != nil {
 		return err
 	}
 	defer os.Remove(part)
@@ -299,7 +303,7 @@ func safeName(s string) string {
 	}, s)
 }
 
-func (inst *Installer) downloadResumable(key string, a Artifact, part, want string, lb *process.RingBuffer) error {
+func (inst *Installer) downloadResumable(ctx context.Context, key string, a Artifact, part, want string, lb *process.RingBuffer) error {
 	var have int64
 	if st, err := os.Stat(part); err == nil {
 		have = st.Size()
@@ -316,7 +320,7 @@ func (inst *Installer) downloadResumable(key string, a Artifact, part, want stri
 	}
 	inst.setProgress(key, "downloading")
 	lb.Write(fmt.Sprintf("Downloading %s", a.URL))
-	resp, err := HTTPGetFrom(a.URL, have)
+	resp, err := HTTPGetFrom(ctx, a.URL, have)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
@@ -365,8 +369,8 @@ func (inst *Installer) downloadResumable(key string, a Artifact, part, want stri
 	return nil
 }
 
-func fetchSHA(url string) (string, error) {
-	resp, err := HTTPGet(url)
+func fetchSHA(ctx context.Context, url string) (string, error) {
+	resp, err := HTTPGet(ctx, url)
 	if err != nil {
 		return "", err
 	}

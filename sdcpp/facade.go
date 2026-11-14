@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"imagecaster-server/imgb64"
 )
 
 type Restarter interface {
@@ -258,7 +260,7 @@ func (f *Facade) checkModel(m ModelSpec) ([]string, error) {
 	return args, nil
 }
 
-func (f *Facade) ensureModel(m ModelSpec) error {
+func (f *Facade) ensureModel(ctx context.Context, m ModelSpec) error {
 	args, err := f.checkModel(m)
 	if err != nil {
 		return err
@@ -267,7 +269,7 @@ func (f *Facade) ensureModel(m ModelSpec) error {
 	same := f.args != nil && slices.Equal(args, f.args)
 	f.mu.Unlock()
 	if !same {
-		if err := f.load(args); err != nil {
+		if err := f.load(ctx, args); err != nil {
 			return err
 		}
 	}
@@ -278,7 +280,7 @@ func (f *Facade) ensureModel(m ModelSpec) error {
 	return nil
 }
 
-func (f *Facade) load(args []string) error {
+func (f *Facade) load(ctx context.Context, args []string) error {
 	full := append(slices.Clone(f.cfg.BaseArgs), args...)
 	f.mu.Lock()
 	f.args = nil
@@ -295,6 +297,9 @@ func (f *Facade) load(args []string) error {
 		resume = false
 	}
 	if !resume {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := f.restart.RestartWithArgs(full); err != nil {
 			return apiErr(http.StatusBadGateway, "sd_failed", "restart sd-server: %v", err)
 		}
@@ -302,7 +307,7 @@ func (f *Facade) load(args []string) error {
 		f.pending, f.pendingAt = slices.Clone(args), time.Now()
 		f.mu.Unlock()
 	}
-	if err := f.waitReady(); err != nil {
+	if err := f.waitReady(ctx); err != nil {
 		return err
 	}
 	f.mu.Lock()
@@ -314,12 +319,14 @@ func (f *Facade) load(args []string) error {
 
 const loadGrace = 10 * time.Minute
 
-func (f *Facade) waitReady() error {
+func (f *Facade) waitReady(ctx context.Context) error {
 	deadline := time.Now().Add(f.cfg.ReadyTimeout)
 	var last string
 	for {
-		code, body, err := f.do(context.Background(), http.MethodGet, "/sdcpp/v1/capabilities", nil, 5*time.Second)
+		code, body, err := f.do(ctx, http.MethodGet, "/sdcpp/v1/capabilities", nil, 5*time.Second)
 		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
 		case err != nil:
 			last = err.Error()
 		case code == http.StatusOK:
@@ -330,7 +337,13 @@ func (f *Facade) waitReady() error {
 		if time.Now().After(deadline) {
 			return apiErr(http.StatusBadGateway, "sd_failed", "sd-server not ready after %s: %s", f.cfg.ReadyTimeout, last)
 		}
-		time.Sleep(f.cfg.PollInterval)
+		t := time.NewTimer(f.cfg.PollInterval)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
 	}
 }
 
@@ -582,7 +595,7 @@ func (f *Facade) buildNative(ctx context.Context, p GenParams, img2img bool, m M
 }
 
 func (f *Facade) generate(ctx context.Context, j *job, m ModelSpec, p GenParams) ([]string, map[string]any, error) {
-	if err := f.ensureModel(m); err != nil {
+	if err := f.ensureModel(ctx, m); err != nil {
 		return nil, nil, err
 	}
 	if ctx.Err() != nil {
@@ -624,7 +637,7 @@ func (f *Facade) generate(ctx context.Context, j *job, m ModelSpec, p GenParams)
 	}
 	width, height := p.Width, p.Height
 	if (width <= 0 || height <= 0) && len(imgs) > 0 {
-		if w, h, err := imageSizeB64(imgs[0]); err == nil {
+		if w, h, err := imgb64.Size(imgs[0]); err == nil {
 			width, height = w, h
 		} else {
 			log.Printf("[sdcpp] job %s: read result size: %v", j.st.ID, err)

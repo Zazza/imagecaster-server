@@ -1,11 +1,9 @@
 package process
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"maps"
 	"net/http"
@@ -349,7 +347,7 @@ func (pm *ProcessManager) openLogFile(name string, mp *ManagedProcess) {
 		log.Printf("[%s] log dir: %v", name, err)
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(logsDir, name+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := OpenRotatingFile(filepath.Join(logsDir, name+".log"), MaxLogFileSize)
 	if err != nil {
 		log.Printf("[%s] log file: %v", name, err)
 		return
@@ -377,18 +375,6 @@ func probeHealth(url string) bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
-}
-
-func pipeLogs(r io.Reader, buf *RingBuffer, logFile *os.File, name string) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := scanner.Text()
-		buf.Write(line)
-		log.Printf("[%s] %s", name, line)
-		if logFile != nil {
-			logFile.WriteString(time.Now().Format("2006-01-02 15:04:05") + " " + line + "\n")
-		}
-	}
 }
 
 func (pm *ProcessManager) Stop(name string) error {

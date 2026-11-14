@@ -32,12 +32,12 @@ func newDownloadTransport() *http.Transport {
 
 var errStalled = errors.New("download stalled: no data received")
 
-func HTTPGet(url string) (*http.Response, error) {
-	return HTTPGetFrom(url, 0)
+func HTTPGet(parent context.Context, url string) (*http.Response, error) {
+	return HTTPGetFrom(parent, url, 0)
 }
 
-func HTTPGetFrom(url string, offset int64) (*http.Response, error) {
-	ctx, cancel := context.WithCancelCause(context.Background())
+func HTTPGetFrom(parent context.Context, url string, offset int64) (*http.Response, error) {
+	ctx, cancel := context.WithCancelCause(parent)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		cancel(nil)

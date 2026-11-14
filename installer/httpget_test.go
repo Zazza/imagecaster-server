@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,7 +68,7 @@ func TestHTTPGetFailsOnStalledBody(t *testing.T) {
 	}))
 	t.Cleanup(func() { close(release); srv.Close() })
 
-	resp, err := HTTPGet(srv.URL)
+	resp, err := HTTPGet(context.Background(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	timer := <-created
@@ -100,7 +101,7 @@ func TestHTTPGetSlowButSteadyBodyCompletes(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	resp, err := HTTPGet(srv.URL)
+	resp, err := HTTPGet(context.Background(), srv.URL)
 	require.NoError(t, err)
 	timer := <-created
 
@@ -143,7 +144,7 @@ func TestHTTPGetRealTimerAbortsStall(t *testing.T) {
 	}))
 	t.Cleanup(func() { close(release); srv.Close() })
 
-	resp, err := HTTPGet(srv.URL)
+	resp, err := HTTPGet(context.Background(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	done := make(chan error, 1)

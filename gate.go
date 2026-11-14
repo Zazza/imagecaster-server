@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	"imagecaster-server/api"
 	"imagecaster-server/gpuqueue"
-	"imagecaster-server/models"
 	"imagecaster-server/sdcpp"
 )
 
@@ -150,19 +150,26 @@ func clientTag(r *http.Request) string {
 }
 
 type sdWeightTracker struct {
-	mu        sync.Mutex
-	cfg       GateConfig
-	mm        *models.ModelManager
-	modelsDir string
-	weights   map[string]int
+	mu      sync.Mutex
+	cfg     GateConfig
+	resolve func(checkpoint string) []string
+	weights map[string]int
 }
 
-func newSDWeight(cfg GateConfig, mm *models.ModelManager, modelsDir string) *sdWeightTracker {
+func newSDWeight(cfg GateConfig, resolve func(checkpoint string) []string) *sdWeightTracker {
 	return &sdWeightTracker{
-		cfg:       cfg,
-		mm:        mm,
-		modelsDir: modelsDir,
-		weights:   make(map[string]int),
+		cfg:     cfg,
+		resolve: resolve,
+		weights: make(map[string]int),
+	}
+}
+
+func dirResolver(modelsDir string) func(string) []string {
+	if modelsDir == "" {
+		return nil
+	}
+	return func(name string) []string {
+		return sdcpp.CheckpointFiles(sdcpp.Config{ModelsDir: modelsDir}, name)
 	}
 }
 
@@ -177,30 +184,28 @@ func (t *sdWeightTracker) weightFor(name string) int {
 	}
 	t.mu.Unlock()
 
-	weight := t.cfg.SDDefaultWeightMB
-	if t.mm != nil && t.modelsDir != "" {
-		list, err := t.mm.ListModels(t.modelsDir)
-		if err == nil {
-			for _, m := range list {
-				if m.Name == name {
-					weight = int((m.Size+mbBytes-1)/mbBytes) + t.cfg.SDOverheadMB
-					break
-				}
-			}
-		}
+	if t.resolve == nil {
+		return t.cfg.SDDefaultWeightMB
 	}
+	var size int64
+	found := false
+	for _, p := range t.resolve(name) {
+		st, err := os.Stat(p)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		size += st.Size()
+		found = true
+	}
+	if !found {
+		return t.cfg.SDDefaultWeightMB
+	}
+	weight := int((size+mbBytes-1)/mbBytes) + t.cfg.SDOverheadMB
 
 	t.mu.Lock()
 	t.weights[name] = weight
 	t.mu.Unlock()
 	return weight
-}
-
-func cleanCheckpoint(name string) string {
-	if i := strings.Index(name, " ["); i >= 0 {
-		name = name[:i]
-	}
-	return strings.TrimSpace(name)
 }
 
 func (g *Gate) SetSDLeaseLost(fn func(jobID string)) {
@@ -210,7 +215,7 @@ func (g *Gate) SetSDLeaseLost(fn func(jobID string)) {
 func (g *Gate) sdJobWeight(checkpoint string) int {
 	w := g.cfg.SDDefaultWeightMB
 	if g.sdw != nil {
-		w = g.sdw.weightFor(cleanCheckpoint(checkpoint))
+		w = g.sdw.weightFor(sdcpp.CleanName(checkpoint))
 	}
 	return g.clampWeight(w)
 }

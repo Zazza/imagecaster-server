@@ -20,18 +20,19 @@ import (
 )
 
 type fakeRouter struct {
-	mu       sync.Mutex
-	status   map[string]string
-	failed   map[string]bool
-	chats    []map[string]any
-	unloads  []string
-	loads    []string
-	stream   []string
-	reply    string
-	finish   string
-	srv      *httptest.Server
-	path     string
-	chatHook func()
+	mu        sync.Mutex
+	status    map[string]string
+	failed    map[string]bool
+	chats     []map[string]any
+	unloads   []string
+	loads     []string
+	stream    []string
+	reply     string
+	finish    string
+	srv       *httptest.Server
+	path      string
+	chatHook  func()
+	modelGets int
 }
 
 func newFakeRouter(t *testing.T) *fakeRouter {
@@ -59,6 +60,7 @@ func (fr *fakeRouter) serve(w http.ResponseWriter, r *http.Request) {
 	defer fr.mu.Unlock()
 	switch r.URL.Path {
 	case "/models":
+		fr.modelGets++
 		var data []map[string]any
 		for id, st := range fr.status {
 			data = append(data, map[string]any{"id": id, "status": map[string]any{"value": st, "failed": fr.failed[id], "exit_code": 1}})

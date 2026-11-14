@@ -11,9 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"imagecaster-server/config"
 	"imagecaster-server/gpuqueue"
-	"imagecaster-server/models"
+	"imagecaster-server/sdcpp"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,8 +28,7 @@ func newTestGateWait(budgetMB int, maxWait time.Duration, cfg GateConfig, models
 		MaxWait:       maxWait,
 		LeaseTTL:      30 * time.Second,
 	})
-	mm := models.NewModelManager(&config.Config{})
-	sdw := newSDWeight(cfg, mm, modelsDir)
+	sdw := newSDWeight(cfg, dirResolver(modelsDir))
 	return NewGate(q, cfg, sdw), q
 }
 
@@ -64,7 +62,7 @@ func newGateServer(t *testing.T, gate *Gate, prefixes ...string) *httptest.Serve
 func TestGate_Enabled(t *testing.T) {
 	t.Parallel()
 	cfg := GateConfig{SDDefaultWeightMB: 3000}
-	sdw := newSDWeight(cfg, nil, "")
+	sdw := newSDWeight(cfg, nil)
 
 	assert.True(t, NewGate(gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 100}), cfg, sdw).Enabled())
 	assert.False(t, NewGate(gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 0}), cfg, sdw).Enabled())
@@ -99,9 +97,9 @@ func TestClientTag(t *testing.T) {
 
 func TestCleanCheckpoint(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "m.safetensors", cleanCheckpoint("m.safetensors [abc123]"))
-	assert.Equal(t, "m.safetensors", cleanCheckpoint("  m.safetensors  "))
-	assert.Equal(t, "m.safetensors", cleanCheckpoint("m.safetensors"))
+	assert.Equal(t, "m.safetensors", sdcpp.CleanName("m.safetensors [abc123]"))
+	assert.Equal(t, "m.safetensors", sdcpp.CleanName("  m.safetensors  "))
+	assert.Equal(t, "m.safetensors", sdcpp.CleanName("m.safetensors"))
 }
 
 func TestGate_WeightClassification(t *testing.T) {
@@ -318,11 +316,55 @@ func TestSDWeightTracker_ModelWeights(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "known.safetensors"), make([]byte, 1024*1024), 0o644))
 
 	cfg := GateConfig{SDDefaultWeightMB: 5000, SDOverheadMB: 1000}
-	sdw := newSDWeight(cfg, models.NewModelManager(&config.Config{}), dir)
+	sdw := newSDWeight(cfg, dirResolver(dir))
 
 	assert.Equal(t, 1001, sdw.weightFor("known.safetensors"))
 	assert.Equal(t, 5000, sdw.weightFor("missing.safetensors"))
 	assert.Equal(t, 5000, sdw.weightFor(""))
+}
+
+func TestSDWeightTracker_ResolvesLikeSDCpp(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mb := func(n int) []byte { return make([]byte, n*1024*1024) }
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "flux"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "top.safetensors"), mb(1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "flux", "sub.gguf"), mb(2), 0o644))
+	te := filepath.Join(dir, "te.safetensors")
+	vae := filepath.Join(dir, "vae.safetensors")
+	require.NoError(t, os.WriteFile(te, mb(3), 0o644))
+	require.NoError(t, os.WriteFile(vae, mb(4), 0o644))
+	scfg := sdcpp.Config{ModelsDir: dir, Aliases: map[string][]string{
+		"klein.safetensors": {"--diffusion-model", filepath.Join(dir, "flux", "sub.gguf"), "--llm", te, "--vae", vae},
+	}}
+	cfg := GateConfig{SDDefaultWeightMB: 9000, SDOverheadMB: 100}
+	sdw := newSDWeight(cfg, func(n string) []string { return sdcpp.CheckpointFiles(scfg, n) })
+
+	cases := []struct {
+		name string
+		ckpt string
+		want int
+	}{
+		{name: "exact file", ckpt: "top.safetensors", want: 101},
+		{name: "stem", ckpt: "top", want: 101},
+		{name: "subfolder", ckpt: "flux/sub.gguf", want: 102},
+		{name: "subfolder stem", ckpt: "flux/sub", want: 102},
+		{name: "alias sums files", ckpt: "klein", want: 109},
+		{name: "unknown is default", ckpt: "nope.safetensors", want: 9000},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, sdw.weightFor(tc.ckpt), tc.name)
+	}
+}
+
+func TestSDWeightTracker_MissIsNotCached(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfg := GateConfig{SDDefaultWeightMB: 5000, SDOverheadMB: 0}
+	sdw := newSDWeight(cfg, dirResolver(dir))
+	assert.Equal(t, 5000, sdw.weightFor("late.safetensors"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "late.safetensors"), make([]byte, 2*1024*1024), 0o644))
+	assert.Equal(t, 2, sdw.weightFor("late.safetensors"))
 }
 
 func TestGate_WeightClampedToBudgetWithDebouncedWarning(t *testing.T) {

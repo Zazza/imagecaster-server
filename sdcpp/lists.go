@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"image"
 	"image/png"
 	"io/fs"
@@ -20,6 +19,8 @@ import (
 	_ "image/jpeg"
 
 	xdraw "golang.org/x/image/draw"
+
+	"imagecaster-server/imgb64"
 )
 
 func (f *Facade) checkpoints(w http.ResponseWriter) {
@@ -90,47 +91,15 @@ func (f *Facade) upscalers(w http.ResponseWriter) {
 	respondJSON(w, http.StatusOK, map[string]any{"upscalers": out})
 }
 
-func imageSizeB64(s string) (int, int, error) {
-	if i := strings.Index(s, ","); i >= 0 && strings.HasPrefix(s, "data:") {
-		s = s[i+1:]
-	}
-	b, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return 0, 0, err
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
-	if err != nil {
-		return 0, 0, err
-	}
-	return cfg.Width, cfg.Height, nil
-}
-
-func decodeImageB64(s string) (image.Image, error) {
-	if i := strings.Index(s, ","); i >= 0 && strings.HasPrefix(s, "data:") {
-		s = s[i+1:]
-	}
-	b, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	if !sizeAllowed(cfg.Width, cfg.Height) {
-		return nil, fmt.Errorf("image %dx%d exceeds %d px per side or %d MP", cfg.Width, cfg.Height, maxSide, maxPixels/1_000_000)
-	}
-	img, _, err := image.Decode(bytes.NewReader(b))
-	return img, err
-}
-
 const (
 	maxSide   = 16384
 	maxPixels = 64_000_000
 )
 
-func sizeAllowed(w, h int) bool {
-	return w > 0 && h > 0 && w <= maxSide && h <= maxSide && int64(w)*int64(h) <= maxPixels
+var imageLimits = imgb64.Limits{MaxSide: maxSide, MaxPixels: maxPixels}
+
+func decodeImageB64(s string) (image.Image, error) {
+	return imgb64.Decode(s, imageLimits)
 }
 
 func encodePNG(img image.Image) (string, error) {
@@ -151,9 +120,8 @@ func resizeTo(img image.Image, w, h int, k xdraw.Interpolator) image.Image {
 	return dst
 }
 
-func upscaleTarget(src image.Image, scale float64) (int, int, error) {
-	b := src.Bounds()
-	fw, fh := math.Round(float64(b.Dx())*scale), math.Round(float64(b.Dy())*scale)
+func upscaleTarget(w, h int, scale float64) (int, int, error) {
+	fw, fh := math.Round(float64(w)*scale), math.Round(float64(h)*scale)
 	if !(fw >= 1 && fh >= 1 && fw <= maxSide && fh <= maxSide && fw*fh <= maxPixels) {
 		return 0, 0, apiErr(http.StatusBadRequest, "invalid_params", "bad scale %v: result must be 1..%d px per side and at most %d MP", scale, maxSide, maxPixels/1_000_000)
 	}
@@ -171,11 +139,11 @@ func (f *Facade) checkUpscale(p GenParams) error {
 	if p.Image == "" {
 		return apiErr(http.StatusBadRequest, "invalid_params", "upscale needs params.image")
 	}
-	src, err := decodeImageB64(p.Image)
+	w, h, err := imgb64.Check(p.Image, imageLimits)
 	if err != nil {
 		return apiErr(http.StatusBadRequest, "invalid_params", "decode image: %v", err)
 	}
-	if _, _, err := upscaleTarget(src, upscaleScale(p)); err != nil {
+	if _, _, err := upscaleTarget(w, h, upscaleScale(p)); err != nil {
 		return err
 	}
 	_, err = f.resolveUpscaler(p.Upscaler, false)
@@ -188,7 +156,7 @@ func (f *Facade) upscale(ctx context.Context, p GenParams) ([]string, map[string
 		return nil, nil, apiErr(http.StatusBadRequest, "invalid_params", "decode image: %v", err)
 	}
 	scale := upscaleScale(p)
-	tw, th, err := upscaleTarget(src, scale)
+	tw, th, err := upscaleTarget(src.Bounds().Dx(), src.Bounds().Dy(), scale)
 	if err != nil {
 		return nil, nil, err
 	}

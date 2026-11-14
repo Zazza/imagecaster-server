@@ -82,6 +82,7 @@ Everything lives in one folder:
   llamacpp-models.ini        model list for llama-server, written by the server from models/ollama
   models/ollama/             text models in the Ollama layout (manifests + blobs), used by llama.cpp (`llm.models_dir`)
   logs/server.log            server log (Windows window build)
+  logs/<service>.log         service output; at 20 MB it is moved to .1 (one old copy kept)
   imagecaster-server.lock    one server per folder (Windows window build)
 ```
 

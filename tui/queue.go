@@ -21,6 +21,17 @@ type queueResultMsg struct {
 	err error
 }
 
+type procResultMsg struct {
+	name string
+	err  error
+}
+
+func procCmd(name string, f func() error) tea.Cmd {
+	return func() tea.Msg {
+		return procResultMsg{name: name, err: f()}
+	}
+}
+
 func queueCmd(f func() error) tea.Cmd {
 	return func() tea.Msg {
 		return queueResultMsg{err: f()}

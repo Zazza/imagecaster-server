@@ -1,17 +1,13 @@
 package dwpose
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	"net/http"
-	"strings"
 
-	_ "image/jpeg"
-	_ "image/png"
+	"imagecaster-server/imgb64"
 )
 
 const moduleName = "dw_openpose_full"
@@ -29,7 +25,13 @@ type poseJSON struct {
 	CanvasHeight int          `json:"canvas_height"`
 }
 
+const maxBody = 512 << 20
+
 func NewHandler(est Estimator) http.Handler {
+	return newHandler(est, maxBody)
+}
+
+func newHandler(est Estimator, limit int64) http.Handler {
 	busy := make(chan struct{}, 1)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -37,7 +39,7 @@ func NewHandler(est Estimator) http.Handler {
 			return
 		}
 		var req detectRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
 		}
@@ -97,32 +99,19 @@ func NewHandler(est Estimator) http.Handler {
 	})
 }
 
-func decodeB64(s string) (image.Image, error) {
-	if i := strings.Index(s, ","); i >= 0 && strings.HasPrefix(s, "data:") {
-		s = s[i+1:]
-	}
-	b, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	if !sizeAllowed(cfg.Width, cfg.Height) {
-		return nil, fmt.Errorf("image %dx%d exceeds %d px per side or %d MP", cfg.Width, cfg.Height, maxSide, maxPixels/1_000_000)
-	}
-	img, _, err := image.Decode(bytes.NewReader(b))
-	return img, err
-}
-
 const (
 	maxSide   = 16384
 	maxPixels = 16_000_000
 )
 
+var imageLimits = imgb64.Limits{MaxSide: maxSide, MaxPixels: maxPixels}
+
+func decodeB64(s string) (image.Image, error) {
+	return imgb64.Decode(s, imageLimits)
+}
+
 func sizeAllowed(w, h int) bool {
-	return w > 0 && h > 0 && w <= maxSide && h <= maxSide && int64(w)*int64(h) <= maxPixels
+	return imageLimits.Allowed(w, h)
 }
 
 func fail(w http.ResponseWriter, code int, msg string) {

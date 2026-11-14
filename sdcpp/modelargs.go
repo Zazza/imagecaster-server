@@ -204,3 +204,32 @@ func fileExists(p string) bool {
 func usesSingleFile(args []string) bool {
 	return len(args) > 0 && args[0] == "--model"
 }
+
+func CleanName(name string) string {
+	return cleanName(name)
+}
+
+func CheckpointFiles(cfg Config, checkpoint string) []string {
+	name := cleanName(checkpoint)
+	if name == "" {
+		return nil
+	}
+	if alias, ok := lookupAlias(cfg, name); ok {
+		var out []string
+		for _, a := range alias {
+			if !strings.HasPrefix(a, "-") && fileExists(a) {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+	p, err := checkpointPath(cfg, name)
+	if err != nil || !fileExists(p) {
+		return nil
+	}
+	return []string{p}
+}
+
+func (f *Facade) CheckpointFiles(checkpoint string) []string {
+	return CheckpointFiles(f.cfg, checkpoint)
+}

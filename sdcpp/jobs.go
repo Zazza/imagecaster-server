@@ -14,9 +14,12 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"imagecaster-server/imgb64"
 )
 
 const (
@@ -122,6 +125,7 @@ type job struct {
 	ctx     context.Context
 	result  *jobResult
 	deleted bool
+	stashed []string
 }
 
 type jobStore struct {
@@ -213,6 +217,7 @@ func (s *jobStore) restore() {
 			os.RemoveAll(dir)
 			continue
 		}
+		removeStaleInputs(dir)
 		tightenPerms(dir)
 		j := &job{st: st, kind: st.Kind}
 		s.jobs[st.ID] = j
@@ -396,11 +401,11 @@ func (f *Facade) validate(req *jobRequest) error {
 		if p.InitImage == "" {
 			return apiErr(http.StatusBadRequest, "invalid_params", "img2img needs params.init_image")
 		}
-		if _, err := decodeImageB64(p.InitImage); err != nil {
+		if _, _, err := imgb64.Check(p.InitImage, imageLimits); err != nil {
 			return apiErr(http.StatusBadRequest, "invalid_params", "decode init_image: %v", err)
 		}
 		if p.Mask != "" {
-			if _, err := decodeImageB64(p.Mask); err != nil {
+			if _, _, err := imgb64.Check(p.Mask, imageLimits); err != nil {
 				return apiErr(http.StatusBadRequest, "invalid_params", "decode mask: %v", err)
 			}
 		}
@@ -439,10 +444,14 @@ func (f *Facade) submitJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := f.jobs
+	id := newJobID()
+	params := *req.Params
+	stashed := s.stashInputs(id, &params)
 	s.mu.Lock()
 	if req.ClientRef != "" {
 		if old, ok := s.jobs[s.refs[refKey(req.Client, req.ClientRef)]]; ok && replayStatus(old.st.Status) {
 			s.mu.Unlock()
+			s.discardStash(id, stashed)
 			respondJSON(w, http.StatusOK, f.snapshot(old))
 			return
 		}
@@ -455,17 +464,19 @@ func (f *Facade) submitJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if active >= maxActiveJobs {
 		s.mu.Unlock()
+		s.discardStash(id, stashed)
 		writeErr(w, apiErr(http.StatusTooManyRequests, "queue_full", "too many jobs waiting (%d)", active))
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &job{
-		kind:   req.Kind,
-		params: *req.Params,
-		ctx:    ctx,
-		cancel: cancel,
+		kind:    req.Kind,
+		params:  params,
+		stashed: stashed,
+		ctx:     ctx,
+		cancel:  cancel,
 		st: JobStatus{
-			ID:        newJobID(),
+			ID:        id,
 			Kind:      req.Kind,
 			Client:    req.Client,
 			ClientRef: req.ClientRef,
@@ -551,6 +562,9 @@ func (s *jobStore) lastQueuedModelLocked() (ModelSpec, bool) {
 
 func (f *Facade) finish(j *job, status string, jerr *JobError, res *jobResult) {
 	s := f.jobs
+	if res != nil {
+		res = res.normalized()
+	}
 	if res != nil && s.dir != "" {
 		b, werr := json.Marshal(res)
 		s.pmu.Lock()
@@ -589,6 +603,7 @@ func (f *Facade) finish(j *job, status string, jerr *JobError, res *jobResult) {
 		s.running = ""
 	}
 	s.mu.Unlock()
+	s.dropInputs(j)
 	s.persist(j)
 }
 
@@ -642,6 +657,10 @@ func (f *Facade) runJob(j *job) {
 	defer func() { <-f.gen }()
 	if ctx.Err() != nil {
 		f.finishErr(j, ctx.Err())
+		return
+	}
+	if err := s.loadInputs(j, &params); err != nil {
+		f.finishErr(j, err)
 		return
 	}
 	var imgs []string
@@ -720,23 +739,65 @@ func (f *Facade) jobResult(w http.ResponseWriter, id string) {
 		writeErr(w, apiErr(http.StatusConflict, code, "%s", msg))
 		return
 	}
-	if res == nil {
-		b, err := os.ReadFile(filepath.Join(f.jobs.jobDir(id), "result.json"))
+	if res != nil {
+		respondJSON(w, http.StatusOK, res.normalized())
+		return
+	}
+	path := filepath.Join(f.jobs.jobDir(id), "result.json")
+	fh, err := os.Open(path)
+	if err != nil {
+		writeErr(w, apiErr(http.StatusNotFound, "not_found", "result of job %s is gone", id))
+		return
+	}
+	defer fh.Close()
+	st2, err := fh.Stat()
+	if err != nil || !resultNormalized(fh, st2.Size()) {
+		b, rerr := os.ReadFile(path)
 		var r jobResult
-		if err != nil || json.Unmarshal(b, &r) != nil {
+		if err != nil || rerr != nil || json.Unmarshal(b, &r) != nil {
 			writeErr(w, apiErr(http.StatusNotFound, "not_found", "result of job %s is gone", id))
 			return
 		}
-		res = &r
+		respondJSON(w, http.StatusOK, r.normalized())
+		return
 	}
-	images, info := res.Images, res.Info
-	if images == nil {
-		images = []string{}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.FormatInt(st2.Size(), 10))
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, fh); err != nil {
+		log.Printf("[sdcpp] job %s: send result: %v", id, err)
 	}
-	if info == nil {
-		info = map[string]any{}
+}
+
+func (r *jobResult) normalized() *jobResult {
+	out := *r
+	if out.Images == nil {
+		out.Images = []string{}
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"images": images, "info": info})
+	if out.Info == nil {
+		out.Info = map[string]any{}
+	}
+	return &out
+}
+
+const (
+	resultHead = `{"images":[`
+	resultTail = `}}`
+)
+
+func resultNormalized(f io.ReaderAt, size int64) bool {
+	if size < int64(len(resultHead)+len(resultTail)) {
+		return false
+	}
+	head := make([]byte, len(resultHead))
+	tail := make([]byte, len(resultTail))
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return false
+	}
+	if _, err := f.ReadAt(tail, size-int64(len(tail))); err != nil {
+		return false
+	}
+	return string(head) == resultHead && string(tail) == resultTail
 }
 
 func (f *Facade) CancelJob(id string) bool {
@@ -799,4 +860,79 @@ func (f *Facade) deleteJob(w http.ResponseWriter, id string) {
 	j.stop()
 	s.removeFiles(id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+const inputPrefix = "input-"
+
+func inputFields(p *GenParams) map[string]*string {
+	return map[string]*string{"init_image": &p.InitImage, "mask": &p.Mask, "image": &p.Image}
+}
+
+func (s *jobStore) stashInputs(id string, p *GenParams) []string {
+	if s.dir == "" {
+		return nil
+	}
+	dir := s.jobDir(id)
+	var stashed []string
+	for name, field := range inputFields(p) {
+		if *field == "" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			log.Printf("[sdcpp] job %s: keep %s in memory: %v", id, name, err)
+			continue
+		}
+		if err := writeAtomic(filepath.Join(dir, inputPrefix+name), []byte(*field)); err != nil {
+			continue
+		}
+		*field = ""
+		stashed = append(stashed, name)
+	}
+	return stashed
+}
+
+func (s *jobStore) discardStash(id string, stashed []string) {
+	if len(stashed) > 0 {
+		s.removeFiles(id)
+	}
+}
+
+func (s *jobStore) loadInputs(j *job, p *GenParams) error {
+	s.mu.Lock()
+	names := slices.Clone(j.stashed)
+	s.mu.Unlock()
+	fields := inputFields(p)
+	for _, name := range names {
+		b, err := os.ReadFile(filepath.Join(s.jobDir(j.st.ID), inputPrefix+name))
+		if err != nil {
+			return apiErr(http.StatusInternalServerError, "sd_failed", "read job input %s: %v", name, err)
+		}
+		*fields[name] = string(b)
+	}
+	return nil
+}
+
+func (s *jobStore) dropInputs(j *job) {
+	s.mu.Lock()
+	names := j.stashed
+	j.stashed = nil
+	s.mu.Unlock()
+	if len(names) == 0 {
+		return
+	}
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	for _, name := range names {
+		if err := os.Remove(filepath.Join(s.jobDir(j.st.ID), inputPrefix+name)); err != nil && !os.IsNotExist(err) {
+			log.Printf("[sdcpp] job %s: remove input %s: %v", j.st.ID, name, err)
+		}
+	}
+}
+
+func removeStaleInputs(dir string) {
+	for _, name := range []string{"init_image", "mask", "image"} {
+		if err := os.Remove(filepath.Join(dir, inputPrefix+name)); err != nil && !os.IsNotExist(err) {
+			log.Printf("[sdcpp] remove input %s: %v", name, err)
+		}
+	}
 }

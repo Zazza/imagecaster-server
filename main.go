@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -116,6 +117,7 @@ type appDeps struct {
 	mux    http.Handler
 	q      *gpuqueue.Queue
 	llm    *llamacpp.Facade
+	stop   sync.Once
 }
 
 func initApp(cfg *config.Config) *appDeps {
@@ -153,12 +155,13 @@ func initApp(cfg *config.Config) *appDeps {
 	if backend := cfg.GetActiveBackend(); backend != nil {
 		modelsDir = backend.ModelsDir
 	}
-	sdw := newSDWeight(gateCfg, mm, modelsDir)
+	sdw := newSDWeight(gateCfg, dirResolver(modelsDir))
 	gate := NewGate(q, gateCfg, sdw)
 
 	proxy := NewProxyHandler(pm, cfg, gate)
 	sdRoutes := newSDCppHandler(cfg, pm, gm)
 	if sdRoutes != nil {
+		sdw.resolve = sdRoutes.jobs.CheckpointFiles
 		wireSDJobs(sdRoutes.jobs, gate)
 		proxy.SetHandler("/api/sd/", sdRoutes)
 		log.Printf("SD backend: sd.cpp facade on /api/sd/")
@@ -204,12 +207,19 @@ func (d *appDeps) ensureInstalled() {
 	d.inst.EnsureAllInstalled()
 }
 
+const (
+	readHeaderTimeout = 30 * time.Second
+	idleTimeout       = 120 * time.Second
+)
+
 func (d *appDeps) newServer() *http.Server {
 	return &http.Server{
-		Addr:         fmt.Sprintf(":%d", d.cfg.Port),
-		Handler:      corsMiddleware(d.mux),
-		ReadTimeout:  0,
-		WriteTimeout: 0,
+		Addr:              fmt.Sprintf(":%d", d.cfg.Port),
+		Handler:           corsMiddleware(d.mux),
+		ReadTimeout:       0,
+		WriteTimeout:      0,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 }
 
@@ -224,11 +234,13 @@ func (d *appDeps) registerMDNS() *MDNSService {
 }
 
 func (d *appDeps) shutdown() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	d.guards.shutdown(ctx)
-	d.inst.Close()
-	d.pm.Close()
+	d.stop.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		d.guards.shutdown(ctx)
+		d.inst.Close()
+		d.pm.Close()
+	})
 }
 
 func runHeadless(cfg *config.Config) {
@@ -307,6 +319,12 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool, port int) {
 		if port != 0 {
 			cfg.Port = port
 		}
+	}
+
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	if err != nil {
+		log.SetOutput(os.Stderr)
+		log.Fatalf("Server error: %v", err)
 	}
 
 	d := initApp(cfg)
@@ -442,7 +460,7 @@ func runTUI(cfg *config.Config, cfgFile string, firstRun bool, port int) {
 	srv := d.newServer()
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()

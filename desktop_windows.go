@@ -17,6 +17,7 @@ import (
 	"imagecaster-server/config"
 	"imagecaster-server/desktop"
 	"imagecaster-server/i18n"
+	"imagecaster-server/process"
 )
 
 const (
@@ -35,7 +36,7 @@ type desktopEngine struct {
 	cancel  context.CancelFunc
 	srv     *http.Server
 	mdns    *MDNSService
-	logFile *os.File
+	logFile *process.RotatingFile
 	logPath string
 	working bool
 }
@@ -93,7 +94,7 @@ func (e *desktopEngine) Start(dir string) error {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
-	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	lf, err := process.OpenRotatingFile(logPath, process.MaxLogFileSize)
 	if err != nil {
 		return err
 	}
@@ -264,7 +265,7 @@ func (e *desktopEngine) Snapshot() desktop.Snapshot {
 		Components: comps,
 		SD:         svc(sdKey),
 		LLM:        svc(config.LlamaCppProcessKey),
-		Addr:       desktop.ConnectAddr(desktop.LANIPs(), cfg.Port),
+		Addr:       desktop.ConnectAddr(desktop.CachedLANIPs(), cfg.Port),
 	}
 	snap.Phase, snap.Error = desktop.PhaseOf(comps, snap.SD)
 	if installingKey != "" {

@@ -109,7 +109,7 @@ func fetchPart(ctx context.Context, src, part, want string, ev fetchEvents) erro
 	if st, err := os.Stat(part); err == nil {
 		have = st.Size()
 	}
-	resp, err := installer.HTTPGetFrom(src, have)
+	resp, err := installer.HTTPGetFrom(ctx, src, have)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}

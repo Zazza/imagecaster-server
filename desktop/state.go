@@ -3,6 +3,9 @@ package desktop
 import (
 	"fmt"
 	"net"
+	"slices"
+	"sync"
+	"time"
 )
 
 const (
@@ -108,6 +111,25 @@ func ConnectAddr(ips []string, port int) string {
 		host = ips[0]
 	}
 	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprint(port)))
+}
+
+const lanIPsTTL = 30 * time.Second
+
+var lanIPs = struct {
+	sync.Mutex
+	at  time.Time
+	ips []string
+}{}
+
+var lanIPsSource = LANIPs
+
+func CachedLANIPs() []string {
+	lanIPs.Lock()
+	defer lanIPs.Unlock()
+	if lanIPs.at.IsZero() || time.Since(lanIPs.at) >= lanIPsTTL {
+		lanIPs.ips, lanIPs.at = lanIPsSource(), time.Now()
+	}
+	return slices.Clone(lanIPs.ips)
 }
 
 func LANIPs() []string {

@@ -8,6 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"imagecaster-server/process"
 )
 
 type DashboardModel struct {
@@ -31,6 +33,7 @@ type DashboardModel struct {
 	showQueue     bool
 	queueSel      int
 	queueFlash    string
+	procFlash     string
 	attached      bool
 }
 
@@ -109,6 +112,15 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ServicesChangeMsg:
 		m.refreshServices()
 		m.refreshGPU()
+		return m, nil
+
+	case procResultMsg:
+		if msg.err != nil {
+			m.procFlash = fmt.Sprintf(T("proc.error"), msg.name, msg.err.Error())
+		} else {
+			m.procFlash = ""
+		}
+		m.refreshServices()
 		return m, nil
 
 	case queueResultMsg:
@@ -263,17 +275,17 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			if m.cursor < len(svcKeys) {
-				go m.deps.RestartProc(svcKeys[m.cursor])
+				name := svcKeys[m.cursor]
+				return m, procCmd(name, func() error { return m.deps.RestartProc(name) })
 			}
 		case "s":
 			if m.cursor < len(svcKeys) {
 				name := svcKeys[m.cursor]
 				info := m.services[name]
-				if info.Status == "running" || info.Status == "unhealthy" {
-					go m.deps.StopProc(name)
-				} else {
-					go m.deps.StartProc(name)
+				if process.IsAlive(info.Status) {
+					return m, procCmd(name, func() error { return m.deps.StopProc(name) })
 				}
+				return m, procCmd(name, func() error { return m.deps.StartProc(name) })
 			}
 		case "l":
 			if m.cursor < len(svcKeys) {
@@ -566,6 +578,10 @@ func (m DashboardModel) viewDashboard() string {
 		}
 		line := fmt.Sprintf("  %s %-28s %s", stoppedStyle.Render("-"), si.Name, installStatus)
 		lines = append(lines, line)
+	}
+
+	if m.procFlash != "" {
+		lines = append(lines, progressRed.Render(" "+m.procFlash))
 	}
 
 	for len(lines) < h-1 {

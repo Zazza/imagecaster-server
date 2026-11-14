@@ -11,9 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"imagecaster-server/config"
 	"imagecaster-server/gpuqueue"
-	"imagecaster-server/models"
 	"imagecaster-server/sdcpp"
 )
 
@@ -22,7 +20,7 @@ func newXReviewLimitEnv(t *testing.T, maxLen int) *wireEnv {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "m.safetensors"), make([]byte, 3*1024*1024), 0o644))
 	q := gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 5000, MaxWait: wireMaxWait, LeaseTTL: 30 * time.Second, MaxQueueLen: maxLen})
 	cfg := GateConfig{SDDefaultWeightMB: 9000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 1}
-	gate := NewGate(q, cfg, newSDWeight(cfg, models.NewModelManager(&config.Config{}), dir))
+	gate := NewGate(q, cfg, newSDWeight(cfg, dirResolver(dir)))
 	sd, srv := newWireSD(t)
 	f := sdcpp.New(sdcpp.Config{BaseURL: srv.URL, ModelsDir: dir, PollInterval: 5 * time.Millisecond, ReadyTimeout: time.Second}, noopRestarter{}, nil)
 	wireSDJobs(f, gate)

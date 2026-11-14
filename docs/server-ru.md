@@ -82,6 +82,7 @@ Imagecaster Server запускает stable-diffusion.cpp и llama.cpp для �
   llamacpp-models.ini        список моделей для llama-server, сервер пишет его по models/ollama
   models/ollama/             текстовые модели в раскладке Ollama (manifests + blobs), их берёт llama.cpp (`llm.models_dir`)
   logs/server.log            server log (Windows window build)
+  logs/<service>.log         вывод сервиса; на 20 МБ переносится в .1 (хранится одна старая копия)
   imagecaster-server.lock    one server per folder (Windows window build)
 ```
 

@@ -2,7 +2,6 @@ package process
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"time"
 
@@ -30,7 +29,7 @@ type ManagedProcess struct {
 	Managed        bool
 	CancelFunc     context.CancelFunc
 	LogBuf         *RingBuffer
-	LogFile        *os.File
+	LogFile        *RotatingFile
 	stopRequested  bool
 	restartPending bool
 }

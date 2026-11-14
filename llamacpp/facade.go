@@ -50,7 +50,13 @@ type Facade struct {
 	expires map[string]time.Time
 	pending map[string]bool
 	serving sync.RWMutex
+
+	runMu     sync.Mutex
+	runAt     time.Time
+	runLoaded []string
 }
+
+const runningTTL = 2 * time.Second
 
 func New(cfg Config) *Facade {
 	hc := cfg.HTTP
@@ -579,13 +585,25 @@ func (f *Facade) UnloadIdle(ctx context.Context) error {
 	return nil
 }
 
-func (f *Facade) RunningNames() []string {
+func (f *Facade) loadedCached() []string {
+	f.runMu.Lock()
+	defer f.runMu.Unlock()
+	now := f.now()
+	if age := now.Sub(f.runAt); !f.runAt.IsZero() && age >= 0 && age < runningTTL {
+		return f.runLoaded
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	loaded, err := f.router.Loaded(ctx)
 	if err != nil {
-		return nil
+		loaded = nil
 	}
+	f.runAt, f.runLoaded = now, loaded
+	return loaded
+}
+
+func (f *Facade) RunningNames() []string {
+	loaded := f.loadedCached()
 	var out []string
 	f.mu.Lock()
 	defer f.mu.Unlock()

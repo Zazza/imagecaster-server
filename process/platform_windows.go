@@ -4,13 +4,19 @@ package process
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os/exec"
-	"strings"
+	"strconv"
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"imagecaster-server/hide"
 )
+
+var stopGrace = 10 * time.Second
 
 func SetPlatformProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -20,51 +26,36 @@ func SetPlatformProcAttr(cmd *exec.Cmd) {
 }
 
 func PlatformKill(pid int, cancel context.CancelFunc) error {
+	if pid <= 0 {
+		if cancel != nil {
+			cancel()
+		}
+		return nil
+	}
+	h, openErr := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	killErr := killProcessTree(pid)
 	if cancel != nil {
 		cancel()
 	}
-
-	if pid > 0 {
-		killProcessTree(pid)
-		time.Sleep(1500 * time.Millisecond)
+	if openErr != nil {
+		return nil
+	}
+	defer windows.CloseHandle(h)
+	ev, err := windows.WaitForSingleObject(h, uint32(stopGrace/time.Millisecond))
+	if err != nil {
+		return fmt.Errorf("wait for pid %d: %w", pid, err)
+	}
+	if ev == uint32(windows.WAIT_TIMEOUT) {
+		return errors.Join(fmt.Errorf("pid %d still running after %s", pid, stopGrace), killErr)
 	}
 	return nil
 }
 
-func killProcessTree(pid int) {
-	run(exec.Command("taskkill", "/PID", itoa(pid), "/T", "/F"))
-
-	wmic := exec.Command("wmic", "process", "where",
-		"ParentProcessId="+itoa(pid),
-		"get", "ProcessId", "/format:csv")
-	hide.Window(wmic)
-	out, _ := wmic.Output()
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "Node,") {
-			continue
-		}
-		fields := strings.Split(line, ",")
-		childPID := strings.TrimSpace(fields[len(fields)-1])
-		if childPID != "" && childPID != itoa(pid) {
-			run(exec.Command("taskkill", "/PID", childPID, "/T", "/F"))
-		}
-	}
-}
-
-func run(cmd *exec.Cmd) {
+func killProcessTree(pid int) error {
+	cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
 	hide.Window(cmd)
-	_ = cmd.Run()
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("taskkill %d: %w: %s", pid, err, out)
 	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
+	return nil
 }

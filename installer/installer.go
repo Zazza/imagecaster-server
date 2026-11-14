@@ -35,7 +35,7 @@ type Installer struct {
 	OnProgress       func(key, progress string)
 	ctx              context.Context
 	cancel           context.CancelFunc
-	running          sync.Mutex
+	running          sync.RWMutex
 }
 
 var _ process.Installer = (*Installer)(nil)
@@ -204,9 +204,8 @@ func (inst *Installer) ensureStatus(key string) *process.RingBuffer {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
 
-	s, ok := inst.statuses[key]
-	if !ok {
-		s = &InstallStatus{Key: key}
+	if _, ok := inst.statuses[key]; !ok {
+		s := &InstallStatus{Key: key}
 		ic := inst.getConfig(key)
 		if ic != nil {
 			s.Installed = inst.checkInstalled(*ic)
@@ -233,6 +232,11 @@ func (inst *Installer) getConfig(key string) *config.InstallConfig {
 }
 
 func (inst *Installer) Install(key string) error {
+	inst.running.RLock()
+	defer inst.running.RUnlock()
+	if err := inst.ctx.Err(); err != nil {
+		return fmt.Errorf("install %s: %w", key, err)
+	}
 	lk := inst.keyLock(key)
 	lk.Lock()
 	defer lk.Unlock()
@@ -262,7 +266,7 @@ func (inst *Installer) Install(key string) error {
 	inst.statuses[key] = s
 	inst.mu.Unlock()
 
-	err := inst.doInstall(key, *ic, lb)
+	err := inst.doInstall(inst.ctx, key, *ic, lb)
 
 	inst.mu.Lock()
 	s = inst.statuses[key]
@@ -306,10 +310,10 @@ func (inst *Installer) Status() map[string]InstallStatus {
 	return result
 }
 
-func (inst *Installer) doInstall(key string, ic config.InstallConfig, lb *process.RingBuffer) error {
+func (inst *Installer) doInstall(ctx context.Context, key string, ic config.InstallConfig, lb *process.RingBuffer) error {
 	switch ic.Method {
 	case config.InstallRelease:
-		return inst.installRelease(key, ic, lb)
+		return inst.installRelease(ctx, key, ic, lb)
 	}
 	return fmt.Errorf("unknown install method: %s", ic.Method)
 }
@@ -352,12 +356,12 @@ func (inst *Installer) Close() {
 	done := make(chan struct{})
 	go func() {
 		inst.running.Lock()
-		inst.running.Unlock()
 		close(done)
+		inst.running.Unlock()
 	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		log.Printf("installer: setup commands still running after shutdown")
+		log.Printf("installer: install still running after shutdown")
 	}
 }

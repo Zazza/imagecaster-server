@@ -48,6 +48,7 @@ var dict = map[string]pair{
 	"queue.waits":               {"waits %s", "ждёт %s"},
 	"queue.lease":               {"lease %s", "аренда %s"},
 	"queue.error":               {"error: %s", "ошибка: %s"},
+	"proc.error":                {"%s: %s", "%s: %s"},
 	"install.title":             {"Installing components...", "Установка компонентов..."},
 	"install.done":              {"done", "готово"},
 	"install.failed":            {"failed", "ошибка"},

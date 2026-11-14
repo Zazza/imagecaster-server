@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -27,12 +28,31 @@ type GPUMonitor struct {
 	info     GPUInfo
 	binary   string
 	lastBad  string
+	timeout  time.Duration
 	OnUpdate func(GPUInfo)
+}
+
+const (
+	pollInterval    = 5 * time.Second
+	maxPollInterval = 60 * time.Second
+	smiTimeout      = 5 * time.Second
+)
+
+func nextInterval(cur time.Duration, ok bool) time.Duration {
+	if ok {
+		return pollInterval
+	}
+	next := cur * 2
+	if next > maxPollInterval {
+		next = maxPollInterval
+	}
+	return next
 }
 
 func NewGPUMonitor() *GPUMonitor {
 	gm := &GPUMonitor{
-		binary: "nvidia-smi",
+		binary:  "nvidia-smi",
+		timeout: smiTimeout,
 	}
 
 	if runtime.GOOS == "windows" {
@@ -48,33 +68,36 @@ func NewGPUMonitor() *GPUMonitor {
 }
 
 func (gm *GPUMonitor) Start(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	gm.poll()
-
+	interval := nextInterval(pollInterval, gm.poll(ctx))
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			gm.poll()
+		case <-timer.C:
+			interval = nextInterval(interval, gm.poll(ctx))
+			timer.Reset(interval)
 		}
 	}
 }
 
-func (gm *GPUMonitor) poll() {
-	cmd := hide.Command(gm.binary,
+func (gm *GPUMonitor) poll(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, gm.timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, gm.binary,
 		"--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu",
 		"--format=csv,noheader,nounits",
 	)
+	hide.Window(cmd)
+	cmd.WaitDelay = time.Second
 
 	output, err := cmd.Output()
 	if err != nil {
 		gm.mu.Lock()
 		gm.info = GPUInfo{Available: false}
 		gm.mu.Unlock()
-		return
+		return false
 	}
 
 	info, ok := parseNvidiaSMI(string(output))
@@ -88,7 +111,7 @@ func (gm *GPUMonitor) poll() {
 		if report {
 			log.Printf("[gpu] unexpected nvidia-smi output: %q", raw)
 		}
-		return
+		return false
 	}
 
 	gm.mu.Lock()
@@ -98,6 +121,7 @@ func (gm *GPUMonitor) poll() {
 	if gm.OnUpdate != nil {
 		gm.OnUpdate(info)
 	}
+	return true
 }
 
 func (gm *GPUMonitor) Info() GPUInfo {
@@ -153,7 +177,7 @@ func smiNumber(s string) (int, bool) {
 }
 
 func (gm *GPUMonitor) Detect() GPUInfo {
-	gm.poll()
+	gm.poll(context.Background())
 	return gm.Info()
 }
 
