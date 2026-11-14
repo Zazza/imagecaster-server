@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -18,17 +19,15 @@ func SetPlatformProcAttr(cmd *exec.Cmd) {
 	hide.Window(cmd)
 }
 
-func PlatformKill(mp *ManagedProcess) error {
-	if mp.CancelFunc != nil {
-		mp.CancelFunc()
+func PlatformKill(pid int, cancel context.CancelFunc) error {
+	if cancel != nil {
+		cancel()
 	}
 
-	if mp.PID > 0 {
-		killProcessTree(mp.PID)
+	if pid > 0 {
+		killProcessTree(pid)
 		time.Sleep(1500 * time.Millisecond)
 	}
-
-	mp.Status = "stopped"
 	return nil
 }
 

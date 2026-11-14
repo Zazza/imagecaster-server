@@ -269,7 +269,7 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(svcKeys) {
 				name := svcKeys[m.cursor]
 				info := m.services[name]
-				if info.Status == "running" {
+				if info.Status == "running" || info.Status == "unhealthy" {
 					go m.deps.StopProc(name)
 				} else {
 					go m.deps.StartProc(name)
@@ -532,7 +532,7 @@ func (m DashboardModel) viewDashboard() string {
 				healthText = fmt.Sprintf(T("dash.health_ok"), si.Latency)
 			}
 			statusText = fmt.Sprintf("%s PID %d %s%s", runningStyle.Render(statusLabel(si.Status)), si.PID, si.Uptime, healthText)
-		case "crashed":
+		case "crashed", "unhealthy":
 			statusIcon = crashedStyle.Render("!")
 			statusText = crashedStyle.Render(statusLabel(si.Status))
 		default:

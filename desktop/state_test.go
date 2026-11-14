@@ -43,6 +43,7 @@ func TestServiceState(t *testing.T) {
 		{"running not healthy", "running", false, "starting"},
 		{"starting", "starting", false, "starting"},
 		{"crashed", "crashed", false, "failed"},
+		{"unhealthy", "unhealthy", false, "failed"},
 		{"stopped", "stopped", false, "off"},
 		{"empty", "", false, "off"},
 		{"unknown", "weird", false, "off"},

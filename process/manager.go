@@ -25,19 +25,43 @@ type Installer interface {
 }
 
 type ProcessManager struct {
-	Mu        sync.RWMutex
-	processes map[string]*ManagedProcess
-	installer Installer
-	dataDir   string
-	closed    bool
-	OnChange  func()
+	Mu                sync.RWMutex
+	processes         map[string]*ManagedProcess
+	installer         Installer
+	dataDir           string
+	closed            bool
+	OnChange          func()
+	watchInterval     time.Duration
+	restartBackoff    func(restarts int) time.Duration
+	minUptime         time.Duration
+	healthAttempts    int
+	healthInterval    time.Duration
+	unhealthyInterval time.Duration
+}
+
+const (
+	StatusStopped   = "stopped"
+	StatusStarting  = "starting"
+	StatusRunning   = "running"
+	StatusUnhealthy = "unhealthy"
+	StatusCrashed   = "crashed"
+)
+
+func IsAlive(status string) bool {
+	return status == StatusRunning || status == StatusStarting || status == StatusUnhealthy
 }
 
 func NewProcessManager(cfg *config.Config, inst Installer, dataDir string) *ProcessManager {
 	pm := &ProcessManager{
-		processes: make(map[string]*ManagedProcess),
-		installer: inst,
-		dataDir:   dataDir,
+		processes:         make(map[string]*ManagedProcess),
+		installer:         inst,
+		dataDir:           dataDir,
+		watchInterval:     2 * time.Second,
+		restartBackoff:    backoffDuration,
+		minUptime:         5 * time.Second,
+		healthAttempts:    120,
+		healthInterval:    2 * time.Second,
+		unhealthyInterval: 10 * time.Second,
 	}
 	for key, pc := range cfg.Processes {
 		pm.processes[key] = &ManagedProcess{
@@ -80,14 +104,19 @@ func (pm *ProcessManager) start(name string) error {
 		pm.Mu.Unlock()
 		return fmt.Errorf("process %q not found", name)
 	}
-	if mp.Status == "running" || mp.Status == "starting" {
+	if status := mp.Status; IsAlive(status) {
 		pm.Mu.Unlock()
-		return fmt.Errorf("process %q is already %s", name, mp.Status)
+		return fmt.Errorf("process %q is already %s", name, status)
 	}
 
-	mp.Status = "starting"
+	mp.Status = StatusStarting
+	mp.stopRequested = false
+	mp.Cmd = nil
+	mp.PID = 0
+	mp.CancelFunc = nil
 	pc := mp.Config
 	pc.Env = maps.Clone(pc.Env)
+	installFailed := mp.InstallFailed
 	pm.Mu.Unlock()
 
 	if pc.HealthURL != "" {
@@ -99,10 +128,12 @@ func (pm *ProcessManager) start(name string) error {
 			hresp.Body.Close()
 			if hresp.StatusCode == http.StatusOK {
 				pm.Mu.Lock()
-				mp.Status = "running"
+				if mp.stopRequested {
+					pm.Mu.Unlock()
+					return pm.startAborted(name)
+				}
+				mp.Status = StatusRunning
 				mp.StartedAt = time.Now()
-				mp.PID = 0
-				mp.CancelFunc = nil
 				mp.LogBuf.Write("already running (health check passed, skipped start)")
 				pm.processes[name] = mp
 				pm.Mu.Unlock()
@@ -113,10 +144,12 @@ func (pm *ProcessManager) start(name string) error {
 		}
 	}
 
-	if pm.installer != nil && !mp.InstallFailed {
+	if pm.installer != nil && !installFailed {
 		if err := pm.installer.EnsureInstalled(name, pc.Binary); err != nil {
 			pm.Mu.Lock()
-			mp.Status = "crashed"
+			if !mp.stopRequested {
+				mp.Status = StatusCrashed
+			}
 			mp.InstallFailed = true
 			mp.LogBuf.Write(fmt.Sprintf("auto-install failed: %v", err))
 			pm.processes[name] = mp
@@ -170,28 +203,27 @@ func (pm *ProcessManager) start(name string) error {
 
 	mp.LogBuf.Write(fmt.Sprintf("--- process restarted at %s ---", time.Now().Format("2006-01-02 15:04:05")))
 
-	if pm.installer != nil && pm.dataDir != "" {
-		logsDir := filepath.Join(pm.dataDir, "logs")
-		os.MkdirAll(logsDir, 0o755)
-		logPath := filepath.Join(logsDir, name+".log")
-		if mp.LogFile != nil {
-			mp.LogFile.Close()
-		}
-		mp.LogFile, _ = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	}
-
 	pm.Mu.Lock()
 	if pm.closed {
-		mp.Status = "stopped"
+		mp.Status = StatusStopped
 		pm.processes[name] = mp
 		pm.Mu.Unlock()
 		cancel()
 		return fmt.Errorf("process %q: %w", name, ErrClosed)
 	}
+	if mp.stopRequested || mp.Status != StatusStarting {
+		pm.Mu.Unlock()
+		cancel()
+		return pm.startAborted(name)
+	}
+	if pm.installer != nil && pm.dataDir != "" {
+		pm.openLogFile(name, mp)
+	}
+	logFile := mp.LogFile
 	mp.Cmd = cmd
 	mp.CancelFunc = cancel
 	if err := cmd.Start(); err != nil {
-		mp.Status = "crashed"
+		mp.Status = StatusCrashed
 		mp.LogBuf.Write(fmt.Sprintf("failed to start: %v (binary=%s workdir=%s)", err, pc.Binary, pc.WorkDir))
 		pm.processes[name] = mp
 		pm.Mu.Unlock()
@@ -201,59 +233,150 @@ func (pm *ProcessManager) start(name string) error {
 	mp.PID = cmd.Process.Pid
 	mp.Config.Binary = pc.Binary
 	mp.StartedAt = time.Now()
-	mp.Status = "starting"
+	mp.Status = StatusStarting
 	mp.Managed = true
 	pm.processes[name] = mp
 	pm.Mu.Unlock()
 
-	log.Printf("[%s] started (pid=%d binary=%s workdir=%s)", name, mp.PID, pc.Binary, pc.WorkDir)
+	log.Printf("[%s] started (pid=%d binary=%s workdir=%s)", name, cmd.Process.Pid, pc.Binary, pc.WorkDir)
 	pm.notifyChange()
 
-	go pipeLogs(stdout, mp.LogBuf, mp.LogFile, name)
-	go pipeLogs(stderr, mp.LogBuf, mp.LogFile, name)
+	go pipeLogs(stdout, mp.LogBuf, logFile, name)
+	go pipeLogs(stderr, mp.LogBuf, logFile, name)
 
-	go func() {
-		if pc.HealthURL != "" {
-			log.Printf("[%s] waiting for healthy response from %s ...", name, pc.HealthURL)
-			for i := 0; i < 120; i++ {
-				hctx, hcancel := context.WithTimeout(context.Background(), 2*time.Second)
-				hreq, _ := http.NewRequestWithContext(hctx, http.MethodGet, pc.HealthURL, nil)
-				hresp, herr := http.DefaultClient.Do(hreq)
-				hcancel()
-				if herr == nil {
-					hresp.Body.Close()
-					if hresp.StatusCode == http.StatusOK {
-						break
-					}
-				}
-				time.Sleep(2 * time.Second)
-			}
-		}
-
-		pm.Mu.Lock()
-		mp.Status = "running"
-		pm.processes[name] = mp
-		pm.Mu.Unlock()
-		log.Printf("[%s] healthy", name)
-		pm.notifyChange()
-	}()
+	go pm.awaitHealthy(name, mp, cmd, pc.HealthURL)
 
 	go func() {
 		err := cmd.Wait()
+		pm.Mu.Lock()
+		if mp.Cmd != cmd {
+			pm.Mu.Unlock()
+			log.Printf("[%s] previous instance exited: %v", name, err)
+			return
+		}
 		if mp.LogFile != nil {
 			mp.LogFile.Close()
+			mp.LogFile = nil
 		}
-		pm.Mu.Lock()
-		mp.Status = "crashed"
+		if mp.stopRequested {
+			mp.Status = StatusStopped
+		} else {
+			mp.Status = StatusCrashed
+		}
 		if err != nil {
 			mp.LogBuf.Write(fmt.Sprintf("process exited: %v", err))
 		}
-		pm.processes[name] = mp
+		status := mp.Status
 		pm.Mu.Unlock()
+		log.Printf("[%s] exited (%s): %v", name, status, err)
 		pm.notifyChange()
 	}()
 
 	return nil
+}
+
+func (pm *ProcessManager) awaitHealthy(name string, mp *ManagedProcess, cmd *exec.Cmd, healthURL string) {
+	healthy := healthURL == ""
+	if !healthy {
+		log.Printf("[%s] waiting for healthy response from %s ...", name, healthURL)
+	}
+	for i := 0; !healthy && i < pm.healthAttempts; i++ {
+		if !pm.stillIn(mp, cmd, StatusStarting) {
+			return
+		}
+		healthy = probeHealth(healthURL)
+		if !healthy {
+			time.Sleep(pm.healthInterval)
+		}
+	}
+
+	pm.Mu.Lock()
+	if mp.Cmd != cmd || mp.Status != StatusStarting {
+		pm.Mu.Unlock()
+		return
+	}
+	if healthy {
+		mp.Status = StatusRunning
+	} else {
+		mp.Status = StatusUnhealthy
+		mp.LogBuf.Write(fmt.Sprintf("no healthy response from %s after %d attempts", healthURL, pm.healthAttempts))
+	}
+	status := mp.Status
+	pm.Mu.Unlock()
+	log.Printf("[%s] %s", name, status)
+	pm.notifyChange()
+	if !healthy {
+		pm.recheckUnhealthy(name, mp, cmd, healthURL)
+	}
+}
+
+func (pm *ProcessManager) recheckUnhealthy(name string, mp *ManagedProcess, cmd *exec.Cmd, healthURL string) {
+	for {
+		time.Sleep(pm.unhealthyInterval)
+		if !pm.stillIn(mp, cmd, StatusUnhealthy) {
+			return
+		}
+		if !probeHealth(healthURL) {
+			continue
+		}
+		pm.Mu.Lock()
+		if mp.Cmd != cmd || mp.Status != StatusUnhealthy {
+			pm.Mu.Unlock()
+			return
+		}
+		mp.Status = StatusRunning
+		mp.LogBuf.Write(fmt.Sprintf("healthy response from %s after being unhealthy", healthURL))
+		pm.Mu.Unlock()
+		log.Printf("[%s] running (health recovered)", name)
+		pm.notifyChange()
+		return
+	}
+}
+
+func (pm *ProcessManager) startAborted(name string) error {
+	log.Printf("[%s] start cancelled: stop requested", name)
+	pm.notifyChange()
+	return fmt.Errorf("process %q: start cancelled by stop", name)
+}
+
+func (pm *ProcessManager) openLogFile(name string, mp *ManagedProcess) {
+	if mp.LogFile != nil {
+		mp.LogFile.Close()
+		mp.LogFile = nil
+	}
+	logsDir := filepath.Join(pm.dataDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		log.Printf("[%s] log dir: %v", name, err)
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(logsDir, name+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		log.Printf("[%s] log file: %v", name, err)
+		return
+	}
+	mp.LogFile = f
+}
+
+func (pm *ProcessManager) stillIn(mp *ManagedProcess, cmd *exec.Cmd, status string) bool {
+	pm.Mu.RLock()
+	defer pm.Mu.RUnlock()
+	return mp.Cmd == cmd && mp.Status == status
+}
+
+func probeHealth(url string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("health request %s: %v", url, err)
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func pipeLogs(r io.Reader, buf *RingBuffer, logFile *os.File, name string) {
@@ -275,15 +398,30 @@ func (pm *ProcessManager) Stop(name string) error {
 		pm.Mu.Unlock()
 		return fmt.Errorf("process %q not found", name)
 	}
-	if mp.Status != "running" && mp.Status != "starting" {
+	if !IsAlive(mp.Status) {
 		pm.Mu.Unlock()
 		return nil
 	}
+	pid, cancel, cmd := pm.requestStop(mp)
 	pm.Mu.Unlock()
 
-	err := PlatformKill(mp)
+	err := PlatformKill(pid, cancel)
+	pm.markStopped(mp, cmd)
 	pm.notifyChange()
 	return err
+}
+
+func (pm *ProcessManager) requestStop(mp *ManagedProcess) (int, context.CancelFunc, *exec.Cmd) {
+	mp.stopRequested = true
+	return mp.PID, mp.CancelFunc, mp.Cmd
+}
+
+func (pm *ProcessManager) markStopped(mp *ManagedProcess, cmd *exec.Cmd) {
+	pm.Mu.Lock()
+	defer pm.Mu.Unlock()
+	if mp.Cmd == cmd {
+		mp.Status = StatusStopped
+	}
 }
 
 func (pm *ProcessManager) Restart(name string) error {
@@ -314,7 +452,7 @@ func (pm *ProcessManager) Status() map[string]ProcessStatus {
 			Restarts:  mp.Restarts,
 			Category:  mp.Config.Category,
 		}
-		if !mp.StartedAt.IsZero() && mp.Status == "running" {
+		if !mp.StartedAt.IsZero() && mp.Status == StatusRunning {
 			ps.Uptime = time.Since(mp.StartedAt).Truncate(time.Second).String()
 		}
 		result[name] = ps
@@ -340,7 +478,7 @@ func (pm *ProcessManager) Get(name string) (*ManagedProcess, bool) {
 }
 
 func (pm *ProcessManager) Watch(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(pm.watchInterval)
 	defer ticker.Stop()
 
 	for {
@@ -348,32 +486,41 @@ func (pm *ProcessManager) Watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			pm.Mu.RLock()
-			for name, mp := range pm.processes {
-				if mp.Status == "crashed" && mp.Config.Restart && mp.Restarts < mp.Config.MaxRestart {
-					if !mp.StartedAt.IsZero() && time.Since(mp.StartedAt) < 5*time.Second {
-						log.Printf("[%s] crashed too fast (%v), skipping restart", name, time.Since(mp.StartedAt))
-						continue
-					}
-					delay := backoffDuration(mp.Restarts)
-					go func(n string, m *ManagedProcess) {
-						time.Sleep(delay)
-						pm.Mu.Lock()
-						if m.Status != "crashed" {
-							pm.Mu.Unlock()
-							return
-						}
-						m.Restarts++
-						pm.processes[n] = m
-						pm.Mu.Unlock()
-						pm.start(n)
-						pm.notifyChange()
-					}(name, mp)
-				}
-			}
-			pm.Mu.RUnlock()
+			pm.scheduleRestarts()
 		}
 	}
+}
+
+func (pm *ProcessManager) scheduleRestarts() {
+	pm.Mu.Lock()
+	defer pm.Mu.Unlock()
+	for name, mp := range pm.processes {
+		if mp.Status != StatusCrashed || !mp.Config.Restart || mp.Restarts >= mp.Config.MaxRestart || mp.restartPending {
+			continue
+		}
+		if !mp.StartedAt.IsZero() && time.Since(mp.StartedAt) < pm.minUptime {
+			log.Printf("[%s] crashed too fast (%v), skipping restart", name, time.Since(mp.StartedAt))
+			continue
+		}
+		mp.restartPending = true
+		go pm.restartAfter(name, mp, pm.restartBackoff(mp.Restarts))
+	}
+}
+
+func (pm *ProcessManager) restartAfter(name string, mp *ManagedProcess, delay time.Duration) {
+	time.Sleep(delay)
+	pm.Mu.Lock()
+	mp.restartPending = false
+	if mp.Status != StatusCrashed {
+		pm.Mu.Unlock()
+		return
+	}
+	mp.Restarts++
+	pm.Mu.Unlock()
+	if err := pm.start(name); err != nil {
+		log.Printf("[%s] restart failed: %v", name, err)
+	}
+	pm.notifyChange()
 }
 
 var ErrClosed = errors.New("process manager is shut down")
@@ -386,17 +533,36 @@ func (pm *ProcessManager) Close() {
 }
 
 func (pm *ProcessManager) StopAll() {
-	pm.Mu.RLock()
-	defer pm.Mu.RUnlock()
+	type target struct {
+		name   string
+		mp     *ManagedProcess
+		pid    int
+		cancel context.CancelFunc
+		cmd    *exec.Cmd
+	}
+	var targets []target
+	pm.Mu.Lock()
 	for name, mp := range pm.processes {
-		if mp.Status != "running" && mp.Status != "starting" {
+		if !IsAlive(mp.Status) {
 			continue
 		}
 		if !pm.isOurProcess(mp) {
 			log.Printf("[%s] skipping stop — system-managed process", name)
 			continue
 		}
-		PlatformKill(mp)
+		pid, cancel, cmd := pm.requestStop(mp)
+		targets = append(targets, target{name, mp, pid, cancel, cmd})
+	}
+	pm.Mu.Unlock()
+
+	for _, t := range targets {
+		if err := PlatformKill(t.pid, t.cancel); err != nil {
+			log.Printf("[%s] stop: %v", t.name, err)
+		}
+		pm.markStopped(t.mp, t.cmd)
+	}
+	if len(targets) > 0 {
+		pm.notifyChange()
 	}
 }
 

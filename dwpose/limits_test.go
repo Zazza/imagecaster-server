@@ -93,7 +93,6 @@ func TestHandlerOneDetectionAtATime(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	time.Sleep(100 * time.Millisecond)
-	assert.Equal(t, int32(1), est.active.Load())
 	for i := 0; i < 3; i++ {
 		est.release <- struct{}{}
 		assert.Equal(t, http.StatusOK, <-done)

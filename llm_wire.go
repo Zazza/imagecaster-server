@@ -36,8 +36,7 @@ func (r *llamaReloader) Reload(ctx context.Context) error {
 	if r.pm == nil {
 		return nil
 	}
-	st := r.pm.Status()[r.key].Status
-	if st != "running" && st != "starting" {
+	if !process.IsAlive(r.pm.Status()[r.key].Status) {
 		return nil
 	}
 	log.Printf("[llamacpp] model list changed, restarting llama-server")

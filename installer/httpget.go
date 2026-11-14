@@ -11,6 +11,15 @@ import (
 
 var downloadStall = 60 * time.Second
 
+type stallTimer interface {
+	Reset(d time.Duration) bool
+	Stop() bool
+}
+
+var newStallTimer = func(d time.Duration, f func()) stallTimer {
+	return time.AfterFunc(d, f)
+}
+
 var downloadClient = &http.Client{Transport: newDownloadTransport()}
 
 func newDownloadTransport() *http.Transport {
@@ -42,7 +51,7 @@ func HTTPGetFrom(url string, offset int64) (*http.Response, error) {
 		cancel(nil)
 		return nil, err
 	}
-	timer := time.AfterFunc(downloadStall, func() { cancel(errStalled) })
+	timer := newStallTimer(downloadStall, func() { cancel(errStalled) })
 	resp.Body = &stallBody{body: resp.Body, ctx: ctx, timer: timer, cancel: cancel}
 	return resp, nil
 }
@@ -53,7 +62,7 @@ type stallBody struct {
 		Close() error
 	}
 	ctx    context.Context
-	timer  *time.Timer
+	timer  stallTimer
 	cancel context.CancelCauseFunc
 }
 

@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,12 +100,11 @@ func fileServer(t *testing.T, body []byte) *httptest.Server {
 	return srv
 }
 
-func eventuallySize(t *testing.T, path string, size int) {
+func requireSize(t *testing.T, path string, size int) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		info, err := os.Stat(path)
-		return err == nil && info.Size() == int64(size)
-	}, 5*time.Second, 20*time.Millisecond, "file %s not downloaded", path)
+	info, err := os.Stat(path)
+	require.NoError(t, err, "file %s not downloaded", path)
+	require.Equal(t, int64(size), info.Size(), "file %s size", path)
 }
 
 func TestTextEncoderList(t *testing.T) {
@@ -145,7 +143,7 @@ func TestTextEncoderPostDownload(t *testing.T) {
 			e.mux.ServeHTTP(rec, req)
 			require.Less(t, rec.Code, 300, rec.Body.String())
 
-			eventuallySize(t, filepath.Join(e.teDir, "enc.gguf"), len(content))
+			requireSize(t, filepath.Join(e.teDir, "enc.gguf"), len(content))
 			_, err = os.Stat(filepath.Join(e.sdDir, "enc.gguf"))
 			assert.True(t, os.IsNotExist(err), "must not land in ModelsDir")
 		})
@@ -165,7 +163,7 @@ func TestTextEncoderDownloadStream(t *testing.T) {
 
 			assert.Contains(t, rec.Body.String(), "data: [DONE]")
 			assert.NotContains(t, rec.Body.String(), "[ERROR]")
-			eventuallySize(t, filepath.Join(e.teDir, "moss.tokenizer.json"), len(content))
+			requireSize(t, filepath.Join(e.teDir, "moss.tokenizer.json"), len(content))
 		})
 	}
 }
@@ -308,9 +306,8 @@ func TestDownloadFilenameStaysInDir(t *testing.T) {
 					if fn.mustReject {
 						assert.GreaterOrEqual(t, rec.Code, 400, rec.Body.String())
 					} else if rec.Code < 400 && !strings.Contains(rec.Body.String(), "[ERROR]") {
-						eventuallySize(t, filepath.Join(dir, "x.safetensors"), len(content))
+						requireSize(t, filepath.Join(dir, "x.safetensors"), len(content))
 					}
-					time.Sleep(300 * time.Millisecond)
 					assert.Empty(t, filesOutside(t, base, dir), "file created outside %s", dir)
 				})
 			}
@@ -364,5 +361,5 @@ func TestPostDownload_ResponseFilenameSanitized(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
 	assert.Equal(t, "x.safetensors", body["filename"])
 
-	eventuallySize(t, filepath.Join(e.sdDir, "x.safetensors"), len(content))
+	requireSize(t, filepath.Join(e.sdDir, "x.safetensors"), len(content))
 }

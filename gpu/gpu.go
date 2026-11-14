@@ -2,6 +2,7 @@ package gpu
 
 import (
 	"context"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -25,6 +26,7 @@ type GPUMonitor struct {
 	mu       sync.RWMutex
 	info     GPUInfo
 	binary   string
+	lastBad  string
 	OnUpdate func(GPUInfo)
 }
 
@@ -75,26 +77,18 @@ func (gm *GPUMonitor) poll() {
 		return
 	}
 
-	line := strings.TrimSpace(string(output))
-	if line == "" {
+	info, ok := parseNvidiaSMI(string(output))
+	if !ok {
+		raw := strings.TrimSpace(string(output))
 		gm.mu.Lock()
 		gm.info = GPUInfo{Available: false}
+		report := raw != "" && raw != gm.lastBad
+		gm.lastBad = raw
 		gm.mu.Unlock()
+		if report {
+			log.Printf("[gpu] unexpected nvidia-smi output: %q", raw)
+		}
 		return
-	}
-
-	fields := strings.Split(line, ",")
-	if len(fields) < 5 {
-		return
-	}
-
-	info := GPUInfo{
-		Name:        strings.TrimSpace(fields[0]),
-		MemoryTotal: atoi(strings.TrimSpace(fields[1])),
-		MemoryUsed:  atoi(strings.TrimSpace(fields[2])),
-		MemoryFree:  atoi(strings.TrimSpace(fields[3])),
-		Utilization: atoi(strings.TrimSpace(fields[4])),
-		Available:   true,
 	}
 
 	gm.mu.Lock()
@@ -112,9 +106,50 @@ func (gm *GPUMonitor) Info() GPUInfo {
 	return gm.info
 }
 
-func atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
+func parseNvidiaSMI(output string) (GPUInfo, bool) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		return parseNvidiaSMILine(line)
+	}
+	return GPUInfo{}, false
+}
+
+func parseNvidiaSMILine(line string) (GPUInfo, bool) {
+	fields := strings.Split(line, ",")
+	if len(fields) != 5 {
+		return GPUInfo{}, false
+	}
+	nums := make([]int, 4)
+	for i, f := range fields[1:] {
+		n, ok := smiNumber(f)
+		if !ok {
+			return GPUInfo{}, false
+		}
+		nums[i] = n
+	}
+	return GPUInfo{
+		Name:        strings.TrimSpace(fields[0]),
+		MemoryTotal: nums[0],
+		MemoryUsed:  nums[1],
+		MemoryFree:  nums[2],
+		Utilization: nums[3],
+		Available:   true,
+	}, true
+}
+
+func smiNumber(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "[N/A]" || s == "N/A" || s == "[Not Supported]" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 func (gm *GPUMonitor) Detect() GPUInfo {

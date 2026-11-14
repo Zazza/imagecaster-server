@@ -40,6 +40,13 @@ type Queue struct {
 	maxWait     time.Duration
 	leaseTTL    time.Duration
 	maxQueueLen int
+	now         func() time.Time
+	newTicker   func(d time.Duration) (<-chan time.Time, func())
+}
+
+func realTicker(d time.Duration) (<-chan time.Time, func()) {
+	t := time.NewTicker(d)
+	return t.C, t.Stop
 }
 
 func New(cfg Config) *Queue {
@@ -63,6 +70,8 @@ func New(cfg Config) *Queue {
 		maxWait:     cfg.MaxWait,
 		leaseTTL:    cfg.LeaseTTL,
 		maxQueueLen: cfg.MaxQueueLen,
+		now:         time.Now,
+		newTicker:   realTicker,
 	}
 }
 
@@ -249,7 +258,7 @@ func (q *Queue) Heartbeat(id string) bool {
 	if !ok {
 		return false
 	}
-	j.deadline = time.Now().Add(q.leaseTTL)
+	j.deadline = q.now().Add(q.leaseTTL)
 	return true
 }
 
@@ -349,7 +358,7 @@ func (q *Queue) newQJobLocked(spec Spec) *qjob {
 		client:    spec.Client,
 		weightMB:  spec.WeightMB,
 		priority:  clampPriority(spec.Priority),
-		submitted: time.Now(),
+		submitted: q.now(),
 		noLimit:   spec.NoWaitLimit,
 		noQueue:   spec.NoQueueLimit,
 		exclusive: spec.Exclusive,
@@ -360,7 +369,7 @@ func (q *Queue) newQJobLocked(spec Spec) *qjob {
 }
 
 func (q *Queue) dispatchLocked() {
-	now := time.Now()
+	now := q.now()
 	kept := make([]*qjob, 0, len(q.waiting))
 	for _, j := range q.waiting {
 		if j.exclusive && q.exclusiveRunningLocked(j.kind) {
@@ -392,7 +401,7 @@ func (q *Queue) exclusiveRunningLocked(kind Kind) bool {
 func (q *Queue) evictExpired() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	now := time.Now()
+	now := q.now()
 	for id, j := range q.running {
 		if now.After(j.deadline) {
 			q.finishLocked(j)
@@ -464,14 +473,14 @@ func (q *Queue) startRenew(j *qjob) {
 	if interval <= 0 {
 		interval = time.Second
 	}
+	ticks, stop := q.newTicker(interval)
 	go func() {
-		t := time.NewTicker(interval)
-		defer t.Stop()
+		defer stop()
 		for {
 			select {
 			case <-j.stopRenew:
 				return
-			case <-t.C:
+			case <-ticks:
 				if !q.Heartbeat(j.id) {
 					return
 				}
@@ -501,7 +510,7 @@ func (q *Queue) warn(msg string) {
 }
 
 func (q *Queue) warnLocked(msg string) {
-	entry := time.Now().UTC().Format(time.RFC3339) + " " + msg
+	entry := q.now().UTC().Format(time.RFC3339) + " " + msg
 	if len(q.warnings) >= q.maxWarn {
 		copy(q.warnings, q.warnings[1:])
 		q.warnings[len(q.warnings)-1] = entry

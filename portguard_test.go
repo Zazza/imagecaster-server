@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -37,14 +38,43 @@ func (f *fakeWarner) messages() []string {
 	return append([]string(nil), f.msgs...)
 }
 
-func freeAddr(t *testing.T) string {
+func holdAddr(t *testing.T, held map[string]net.Listener) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := l.Addr().String()
-	require.NoError(t, l.Close())
+	held[addr] = l
 	return addr
 }
+
+type openPorts map[string]net.Listener
+
+func (o openPorts) open(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	o[":"+strconv.Itoa(port)] = l
+	t.Cleanup(func() {
+		if err := l.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close %d: %v", port, err)
+		}
+	})
+	return port
+}
+
+func (o openPorts) listen(addr string) (net.Listener, error) {
+	if l, ok := o[addr]; ok {
+		delete(o, addr)
+		return l, nil
+	}
+	return listenIfFree(addr)
+}
+
+const (
+	internalPortA = 1
+	internalPortB = 2
+)
 
 func noKeepAliveClient() *http.Client {
 	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
@@ -147,25 +177,22 @@ func TestGuardHandler_PrefixesRawPath(t *testing.T) {
 
 func TestStartPortGuards_ServesPrefixedPaths(t *testing.T) {
 	t.Parallel()
-	sdAddr := freeAddr(t)
-	llmAddr := freeAddr(t)
+	held := map[string]net.Listener{}
+	sdAddr := holdAddr(t, held)
+	llmAddr := holdAddr(t, held)
 	ch := make(chan seenRequest, 4)
 	w := &fakeWarner{}
 
-	pg := startPortGuards([]config.PortGuard{
+	pg := startHeldPortGuards([]config.PortGuard{
 		{Process: "sd", ListenAddr: sdAddr, ProxyPath: "/api/sd/"},
 		{Process: "ollama", ListenAddr: llmAddr, ProxyPath: "/api/llm/"},
-	}, recordingHandler(ch), w)
+	}, held, recordingHandler(ch), w)
 	require.NotNil(t, pg)
 	t.Cleanup(func() { pg.shutdown(context.Background()) })
 
 	client := noKeepAliveClient()
-	var resp *http.Response
-	var err error
-	require.True(t, waitFor(t, 2*time.Second, func() bool {
-		resp, err = client.Post("http://"+sdAddr+"/jobs?q=1", "application/json", strings.NewReader("{}"))
-		return err == nil
-	}), "sd guard did not start: %v", err)
+	resp, err := client.Post("http://"+sdAddr+"/jobs?q=1", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	got := <-ch
@@ -189,30 +216,25 @@ func TestStartPortGuards_AddressInUse(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { busy.Close() })
 	busyAddr := busy.Addr().String()
-	freeA := freeAddr(t)
+	held := map[string]net.Listener{}
+	freeA := holdAddr(t, held)
 
 	ch := make(chan seenRequest, 2)
 	w := &fakeWarner{}
 	var pg *portGuards
 	require.NotPanics(t, func() {
-		pg = startPortGuards([]config.PortGuard{
+		pg = startHeldPortGuards([]config.PortGuard{
 			{Process: "ollama", ListenAddr: busyAddr, ProxyPath: "/api/llm/"},
 			{Process: "sd", ListenAddr: freeA, ProxyPath: "/api/sd/"},
-		}, recordingHandler(ch), w)
+		}, held, recordingHandler(ch), w)
 	})
 	t.Cleanup(func() { pg.shutdown(context.Background()) })
 
-	client := noKeepAliveClient()
-	var resp *http.Response
-	require.True(t, waitFor(t, 2*time.Second, func() bool {
-		resp, err = client.Get("http://" + freeA + "/state")
-		return err == nil
-	}), "free guard did not start: %v", err)
+	resp, err := noKeepAliveClient().Get("http://" + freeA + "/state")
+	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, "/api/sd/state", (<-ch).path)
 
-	require.True(t, waitFor(t, time.Second, func() bool { return len(w.messages()) > 0 }))
-	time.Sleep(50 * time.Millisecond)
 	msgs := w.messages()
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0], "ollama")
@@ -221,20 +243,17 @@ func TestStartPortGuards_AddressInUse(t *testing.T) {
 
 func TestPortGuards_Shutdown(t *testing.T) {
 	t.Parallel()
-	addr := freeAddr(t)
+	held := map[string]net.Listener{}
+	addr := holdAddr(t, held)
 	ch := make(chan seenRequest, 2)
-	pg := startPortGuards([]config.PortGuard{
+	pg := startHeldPortGuards([]config.PortGuard{
 		{Process: "sd", ListenAddr: addr, ProxyPath: "/api/sd/"},
-	}, recordingHandler(ch), &fakeWarner{})
+	}, held, recordingHandler(ch), &fakeWarner{})
 	require.NotNil(t, pg)
 
 	client := noKeepAliveClient()
-	var resp *http.Response
-	var err error
-	require.True(t, waitFor(t, 2*time.Second, func() bool {
-		resp, err = client.Get("http://" + addr + "/x")
-		return err == nil
-	}), "guard did not start: %v", err)
+	resp, err := client.Get("http://" + addr + "/x")
+	require.NoError(t, err)
 	resp.Body.Close()
 	<-ch
 
@@ -302,25 +321,16 @@ func newPortGuardE2E(t *testing.T) (*e2eEnv, func() int) {
 	pm := process.NewProcessManager(cfg, installer.NewInstaller(cfg), "")
 	ph := NewProxyHandler(pm, cfg, gate)
 
-	env.sdAddr = freeAddr(t)
-	env.llmAddr = freeAddr(t)
+	held := map[string]net.Listener{}
+	env.sdAddr = holdAddr(t, held)
+	env.llmAddr = holdAddr(t, held)
 	w := &fakeWarner{}
-	pg := startPortGuards([]config.PortGuard{
+	pg := startHeldPortGuards([]config.PortGuard{
 		{Process: "ollama", ListenAddr: env.llmAddr, ProxyPath: "/api/llm/"},
 		{Process: "sd", ListenAddr: env.sdAddr, ProxyPath: "/api/sd/"},
-	}, ph, w)
+	}, held, ph, w)
 	t.Cleanup(func() { pg.shutdown(context.Background()) })
-
-	for _, a := range []string{env.sdAddr, env.llmAddr} {
-		require.True(t, waitFor(t, 2*time.Second, func() bool {
-			c, err := net.Dial("tcp", a)
-			if err != nil {
-				return false
-			}
-			c.Close()
-			return true
-		}), "guard %s did not start", a)
-	}
+	require.Empty(t, w.messages())
 	env.proxy = ph
 	return env, func() int { return len(q.Status().Running) }
 }
@@ -434,26 +444,18 @@ func TestProxyHandler_LLMHostViaServerPort(t *testing.T) {
 	assert.Equal(t, "client.example:8080", (<-env.sdSeen).host)
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-	return port
-}
-
 func TestApplyPortGuard_ProbesBusyPorts(t *testing.T) {
 	busy, err := net.Listen("tcp", ":0")
 	require.NoError(t, err)
 	t.Cleanup(func() { busy.Close() })
 	busyPort := busy.Addr().(*net.TCPAddr).Port
-	freeP := freePort(t)
+	ports := openPorts{}
+	freeP := ports.open(t)
 
 	busyURL := "http://127.0.0.1:" + strconv.Itoa(busyPort)
 	busyPC := config.ProcessConfig{
 		Name: "Busy", AutoStart: true, TargetURL: busyURL, HealthURL: busyURL + "/h",
-		ProxyPath: "/api/busy/", InternalPort: freePort(t),
+		ProxyPath: "/api/busy/", InternalPort: internalPortA,
 	}
 	cfg := &config.Config{
 		GPU: config.GPUConfig{GuardPorts: true},
@@ -461,12 +463,12 @@ func TestApplyPortGuard_ProbesBusyPorts(t *testing.T) {
 			"busysvc": busyPC,
 			"freesvc": {
 				Name: "Free", AutoStart: true, TargetURL: "http://127.0.0.1:" + strconv.Itoa(freeP),
-				ProxyPath: "/api/free/", InternalPort: freePort(t),
+				ProxyPath: "/api/free/", InternalPort: internalPortB,
 			},
 		},
 	}
 
-	guards, warnings := applyPortGuard(cfg)
+	guards, warnings, held := holdPortGuardsWith(cfg, ports.listen)
 
 	require.Len(t, guards, 1)
 	assert.Equal(t, "freesvc", guards[0].Process)
@@ -482,19 +484,14 @@ func TestApplyPortGuard_ProbesBusyPorts(t *testing.T) {
 
 	w := &fakeWarner{}
 	ch := make(chan seenRequest, 1)
-	pg := startPortGuards(guards, recordingHandler(ch), w)
+	pg := startHeldPortGuards(guards, held, recordingHandler(ch), w)
 	require.NotNil(t, pg)
 	t.Cleanup(func() { pg.shutdown(context.Background()) })
 
-	client := noKeepAliveClient()
-	var resp *http.Response
-	require.True(t, waitFor(t, 2*time.Second, func() bool {
-		resp, err = client.Get("http://127.0.0.1:" + strconv.Itoa(freeP) + "/x")
-		return err == nil
-	}), "guard on probed port did not start: %v", err)
+	resp, err := noKeepAliveClient().Get("http://127.0.0.1:" + strconv.Itoa(freeP) + "/x")
+	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, "/api/free/x", (<-ch).path)
-	time.Sleep(50 * time.Millisecond)
 	assert.Empty(t, w.messages())
 }
 
@@ -507,7 +504,7 @@ func TestHoldPortGuards_LoopbackOnlyListenerCountsAsBusy(t *testing.T) {
 	cfg := &config.Config{
 		GPU: config.GPUConfig{GuardPorts: true},
 		Processes: map[string]config.ProcessConfig{
-			"ollama": {Name: "Ollama", AutoStart: true, TargetURL: url, ProxyPath: "/api/llm/", InternalPort: freePort(t)},
+			"ollama": {Name: "Ollama", AutoStart: true, TargetURL: url, ProxyPath: "/api/llm/", InternalPort: internalPortA},
 		},
 	}
 
@@ -520,16 +517,17 @@ func TestHoldPortGuards_LoopbackOnlyListenerCountsAsBusy(t *testing.T) {
 }
 
 func TestHoldPortGuards_KeepsPortUntilGuardStarts(t *testing.T) {
-	p := freePort(t)
+	ports := openPorts{}
+	p := ports.open(t)
 	url := "http://127.0.0.1:" + strconv.Itoa(p)
 	cfg := &config.Config{
 		GPU: config.GPUConfig{GuardPorts: true},
 		Processes: map[string]config.ProcessConfig{
-			"sd": {Name: "SD", AutoStart: true, TargetURL: url, ProxyPath: "/api/sd/", InternalPort: freePort(t)},
+			"sd": {Name: "SD", AutoStart: true, TargetURL: url, ProxyPath: "/api/sd/", InternalPort: internalPortA},
 		},
 	}
 
-	guards, _, held := holdPortGuards(cfg)
+	guards, _, held := holdPortGuardsWith(cfg, ports.listen)
 	require.Len(t, guards, 1)
 	_, err := net.Listen("tcp", guards[0].ListenAddr)
 	require.Error(t, err, "port must stay taken between probe and guard start")

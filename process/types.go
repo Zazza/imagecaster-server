@@ -20,15 +20,17 @@ type ProcessStatus struct {
 }
 
 type ManagedProcess struct {
-	Config        config.ProcessConfig
-	Cmd           *exec.Cmd
-	PID           int
-	Status        string
-	StartedAt     time.Time
-	Restarts      int
-	InstallFailed bool
-	Managed       bool
-	CancelFunc    context.CancelFunc
-	LogBuf        *RingBuffer
-	LogFile       *os.File
+	Config         config.ProcessConfig
+	Cmd            *exec.Cmd
+	PID            int
+	Status         string
+	StartedAt      time.Time
+	Restarts       int
+	InstallFailed  bool
+	Managed        bool
+	CancelFunc     context.CancelFunc
+	LogBuf         *RingBuffer
+	LogFile        *os.File
+	stopRequested  bool
+	restartPending bool
 }

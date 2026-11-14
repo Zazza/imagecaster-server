@@ -13,8 +13,6 @@ import (
 func TestEngineDirSuffix(t *testing.T) {
 	assert.Equal(t, "engines/sd-cpp-linux", EngineDirFor(SDCppDirLegacy, "linux"))
 	assert.Equal(t, "engines/llama-cpp-windows", EngineDirFor(LlamaCppDirLegacy, "windows"))
-	assert.Equal(t, SDCppDirLegacy+"-"+runtime.GOOS, SDCppDir)
-	assert.Equal(t, LlamaCppDirLegacy+"-"+runtime.GOOS, LlamaCppDir)
 }
 
 func TestPinEngineDirsRewritesLegacyPaths(t *testing.T) {

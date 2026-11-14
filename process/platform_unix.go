@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"os/exec"
 	"syscall"
 	"time"
@@ -12,18 +13,18 @@ func SetPlatformProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func PlatformKill(mp *ManagedProcess) error {
-	if mp.CancelFunc != nil {
-		mp.CancelFunc()
+func PlatformKill(pid int, cancel context.CancelFunc) error {
+	if cancel != nil {
+		cancel()
 	}
 
-	if mp.PID > 0 {
-		syscall.Kill(-mp.PID, syscall.SIGTERM)
+	if pid > 0 {
+		syscall.Kill(-pid, syscall.SIGTERM)
 
 		done := make(chan struct{})
 		go func() {
 			for {
-				if syscall.Kill(-mp.PID, 0) != nil {
+				if syscall.Kill(-pid, 0) != nil {
 					close(done)
 					return
 				}
@@ -34,10 +35,8 @@ func PlatformKill(mp *ManagedProcess) error {
 		select {
 		case <-done:
 		case <-time.After(10 * time.Second):
-			syscall.Kill(-mp.PID, syscall.SIGKILL)
+			syscall.Kill(-pid, syscall.SIGKILL)
 		}
 	}
-
-	mp.Status = "stopped"
 	return nil
 }

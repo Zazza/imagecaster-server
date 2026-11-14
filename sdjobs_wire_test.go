@@ -65,11 +65,13 @@ type wireEnv struct {
 	gate *Gate
 }
 
+const wireMaxWait = 50 * time.Millisecond
+
 func newWireEnv(t *testing.T, budget int) *wireEnv {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "m.safetensors"), make([]byte, 3*1024*1024), 0o644))
 	cfg := GateConfig{SDDefaultWeightMB: 9000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 1}
-	gate, q := newTestGate(budget, 1, cfg, dir)
+	gate, q := newTestGateWait(budget, wireMaxWait, cfg, dir)
 	sd, srv := newWireSD(t)
 	f := sdcpp.New(sdcpp.Config{BaseURL: srv.URL, ModelsDir: dir, PollInterval: 5 * time.Millisecond, ReadyTimeout: time.Second}, noopRestarter{}, nil)
 	wireSDJobs(f, gate)
@@ -103,7 +105,7 @@ func TestSDJobWaitsVisiblyInGPUQueueAndCancelsFromThere(t *testing.T) {
 
 	id := e.submit(t)
 	require.True(t, waitFor(t, 2*time.Second, func() bool { return len(e.q.Status().Queue) == 1 }))
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(3 * wireMaxWait)
 	st := e.q.Status()
 	require.Len(t, st.Queue, 1, "job must keep waiting past max_wait")
 	assert.Equal(t, gpuqueue.KindSD, st.Queue[0].Kind)

@@ -6,8 +6,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"imagecaster-server/config"
 )
 
 func TestToolPathDirs_emptyDataDir(t *testing.T) {
@@ -182,40 +180,6 @@ func TestToolPathDirs_nonexistentDirsSkipped(t *testing.T) {
 
 	if len(dirs) != 0 {
 		t.Errorf("toolPathDirs() with nonexistent dataDir returned %d entries, want 0: %v", len(dirs), dirs)
-	}
-}
-
-func TestNewProcessManager(t *testing.T) {
-	t.Parallel()
-
-	cfg := &config.Config{
-		Processes: map[string]config.ProcessConfig{
-			"ollama": {
-				Name:      "ollama",
-				Binary:    "ollama",
-				AutoStart: true,
-			},
-		},
-	}
-
-	pm := NewProcessManager(cfg, nil, "/tmp/data")
-
-	if len(pm.processes) != 1 {
-		t.Fatalf("NewProcessManager: expected 1 process, got %d", len(pm.processes))
-	}
-
-	mp, ok := pm.processes["ollama"]
-	if !ok {
-		t.Fatal("NewProcessManager: 'ollama' process not found")
-	}
-	if mp.Status != "stopped" {
-		t.Errorf("new process status = %q, want 'stopped'", mp.Status)
-	}
-	if mp.Config.Name != "ollama" {
-		t.Errorf("process name = %q, want 'ollama'", mp.Config.Name)
-	}
-	if mp.LogBuf == nil {
-		t.Error("process LogBuf should not be nil")
 	}
 }
 

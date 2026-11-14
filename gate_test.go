@@ -20,9 +20,13 @@ import (
 )
 
 func newTestGate(budgetMB, maxWaitSec int, cfg GateConfig, modelsDir string) (*Gate, *gpuqueue.Queue) {
+	return newTestGateWait(budgetMB, time.Duration(maxWaitSec)*time.Second, cfg, modelsDir)
+}
+
+func newTestGateWait(budgetMB int, maxWait time.Duration, cfg GateConfig, modelsDir string) (*Gate, *gpuqueue.Queue) {
 	q := gpuqueue.New(gpuqueue.Config{
 		TotalBudgetMB: budgetMB,
-		MaxWait:       time.Duration(maxWaitSec) * time.Second,
+		MaxWait:       maxWait,
 		LeaseTTL:      30 * time.Second,
 	})
 	mm := models.NewModelManager(&config.Config{})

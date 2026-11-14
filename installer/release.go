@@ -111,34 +111,60 @@ func SDCppArtifacts(goos, goarch string, gpu GPUKind) ([]Artifact, error) {
 	return append(append(engine, onnxArtifact(goos)), poseArtifacts()...), nil
 }
 
+type gpuProbe struct {
+	goos   string
+	run    func(name string, args ...string) ([]byte, error)
+	exists func(path string) bool
+	glob   func(pattern string) ([]string, error)
+	getenv func(key string) string
+}
+
+func systemGPUProbe() gpuProbe {
+	return gpuProbe{
+		goos:   runtime.GOOS,
+		run:    func(name string, args ...string) ([]byte, error) { return hide.Command(name, args...).Output() },
+		exists: fileExists,
+		glob:   filepath.Glob,
+		getenv: os.Getenv,
+	}
+}
+
 func detectGPUKind() GPUKind {
+	return systemGPUProbe().kind()
+}
+
+func (p gpuProbe) kind() GPUKind {
 	bin := "nvidia-smi"
-	if runtime.GOOS == "windows" {
-		if p, err := findNvidiaSMIWindows(); err == nil {
-			bin = p
+	if p.goos == "windows" {
+		if found, ok := p.nvidiaSMIWindows(); ok {
+			bin = found
 		}
 	}
-	if out, err := hide.Command(bin, "-L").Output(); err == nil && strings.Contains(string(out), "GPU ") {
+	if out, err := p.run(bin, "-L"); err == nil && strings.Contains(string(out), "GPU ") {
 		return GPUNvidia
 	}
-	if vulkanUsable(runtime.GOOS) {
+	if p.vulkanUsable() {
 		return GPUVulkan
 	}
 	return GPUNone
 }
 
-func vulkanUsable(goos string) bool {
-	switch goos {
+func (p gpuProbe) vulkanUsable() bool {
+	switch p.goos {
 	case "windows":
-		root := os.Getenv("SystemRoot")
-		return root != "" && fileExists(filepath.Join(root, "System32", "vulkan-1.dll"))
+		root := p.getenv("SystemRoot")
+		return root != "" && p.exists(filepath.Join(root, "System32", "vulkan-1.dll"))
 	case "linux":
-		nodes, _ := filepath.Glob("/dev/dri/renderD*")
+		nodes, err := p.glob("/dev/dri/renderD*")
+		if err != nil {
+			log.Printf("[install] look for GPU render nodes: %v", err)
+			return false
+		}
 		if len(nodes) == 0 {
 			return false
 		}
-		for _, p := range []string{"/usr/lib/x86_64-linux-gnu/libvulkan.so.1", "/usr/lib64/libvulkan.so.1", "/usr/lib/libvulkan.so.1"} {
-			if fileExists(p) {
+		for _, lib := range []string{"/usr/lib/x86_64-linux-gnu/libvulkan.so.1", "/usr/lib64/libvulkan.so.1", "/usr/lib/libvulkan.so.1"} {
+			if p.exists(lib) {
 				return true
 			}
 		}
@@ -146,22 +172,22 @@ func vulkanUsable(goos string) bool {
 	return false
 }
 
-func findNvidiaSMIWindows() (string, error) {
+func (p gpuProbe) nvidiaSMIWindows() (string, bool) {
 	for _, env := range []string{"ProgramW6432", "ProgramFiles"} {
-		if base := os.Getenv(env); base != "" {
-			p := filepath.Join(base, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe")
-			if fileExists(p) {
-				return p, nil
+		if base := p.getenv(env); base != "" {
+			path := filepath.Join(base, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe")
+			if p.exists(path) {
+				return path, true
 			}
 		}
 	}
-	if root := os.Getenv("SystemRoot"); root != "" {
-		p := filepath.Join(root, "System32", "nvidia-smi.exe")
-		if fileExists(p) {
-			return p, nil
+	if root := p.getenv("SystemRoot"); root != "" {
+		path := filepath.Join(root, "System32", "nvidia-smi.exe")
+		if p.exists(path) {
+			return path, true
 		}
 	}
-	return "", os.ErrNotExist
+	return "", false
 }
 
 func (inst *Installer) releaseArtifacts() ([]Artifact, error) {

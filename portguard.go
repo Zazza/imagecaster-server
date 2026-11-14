@@ -20,10 +20,6 @@ type portGuards struct {
 	servers []*http.Server
 }
 
-func startPortGuards(guards []config.PortGuard, proxy http.Handler, w warner) *portGuards {
-	return startHeldPortGuards(guards, nil, proxy, w)
-}
-
 func startHeldPortGuards(guards []config.PortGuard, held map[string]net.Listener, proxy http.Handler, w warner) *portGuards {
 	pg := &portGuards{}
 	for _, g := range guards {
@@ -61,21 +57,15 @@ func startHeldPortGuards(guards []config.PortGuard, held map[string]net.Listener
 	return pg
 }
 
-func applyPortGuard(cfg *config.Config) ([]config.PortGuard, []string) {
-	guards, warns, held := holdPortGuards(cfg)
-	for addr, ln := range held {
-		if err := ln.Close(); err != nil {
-			log.Printf("[guard] probe close %s: %v", addr, err)
-		}
-	}
-	return guards, warns
+func holdPortGuards(cfg *config.Config) ([]config.PortGuard, []string, map[string]net.Listener) {
+	return holdPortGuardsWith(cfg, listenIfFree)
 }
 
-func holdPortGuards(cfg *config.Config) ([]config.PortGuard, []string, map[string]net.Listener) {
+func holdPortGuardsWith(cfg *config.Config, listen func(addr string) (net.Listener, error)) ([]config.PortGuard, []string, map[string]net.Listener) {
 	var warns []string
 	held := map[string]net.Listener{}
 	guards := cfg.ApplyPortGuardIf(func(g config.PortGuard) bool {
-		ln, err := listenIfFree(g.ListenAddr)
+		ln, err := listen(g.ListenAddr)
 		if err != nil {
 			msg := "port guard " + g.Process + " " + g.ListenAddr + " busy, left unguarded: " + err.Error()
 			log.Printf("[guard] %s", msg)

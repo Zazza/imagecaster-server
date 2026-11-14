@@ -64,7 +64,7 @@ func ServiceState(status string, healthy bool) string {
 	switch status {
 	case "running", "starting":
 		return ServiceStarting
-	case "crashed":
+	case "crashed", "unhealthy":
 		return ServiceFailed
 	}
 	return ServiceOff

@@ -32,6 +32,7 @@ var dict = map[string]pair{
 	"status.crashed":            {"crashed", "упал"},
 	"status.stopped":            {"stopped", "остановлен"},
 	"status.starting":           {"starting", "запускается"},
+	"status.unhealthy":          {"not responding", "не отвечает"},
 	"util.installed":            {"installed", "установлен"},
 	"util.not_installed":        {"not installed", "не установлен"},
 	"queue.title":               {"GPU Queue", "Очередь GPU"},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -513,21 +514,103 @@ func TestAcquire_NonPositiveWeightFailsOpen(t *testing.T) {
 	assert.Empty(t, st.Queue)
 }
 
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+type fakeTicker struct {
+	mu       sync.Mutex
+	created  int
+	interval time.Duration
+	ticks    chan time.Time
+	stopped  chan struct{}
+}
+
+func (f *fakeTicker) start(d time.Duration) (<-chan time.Time, func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.created++
+	f.interval = d
+	return f.ticks, func() { close(f.stopped) }
+}
+
 func TestAcquire_AutoRenewKeepsLeaseAlive(t *testing.T) {
-	q := newTestQueue(1000, 5*time.Second, 300*time.Millisecond)
+	t.Parallel()
+	const ttl = 300 * time.Millisecond
+	tests := []struct {
+		name        string
+		autoRenew   bool
+		wantRunning bool
+	}{
+		{name: "auto renew keeps lease", autoRenew: true, wantRunning: true},
+		{name: "without renew lease expires", autoRenew: false, wantRunning: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			clock := &fakeClock{now: base}
+			ticker := &fakeTicker{ticks: make(chan time.Time), stopped: make(chan struct{})}
+			q := newTestQueue(1000, 5*time.Second, ttl)
+			q.now = clock.Now
+			q.newTicker = ticker.start
 
-	lease, err := q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 1000, AutoRenew: true})
-	require.NoError(t, err)
+			lease, err := q.Acquire(context.Background(), Spec{Kind: KindSD, WeightMB: 1000, AutoRenew: tt.autoRenew})
+			require.NoError(t, err)
+			require.Len(t, q.Status().Running, 1)
+			assert.Equal(t, base.Add(ttl), q.Status().Running[0].LeaseDeadline)
 
-	time.Sleep(500 * time.Millisecond)
-	q.evictExpired()
+			clock.Advance(200 * time.Millisecond)
+			if tt.autoRenew {
+				ticker.ticks <- clock.Now()
+				require.Eventually(t, func() bool {
+					st := q.Status()
+					return len(st.Running) == 1 && st.Running[0].LeaseDeadline.Equal(base.Add(200*time.Millisecond+ttl))
+				}, 5*time.Second, time.Millisecond)
+			}
 
-	st := q.Status()
-	require.Len(t, st.Running, 1)
-	assert.Equal(t, lease.ID(), st.Running[0].ID)
+			clock.Advance(200 * time.Millisecond)
+			q.evictExpired()
 
-	lease.Release()
-	assert.Empty(t, q.Status().Running)
+			st := q.Status()
+			if !tt.wantRunning {
+				assert.Empty(t, st.Running)
+				require.NotEmpty(t, st.Warnings)
+				assert.Contains(t, st.Warnings[len(st.Warnings)-1], "lease expired: "+lease.ID())
+				ticker.mu.Lock()
+				assert.Zero(t, ticker.created)
+				ticker.mu.Unlock()
+				return
+			}
+			require.Len(t, st.Running, 1)
+			assert.Equal(t, lease.ID(), st.Running[0].ID)
+			ticker.mu.Lock()
+			assert.Equal(t, 1, ticker.created)
+			assert.Equal(t, ttl/3, ticker.interval)
+			ticker.mu.Unlock()
+
+			lease.Release()
+			assert.Empty(t, q.Status().Running)
+			select {
+			case <-ticker.stopped:
+			case <-time.After(5 * time.Second):
+				t.Fatal("renew ticker not stopped after release")
+			}
+		})
+	}
 }
 
 func TestGet_UnknownID(t *testing.T) {

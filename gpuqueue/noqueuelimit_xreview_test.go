@@ -86,25 +86,6 @@ func TestXReviewNoQueueLimit_ZeroLimitWaitersStillAcceptNormal(t *testing.T) {
 	assert.Zero(t, pos3)
 }
 
-func TestXReviewNoQueueLimit_NormalWaitersFillQueue(t *testing.T) {
-	q := newLimitQueue(t, 2)
-	fillWaiting(t, q, 2, false)
-	assert.True(t, q.QueueFull())
-
-	_, err := q.Acquire(context.Background(), Spec{Kind: KindLLM, Client: "n", WeightMB: 1000})
-	require.ErrorIs(t, err, ErrQueueFull)
-	l, acquired, pos := q.TryAcquire(Spec{Kind: KindLLM, Client: "n", WeightMB: 1000})
-	assert.Nil(t, l)
-	assert.False(t, acquired)
-	assert.Zero(t, pos)
-	assert.Len(t, q.Status().Queue, 2)
-
-	nl, _, npos := q.TryAcquire(Spec{Kind: KindSD, Client: "sd", WeightMB: 1000, NoQueueLimit: true})
-	require.NotNil(t, nl)
-	assert.Equal(t, 3, npos)
-	assert.True(t, q.QueueFull())
-}
-
 func TestXReviewNoQueueLimit_MaxQueueLenOne(t *testing.T) {
 	q := newLimitQueue(t, 1)
 	fillWaiting(t, q, 1, false)

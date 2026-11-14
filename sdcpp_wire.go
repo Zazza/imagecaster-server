@@ -36,15 +36,14 @@ func (r *processRestarter) RestartWithArgs(args []string) error {
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		st := r.pm.Status()[r.key].Status
-		if st != "running" && st != "starting" {
+		if !process.IsAlive(r.pm.Status()[r.key].Status) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	log.Printf("[sdcpp] restart %s: %s", r.key, strings.Join(args, " "))
 	if err := r.pm.Start(r.key); err != nil {
-		if st := r.pm.Status()[r.key].Status; st == "starting" || st == "running" {
+		if process.IsAlive(r.pm.Status()[r.key].Status) {
 			return nil
 		}
 		return err
@@ -53,8 +52,7 @@ func (r *processRestarter) RestartWithArgs(args []string) error {
 }
 
 func (r *processRestarter) Alive() bool {
-	st := r.pm.Status()[r.key].Status
-	return st == "running" || st == "starting"
+	return process.IsAlive(r.pm.Status()[r.key].Status)
 }
 
 func flagValue(args []string, flag string) (string, bool) {

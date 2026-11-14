@@ -20,7 +20,7 @@ import (
 func newXReviewLimitEnv(t *testing.T, maxLen int) *wireEnv {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "m.safetensors"), make([]byte, 3*1024*1024), 0o644))
-	q := gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 5000, MaxWait: time.Second, LeaseTTL: 30 * time.Second, MaxQueueLen: maxLen})
+	q := gpuqueue.New(gpuqueue.Config{TotalBudgetMB: 5000, MaxWait: wireMaxWait, LeaseTTL: 30 * time.Second, MaxQueueLen: maxLen})
 	cfg := GateConfig{SDDefaultWeightMB: 9000, SDOverheadMB: 100, LLMWeightMB: 2000, MaxWaitSeconds: 1}
 	gate := NewGate(q, cfg, newSDWeight(cfg, models.NewModelManager(&config.Config{}), dir))
 	sd, srv := newWireSD(t)
@@ -49,7 +49,7 @@ func TestXReviewSDJobNotQueueFullWhenGPUQueueFullOfLLM(t *testing.T) {
 
 	id := e.submit(t)
 	require.True(t, waitFor(t, 2*time.Second, func() bool { return len(e.q.Status().Queue) == 3 }))
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(3 * wireMaxWait)
 	js := e.status(t, id)
 	assert.Equal(t, "queued", js["status"], js)
 	assert.Nil(t, js["error"], js)
