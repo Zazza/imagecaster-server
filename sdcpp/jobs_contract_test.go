@@ -45,6 +45,8 @@ type jcSDJob struct {
 	cancelled bool
 	model     string
 	prompt    string
+	cacheMode string
+	cacheOpt  string
 }
 
 type jcSD struct {
@@ -115,6 +117,8 @@ func (f *jcSD) handleImgGen(w http.ResponseWriter, r *http.Request) {
 	prompt, _ := body["prompt"].(string)
 	id := fmt.Sprintf("sd_%d", len(f.gens)+1)
 	j := &jcSDJob{id: id, batch: batch, model: f.loaded, prompt: prompt}
+	j.cacheMode, _ = body["cache_mode"].(string)
+	j.cacheOpt, _ = body["cache_option"].(string)
 	f.jobs[id] = j
 	f.gens = append(f.gens, j)
 	jcWrite(w, http.StatusAccepted, map[string]any{

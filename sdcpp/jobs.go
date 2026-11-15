@@ -59,6 +59,8 @@ type GenParams struct {
 	Image             string       `json:"image"`
 	Upscaler          string       `json:"upscaler"`
 	Scale             *float64     `json:"scale"`
+	CacheMode         string       `json:"cache_mode"`
+	CacheOption       string       `json:"cache_option"`
 }
 
 type jobRequest struct {

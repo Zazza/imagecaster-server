@@ -258,7 +258,7 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 
 | Endpoint | Method | What it does |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` (sd.cpp is the active backend), `sd_jobs` (the SD jobs API below), `llamacpp` (when text models are available), `download_stream`. Old server versions don't send it |
+| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` (sd.cpp is the active backend), `sd_jobs` (the SD jobs API below), `sd_cache` (jobs accept `cache_mode`), `llamacpp` (when text models are available), `download_stream`. Old server versions don't send it |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, host CPU/RAM `sys` |
 | `/api/server/start/{name}` | POST | start a process |
 | `/api/server/stop/{name}` | POST | stop a process |
@@ -295,6 +295,7 @@ POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_re
                                 params: {prompt, negative_prompt, sampler, scheduler, steps, cfg_scale,
                                          distilled_cfg_scale, width, height, seed (-1 random), clip_skip, batch_size,
                                          hires: {enable, scale, upscaler, denoising, steps, resize_x, resize_y},
+                                         cache_mode?, cache_option?,               (sd.cpp step cache, see below)
                                          init_image, mask, denoising_strength,      (img2img)
                                          image, upscaler, scale}}                   (upscale; model not needed)
        -> 202 JobStatus | 200 JobStatus (same client + client_ref already queued, running or completed)
@@ -322,6 +323,7 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 - `model.checkpoint: ""` — fixed at submit: the model of the last unfinished job in the queue, or the loaded one if the queue is empty, with its VAE and modules unless the job sets its own; neither → `409 model_not_found`. The job status and GPU lease then name that checkpoint.
 - `info` of a txt2img/img2img result: `checkpoint` (resolved), `vae`, `modules`, `sampler`, `scheduler`, `steps`, `cfg_scale` (actual, defaults 20 and 7 filled in), `seed` (actual), `all_seeds`, `width`, `height`, `prompt`, `negative_prompt`, `batch_size`, `denoising_strength` (img2img only), `sd_model_name`, `backend`.
+- `cache_mode` — sd.cpp step cache: `easycache`, `dbcache`, `taylorseer`, `cache-dit` (transformer models: Flux, Chroma, Moss, Z-Image), `ucache` (U-Net: SD 1.5, SDXL), `spectrum` (both). It skips nearly identical work of neighbouring steps: about 2× faster at the cost of fine detail; barely useful on 4–8 step models. `cache_option` — sd.cpp parameters `key=number[,key=number…]` (e.g. `threshold=0.2,start=0.15`). No `cache_mode` means no cache; `cache_option` without a mode is `400`. Mode and options are added to the result `info`. A server with this feature lists `sd_cache` in the `/` root `features`.
 - `running` starts when the engine reports the first step (model loading counts as `queued`).
 - Results are kept on disk in `<data>/sdjobs` for `sd.job_result_ttl_hours` (24 by default) and survive a restart; jobs that were queued or running at a restart become `lost` with `server_restarted`. Expired results are removed. The folder and files are readable by the server user only (0700/0600); job input images are not kept in memory after the job ends.
 - `/api/sd/*` sends no CORS headers: a web page in a LAN browser cannot read job results (other routes keep `Access-Control-Allow-Origin: *`).

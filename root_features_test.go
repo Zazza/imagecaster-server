@@ -21,9 +21,9 @@ func TestRootReportsFeatures(t *testing.T) {
 		facade   bool
 		want     []string
 	}{
-		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, []string{"sdcpp", "sd_jobs", "llamacpp", "download_stream"}},
-		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, []string{"sdcpp", "sd_jobs", "llamacpp", "download_stream"}},
-		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, []string{"sdcpp", "sd_jobs", "download_stream"}},
+		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
+		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
+		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, []string{"sdcpp", "sd_jobs", "sd_cache", "download_stream"}},
 		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, []string{"llamacpp", "download_stream"}},
 	}
 	for _, tc := range cases {

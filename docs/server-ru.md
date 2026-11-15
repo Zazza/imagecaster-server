@@ -258,7 +258,7 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 
 | Эндпоинт | Метод | Что делает |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` (активен бэкенд sd.cpp), `sd_jobs` (API заданий SD ниже), `llamacpp` (если текстовые модели доступны), `download_stream`. Старые версии сервера поля не отдают |
+| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` (активен бэкенд sd.cpp), `sd_jobs` (API заданий SD ниже), `sd_cache` (задания принимают `cache_mode`), `llamacpp` (если текстовые модели доступны), `download_stream`. Старые версии сервера поля не отдают |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, процессор и память компьютера `sys` |
 | `/api/server/start/{name}` | POST | запустить процесс |
 | `/api/server/stop/{name}` | POST | остановить процесс |
@@ -295,6 +295,7 @@ POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_re
                                 params: {prompt, negative_prompt, sampler, scheduler, steps, cfg_scale,
                                          distilled_cfg_scale, width, height, seed (-1 случайный), clip_skip, batch_size,
                                          hires: {enable, scale, upscaler, denoising, steps, resize_x, resize_y},
+                                         cache_mode?, cache_option?,               (кэш шагов sd.cpp, см. ниже)
                                          init_image, mask, denoising_strength,      (img2img)
                                          image, upscaler, scale}}                   (upscale; модель не нужна)
        -> 202 JobStatus | 200 JobStatus (тот же client + client_ref уже в очереди, идёт или готов)
@@ -322,6 +323,7 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 - `model.checkpoint: ""` — определяется при постановке: модель последнего незавершённого задания в очереди, а если очередь пуста — загруженная, с её VAE и модулями, если задание не задаёт свои; ни того ни другого — `409 model_not_found`. Аренда видеокарты и статус задания дальше идут с этим чекпоинтом.
 - `info` результата txt2img/img2img: `checkpoint` (итоговый), `vae`, `modules`, `sampler`, `scheduler`, `steps`, `cfg_scale` (фактические, с подставленными 20 и 7 по умолчанию), `seed` (фактический), `all_seeds`, `width`, `height`, `prompt`, `negative_prompt`, `batch_size`, `denoising_strength` (только img2img), `sd_model_name`, `backend`.
+- `cache_mode` — кэш шагов sd.cpp: `easycache`, `dbcache`, `taylorseer`, `cache-dit` (трансформерные модели: Flux, Chroma, Moss, Z-Image), `ucache` (U-Net: SD 1.5, SDXL), `spectrum` (оба вида). Пропускает почти одинаковые вычисления соседних шагов: быстрее примерно в 2 раза ценой мелких деталей; на моделях с 4–8 шагами почти бесполезен. `cache_option` — параметры sd.cpp `ключ=число[,ключ=число…]` (например `threshold=0.2,start=0.15`). Без `cache_mode` кэш выключен, `cache_option` без режима — `400`. Режим и параметры попадают в `info` результата. Сервер с этой возможностью сообщает `sd_cache` в `features` корня `/`.
 - `running` начинается, когда движок сообщает первый шаг (загрузка модели считается `queued`).
 - Результаты хранятся на диске в `<data>/sdjobs` `sd.job_result_ttl_hours` часов (по умолчанию 24) и переживают перезапуск; задания, которые при перезапуске стояли в очереди или шли, становятся `lost` с `server_restarted`. Просроченные результаты удаляются. Папка и файлы доступны только пользователю сервера (0700/0600); входные картинки задания после его окончания в памяти не хранятся.
 - `/api/sd/*` не отдаёт заголовков CORS: веб-страница в браузере из локальной сети не может прочитать результаты заданий (у остальных маршрутов `Access-Control-Allow-Origin: *` остаётся).

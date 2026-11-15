@@ -106,6 +106,10 @@ func (f *Facade) buildNative(ctx context.Context, p GenParams, img2img bool, m M
 	if p.ClipSkip != nil && *p.ClipSkip > 1 {
 		n["clip_skip"] = *p.ClipSkip
 	}
+	if p.CacheMode != "" {
+		n["cache_mode"] = p.CacheMode
+		n["cache_option"] = p.CacheOption
+	}
 	if img2img {
 		n["init_image"] = p.InitImage
 		n["strength"] = *p.DenoisingStrength
@@ -189,6 +193,12 @@ func (f *Facade) generate(ctx context.Context, j *job, m ModelSpec, p GenParams)
 	}
 	if img2img {
 		info["denoising_strength"] = *p.DenoisingStrength
+	}
+	if p.CacheMode != "" {
+		info["cache_mode"] = p.CacheMode
+		if p.CacheOption != "" {
+			info["cache_option"] = p.CacheOption
+		}
 	}
 	return imgs, info, nil
 }

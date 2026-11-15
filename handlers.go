@@ -191,7 +191,7 @@ func (h *Handlers) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) features() []string {
 	out := []string{}
 	if b := h.config.GetActiveBackend(); b != nil && b.Kind == config.KindSDCpp {
-		out = append(out, "sdcpp", "sd_jobs")
+		out = append(out, "sdcpp", "sd_jobs", "sd_cache")
 	}
 	if h.llmRunning != nil {
 		out = append(out, config.LLMLlamaCpp)

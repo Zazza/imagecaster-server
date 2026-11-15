@@ -65,6 +65,9 @@ func (f *Facade) validate(req *jobRequest) error {
 	if err := checkLoraWeights(p.Prompt); err != nil {
 		return err
 	}
+	if err := checkCache(p.CacheMode, p.CacheOption); err != nil {
+		return err
+	}
 	if req.Kind == kindImg2Img {
 		if req.Model.MossReference {
 			return apiErr(http.StatusBadRequest, "invalid_params", "правка Moss недоступна на sd.cpp — используйте Klein (Moss edit is not available on sd.cpp, use Klein)")
