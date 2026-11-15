@@ -249,15 +249,17 @@ func TestProcessHandlersRejectBadRequests(t *testing.T) {
 		{http.MethodPost, "/api/server/stop/", http.StatusBadRequest},
 		{http.MethodPost, "/api/server/restart/", http.StatusBadRequest},
 		{http.MethodGet, "/api/server/logs/", http.StatusBadRequest},
-		{http.MethodPost, "/api/server/start/nope", http.StatusInternalServerError},
-		{http.MethodPost, "/api/server/stop/nope", http.StatusInternalServerError},
-		{http.MethodPost, "/api/server/restart/nope", http.StatusInternalServerError},
+		{http.MethodPost, "/api/server/start/nope", http.StatusNotFound},
+		{http.MethodPost, "/api/server/stop/nope", http.StatusNotFound},
+		{http.MethodPost, "/api/server/restart/nope", http.StatusNotFound},
 		{http.MethodGet, "/api/server/logs/nope", http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
-			rec, _ := serve(mux, tt.method, tt.path)
+			rec, body := serve(mux, tt.method, tt.path)
 			assert.Equal(t, tt.want, rec.Code)
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			assert.NotEmpty(t, body["error"])
 		})
 	}
 	st, _, _ := procState(pm, "svc")
@@ -274,7 +276,7 @@ func TestProcessHandlersLifecycle(t *testing.T) {
 	assert.True(t, alivePID(firstPID))
 
 	rec, body = serve(mux, http.MethodPost, "/api/server/start/svc")
-	assert.Equal(t, http.StatusInternalServerError, rec.Code, "second start of a live process")
+	assert.Equal(t, http.StatusConflict, rec.Code, "second start of a live process")
 	assert.Contains(t, body["error"], "already")
 
 	rec, body = serve(mux, http.MethodPost, "/api/server/restart/svc")
@@ -332,7 +334,7 @@ func TestSetupMuxRoutes(t *testing.T) {
 	pm := newSleeperPM(t, &cfg)
 	inst := installer.NewInstaller(&cfg)
 	h := NewHandlers(pm, sdhealth.NewHealthMonitor(&cfg), sdgpu.NewGPUMonitor(), &cfg, inst)
-	proxy := NewProxyHandler(nil, &cfg, nil)
+	proxy := NewProxyHandler(&cfg, nil)
 	proxy.SetHandler("/api/sd/", markerHandler("sd"))
 	proxy.SetHandler("/api/llm/", markerHandler("llm"))
 	mux := setupMux(h, inst, models.NewModelManager(&cfg), NewBackendManager(&cfg), proxy)

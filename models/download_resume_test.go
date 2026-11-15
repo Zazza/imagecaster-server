@@ -337,7 +337,9 @@ func TestDownloadPostAcceptsSHA256AndResumes(t *testing.T) {
 	post := func(sha string) *httptest.ResponseRecorder {
 		body, _ := json.Marshal(map[string]string{"url": srv.URL + "/m", "filename": "m.safetensors", "sha256": sha})
 		rec := httptest.NewRecorder()
-		mm.handleSDModels(rec, httptest.NewRequest(http.MethodPost, "/api/server/models/sd", bytes.NewReader(body)))
+		mux := http.NewServeMux()
+		mm.RegisterRoutes(mux)
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/server/models/sd", bytes.NewReader(body)))
 		return rec
 	}
 

@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"imagecaster-server/config"
+	"imagecaster-server/dl"
+	"imagecaster-server/fsutil"
 	"imagecaster-server/hide"
 	"imagecaster-server/process"
 )
@@ -124,7 +126,7 @@ func systemGPUProbe() gpuProbe {
 	return gpuProbe{
 		goos:   runtime.GOOS,
 		run:    func(name string, args ...string) ([]byte, error) { return hide.Command(name, args...).Output() },
-		exists: fileExists,
+		exists: fsutil.FileExists,
 		glob:   filepath.Glob,
 		getenv: os.Getenv,
 	}
@@ -231,7 +233,7 @@ func (inst *Installer) installRelease(ctx context.Context, key string, ic config
 	}
 	if runtime.GOOS != "windows" {
 		for _, name := range []string{"sd-server", "sd-cli", "llama-server"} {
-			if p := filepath.Join(target, name); fileExists(p) {
+			if p := filepath.Join(target, name); fsutil.FileExists(p) {
 				if err := os.Chmod(p, 0o755); err != nil {
 					return err
 				}
@@ -261,7 +263,7 @@ func (inst *Installer) fetchArtifact(ctx context.Context, key string, a Artifact
 	if len(want) != 64 {
 		return fmt.Errorf("no sha256 for %s", a.Name)
 	}
-	if a.Kind == "file" && fileExists(dest) && verifySHA256(dest, want) == nil {
+	if a.Kind == "file" && fsutil.FileExists(dest) && dl.VerifyFile(dest, want) == nil {
 		lb.Write(a.Name + " already present")
 		return nil
 	}
@@ -279,14 +281,17 @@ func (inst *Installer) fetchArtifact(ctx context.Context, key string, a Artifact
 	if err := inst.downloadResumable(ctx, key, a, part, want, lb); err != nil {
 		return err
 	}
-	defer os.Remove(part)
-	tmpPath := part
 	switch a.Kind {
 	case "file":
-		return renameRetry(tmpPath, dest)
+		return dl.Commit(part, dest)
 	case "zip", "tgz":
+		defer func() {
+			if err := dl.Remove(part); err != nil {
+				log.Printf("[%s] remove %s: %v", key, part, err)
+			}
+		}()
 		inst.setProgress(key, "extracting")
-		if err := extractArchive(tmpPath, a.Kind, dest, a.Strip); err != nil {
+		if err := extractArchive(part, a.Kind, dest, a.Strip); err != nil {
 			return err
 		}
 		return os.WriteFile(stamp, []byte(version+" "+strings.ToLower(want)+"\n"), 0o644)
@@ -304,73 +309,18 @@ func safeName(s string) string {
 }
 
 func (inst *Installer) downloadResumable(ctx context.Context, key string, a Artifact, part, want string, lb *process.RingBuffer) error {
-	var have int64
-	if st, err := os.Stat(part); err == nil {
-		have = st.Size()
-	}
-	if have > 0 && a.Size > 0 && have >= a.Size {
-		if verifySHA256(part, want) == nil {
-			lb.Write(a.Name + " already downloaded")
-			return nil
-		}
-		if err := os.Remove(part); err != nil {
-			return err
-		}
-		have = 0
-	}
 	inst.setProgress(key, "downloading")
 	lb.Write(fmt.Sprintf("Downloading %s", a.URL))
-	resp, err := HTTPGetFrom(ctx, a.URL, have)
-	if err != nil {
-		return fmt.Errorf("download: %w", err)
-	}
-	defer resp.Body.Close()
-	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	switch {
-	case have > 0 && resp.StatusCode == http.StatusPartialContent:
-		flags = os.O_WRONLY | os.O_APPEND
-		lb.Write(fmt.Sprintf("Resuming %s from %s", a.Name, FormatBytes(have)))
-	case resp.StatusCode == http.StatusOK:
-		have = 0
-	case have > 0 && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
-		if verifySHA256(part, want) == nil {
-			lb.Write(a.Name + " already downloaded")
-			return nil
-		}
-		if err := os.Remove(part); err != nil {
-			return err
-		}
-		return fmt.Errorf("download failed: HTTP %d, partial file discarded", resp.StatusCode)
-	default:
-		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
-	}
-	f, err := os.OpenFile(part, flags, 0o644)
-	if err != nil {
-		return err
-	}
-	total := a.Size
-	if resp.ContentLength > 0 {
-		total = have + resp.ContentLength
-	}
-	pw := &progressWriter{w: f, total: total, written: have, key: key, target: a.Name, inst: inst, lb: lb}
-	_, copyErr := io.Copy(pw, resp.Body)
-	if err := f.Close(); err != nil && copyErr == nil {
-		copyErr = err
-	}
-	if copyErr != nil {
-		return fmt.Errorf("save download: %w", copyErr)
-	}
-	if err := verifySHA256(part, want); err != nil {
-		if rmErr := os.Remove(part); rmErr != nil {
-			log.Printf("[%s] remove bad download %s: %v", key, part, rmErr)
-		}
-		return err
-	}
-	return nil
+	return dl.Resume(ctx, a.URL, part, dl.Options{
+		SHA256:     want,
+		Size:       a.Size,
+		OnProgress: inst.progressReporter(key, lb),
+		OnStatus:   func(msg string) { lb.Write(a.Name + ": " + msg) },
+	})
 }
 
 func fetchSHA(ctx context.Context, url string) (string, error) {
-	resp, err := HTTPGet(ctx, url)
+	resp, err := dl.Get(ctx, url)
 	if err != nil {
 		return "", err
 	}
@@ -420,7 +370,7 @@ func extractArchive(archive, kind, dest string, strip int) error {
 		return err
 	}
 	if _, err := os.Stat(dest); os.IsNotExist(err) {
-		return renameRetry(tmpDir, dest)
+		return fsutil.Rename(tmpDir, dest)
 	}
 	return mergeInto(tmpDir, dest)
 }

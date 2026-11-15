@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"imagecaster-server/config"
+	"imagecaster-server/fsutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,8 +28,8 @@ func TestMigrateEngineDirsMovesMatchingBuild(t *testing.T) {
 
 	newTestInstaller(t, dir).MigrateEngineDirs()
 
-	assert.True(t, dirExists(filepath.Join(dir, config.LlamaCppDir)))
-	assert.False(t, dirExists(legacy))
+	assert.True(t, fsutil.DirExists(filepath.Join(dir, config.LlamaCppDir)))
+	assert.False(t, fsutil.DirExists(legacy))
 }
 
 func TestMigrateEngineDirsLeavesForeignBuild(t *testing.T) {
@@ -46,8 +47,8 @@ func TestMigrateEngineDirsLeavesForeignBuild(t *testing.T) {
 
 	newTestInstaller(t, dir).MigrateEngineDirs()
 
-	assert.True(t, dirExists(legacy), "foreign build dir left as is")
-	assert.False(t, dirExists(filepath.Join(dir, config.LlamaCppDir)))
+	assert.True(t, fsutil.DirExists(legacy), "foreign build dir left as is")
+	assert.False(t, fsutil.DirExists(filepath.Join(dir, config.LlamaCppDir)))
 }
 
 func TestMigrateEngineDirsSkipsWhenTargetExists(t *testing.T) {
@@ -64,7 +65,7 @@ func TestMigrateEngineDirsSkipsWhenTargetExists(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(next, "marker"))
 	require.NoError(t, err)
 	assert.Equal(t, "x", string(data), "existing platform dir not overwritten")
-	assert.True(t, dirExists(legacy), "legacy dir kept when target already exists")
+	assert.True(t, fsutil.DirExists(legacy), "legacy dir kept when target already exists")
 }
 
 func TestNewInstallerSeesMovedLegacyBuildAsInstalled(t *testing.T) {
@@ -86,7 +87,7 @@ func TestNewInstallerSeesMovedLegacyBuildAsInstalled(t *testing.T) {
 	inst := NewInstaller(&cfg)
 
 	assert.True(t, inst.IsInstalled(config.LlamaCppProcessKey), "status counted after the move, no reinstall")
-	assert.False(t, dirExists(legacy))
+	assert.False(t, fsutil.DirExists(legacy))
 }
 
 func TestMigrateEngineDirsKeepsLegacyDirStillInConfig(t *testing.T) {
@@ -103,7 +104,7 @@ func TestMigrateEngineDirsKeepsLegacyDirStillInConfig(t *testing.T) {
 
 	NewInstaller(&cfg)
 
-	assert.True(t, dirExists(legacy), "config still points at the old dir")
+	assert.True(t, fsutil.DirExists(legacy), "config still points at the old dir")
 }
 
 func TestSDCppEngineDirFallbackHasPlatformSuffix(t *testing.T) {

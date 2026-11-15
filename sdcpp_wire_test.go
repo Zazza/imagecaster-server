@@ -16,7 +16,7 @@ import (
 func TestProxySetHandlerKeepsGateAndStripsPrefix(t *testing.T) {
 	cfg := config.NewDefault()
 	gate, _ := newTestGate(20000, 5, GateConfig{SDDefaultWeightMB: 1000, LLMWeightMB: 1000}, "")
-	ph := NewProxyHandler(nil, &cfg, gate)
+	ph := NewProxyHandler(&cfg, gate)
 	cfg.ActiveSD = "sdcpp"
 	cfg.Backends["sdcpp"] = config.BackendConfig{Kind: config.KindSDCpp, ProcessKey: "sd"}
 	ph.SetHandler("/api/sd/", newSDCppFacade(&cfg, nil, nil))

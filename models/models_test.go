@@ -346,16 +346,23 @@ func TestHandleDownloadStream_FilenameSanitization(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "path traversal should be prevented")
 }
 
-type mockFlusher struct {
-	bytes.Buffer
-	flushed []byte
+type testProgressWriter struct {
+	w      io.Writer
+	done   int64
+	total  int64
+	report func(done, total int64)
 }
 
-func (m *mockFlusher) Flush() {}
+func (c *testProgressWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.done += int64(n)
+	c.report(c.done, c.total)
+	return n, err
+}
 
-func newTestProgressWriter(w io.Writer, total int64, f *trackingFlusher) *countingWriter {
+func newTestProgressWriter(w io.Writer, total int64, f *trackingFlusher) *testProgressWriter {
 	rep := &sseReporter{w: f, flusher: f, name: "test"}
-	return &countingWriter{w: w, total: total, report: rep.progress}
+	return &testProgressWriter{w: w, total: total, report: rep.progress}
 }
 
 type trackingFlusher struct {

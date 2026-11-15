@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"imagecaster-server/config"
+	"imagecaster-server/fsutil"
 )
 
 const llamaBase = "https://github.com/ggml-org/llama.cpp/releases/download/" + config.LlamaCppVersion + "/"
@@ -64,7 +65,7 @@ func SDCppEngineDir(cfg *config.Config) string {
 }
 
 func SharedCUDADir(sdcppDir, goos string) string {
-	if sdcppDir != "" && fileExists(filepath.Join(sdcppDir, cudaLibName(goos))) {
+	if sdcppDir != "" && fsutil.FileExists(filepath.Join(sdcppDir, cudaLibName(goos))) {
 		return sdcppDir
 	}
 	return ""

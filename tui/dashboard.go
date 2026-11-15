@@ -24,12 +24,10 @@ type DashboardModel struct {
 	showLogs      bool
 	logKey        string
 	logLines      []string
-	logOffset     int
-	logFollowing  bool
+	logView       scrollView
 	showTerminal  bool
 	terminalLines []string
-	termOffset    int
-	termFollowing bool
+	termView      scrollView
 	showQueue     bool
 	queueSel      int
 	queueFlash    string
@@ -56,12 +54,7 @@ func (m DashboardModel) collectStats() tea.Cmd {
 		} else {
 			stats = PollSysStats()
 		}
-		return sysStatsMsg{
-			CPUUsage: stats.CPUUsage,
-			RAMUsage: stats.RAMUsage,
-			RAMUsed:  stats.RAMUsed,
-			RAMTotal: stats.RAMTotal,
-		}
+		return sysStatsMsg(stats)
 	}
 }
 
@@ -82,8 +75,8 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logsTickMsg:
 		if m.showLogs {
 			m.refreshLogs(m.logKey)
-			if m.logFollowing {
-				m.logOffset = m.maxLogOffset()
+			if m.logView.following {
+				m.logView.offset = m.maxLogOffset()
 			}
 			return m, logsTick()
 		}
@@ -91,20 +84,15 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.deps.ServerLogs != nil {
 				m.terminalLines = m.deps.ServerLogs()
 			}
-			if m.termFollowing {
-				m.termOffset = m.maxTermOffset()
+			if m.termView.following {
+				m.termView.offset = m.maxTermOffset()
 			}
 			return m, logsTick()
 		}
 		return m, nil
 
 	case sysStatsMsg:
-		m.sysStats = SysStats{
-			CPUUsage: msg.CPUUsage,
-			RAMUsage: msg.RAMUsage,
-			RAMUsed:  msg.RAMUsed,
-			RAMTotal: msg.RAMTotal,
-		}
+		m.sysStats = SysStats(msg)
 		m.refreshServices()
 		m.refreshGPU()
 		return m, nil
@@ -132,178 +120,119 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.showLogs {
-			switch msg.String() {
-			case "q", "esc":
-				m.showLogs = false
-				m.logOffset = 0
-				m.logFollowing = false
-				return m, nil
-			case "up", "k":
-				m.logFollowing = false
-				if m.logOffset > 0 {
-					m.logOffset--
-				}
-			case "down", "j":
-				if m.logOffset < m.maxLogOffset() {
-					m.logOffset++
-				}
-				if m.logOffset >= m.maxLogOffset() {
-					m.logFollowing = true
-				}
-			case "pgup":
-				m.logFollowing = false
-				m.logOffset -= m.visibleLogLines()
-				if m.logOffset < 0 {
-					m.logOffset = 0
-				}
-			case "pgdown":
-				m.logOffset += m.visibleLogLines()
-				if m.logOffset > m.maxLogOffset() {
-					m.logOffset = m.maxLogOffset()
-				}
-				if m.logOffset >= m.maxLogOffset() {
-					m.logFollowing = true
-				}
-			case "g":
-				m.logFollowing = false
-				m.logOffset = 0
-			case "G":
-				m.logFollowing = true
-				m.logOffset = m.maxLogOffset()
-			}
-			return m, nil
+		switch {
+		case m.showLogs:
+			return m.handleLogsKey(msg.String())
+		case m.showTerminal:
+			return m.handleTerminalKey(msg.String())
+		case m.showQueue:
+			return m.handleQueueKey(msg.String())
 		}
+		return m.handleMainKey(msg.String())
+	}
+	return m, nil
+}
 
-		if m.showTerminal {
-			switch msg.String() {
-			case "t", "q", "esc":
-				m.showTerminal = false
-				m.termOffset = 0
-				m.termFollowing = false
-				return m, nil
-			case "up", "k":
-				m.termFollowing = false
-				if m.termOffset > 0 {
-					m.termOffset--
-				}
-			case "down", "j":
-				if m.termOffset < m.maxTermOffset() {
-					m.termOffset++
-				}
-				if m.termOffset >= m.maxTermOffset() {
-					m.termFollowing = true
-				}
-			case "pgup":
-				m.termFollowing = false
-				m.termOffset -= m.visibleTermLines()
-				if m.termOffset < 0 {
-					m.termOffset = 0
-				}
-			case "pgdown":
-				m.termOffset += m.visibleTermLines()
-				if m.termOffset > m.maxTermOffset() {
-					m.termOffset = m.maxTermOffset()
-				}
-				if m.termOffset >= m.maxTermOffset() {
-					m.termFollowing = true
-				}
-			case "g":
-				m.termFollowing = false
-				m.termOffset = 0
-			case "G":
-				m.termFollowing = true
-				m.termOffset = m.maxTermOffset()
-			}
-			return m, nil
+func (m DashboardModel) handleLogsKey(key string) (tea.Model, tea.Cmd) {
+	if key == "q" || key == "esc" {
+		m.showLogs = false
+		m.logView.reset()
+		return m, nil
+	}
+	m.logView.handleKey(key, m.maxLogOffset(), m.visibleLines())
+	return m, nil
+}
+
+func (m DashboardModel) handleTerminalKey(key string) (tea.Model, tea.Cmd) {
+	if key == "t" || key == "q" || key == "esc" {
+		m.showTerminal = false
+		m.termView.reset()
+		return m, nil
+	}
+	m.termView.handleKey(key, m.maxTermOffset(), m.visibleLines())
+	return m, nil
+}
+
+func (m DashboardModel) handleQueueKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q", "esc":
+		m.showQueue = false
+		m.queueSel = 0
+		m.queueFlash = ""
+	case "up", "k":
+		m.queueSel = clampQueueSel(m.queueSel, m.queueJobCount())
+		if m.queueSel > 0 {
+			m.queueSel--
 		}
-
-		if m.showQueue {
-			switch msg.String() {
-			case "q", "esc":
-				m.showQueue = false
-				m.queueSel = 0
-				m.queueFlash = ""
-				return m, nil
-			case "up", "k":
-				m.queueSel = clampQueueSel(m.queueSel, m.queueJobCount())
-				if m.queueSel > 0 {
-					m.queueSel--
-				}
-			case "down", "j":
-				total := m.queueJobCount()
-				m.queueSel = clampQueueSel(m.queueSel, total)
-				if m.queueSel < total-1 {
-					m.queueSel++
-				}
-			case "u":
-				if job, waiting, ok := m.selectedQueueJob(); ok && waiting && m.deps.QueueMove != nil {
-					return m, queueCmd(func() error { return m.deps.QueueMove(job.ID, -1) })
-				}
-			case "d":
-				if job, waiting, ok := m.selectedQueueJob(); ok && waiting && m.deps.QueueMove != nil {
-					return m, queueCmd(func() error { return m.deps.QueueMove(job.ID, 1) })
-				}
-			case "x":
-				if job, _, ok := m.selectedQueueJob(); ok && m.deps.QueueCancel != nil {
-					return m, queueCmd(func() error { return m.deps.QueueCancel(job.ID) })
-				}
-			}
-			return m, nil
+	case "down", "j":
+		total := m.queueJobCount()
+		m.queueSel = clampQueueSel(m.queueSel, total)
+		if m.queueSel < total-1 {
+			m.queueSel++
 		}
+	case "u":
+		if job, waiting, ok := m.selectedQueueJob(); ok && waiting && m.deps.QueueMove != nil {
+			return m, queueCmd(func() error { return m.deps.QueueMove(job.ID, -1) })
+		}
+	case "d":
+		if job, waiting, ok := m.selectedQueueJob(); ok && waiting && m.deps.QueueMove != nil {
+			return m, queueCmd(func() error { return m.deps.QueueMove(job.ID, 1) })
+		}
+	case "x":
+		if job, _, ok := m.selectedQueueJob(); ok && m.deps.QueueCancel != nil {
+			return m, queueCmd(func() error { return m.deps.QueueCancel(job.ID) })
+		}
+	}
+	return m, nil
+}
 
-		svcKeys := m.serviceOnlyKeys()
-		switch msg.String() {
-		case "q":
-			return m, func() tea.Msg { return quitMsg{} }
-		case "t":
-			m.showTerminal = true
-			m.termOffset = 0
-			m.termFollowing = true
-			if m.deps.ServerLogs != nil {
-				m.terminalLines = m.deps.ServerLogs()
+func (m DashboardModel) handleMainKey(key string) (tea.Model, tea.Cmd) {
+	svcKeys := m.serviceOnlyKeys()
+	switch key {
+	case "q":
+		return m, func() tea.Msg { return quitMsg{} }
+	case "t":
+		m.showTerminal = true
+		if m.deps.ServerLogs != nil {
+			m.terminalLines = m.deps.ServerLogs()
+		}
+		m.termView.follow(m.maxTermOffset())
+		return m, logsTick()
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < len(svcKeys)-1 {
+			m.cursor++
+		}
+	case "r":
+		if m.cursor < len(svcKeys) {
+			name := svcKeys[m.cursor]
+			return m, procCmd(name, func() error { return m.deps.RestartProc(name) })
+		}
+	case "s":
+		if m.cursor < len(svcKeys) {
+			name := svcKeys[m.cursor]
+			if process.IsAlive(m.services[name].Status) {
+				return m, procCmd(name, func() error { return m.deps.StopProc(name) })
 			}
-			m.termOffset = m.maxTermOffset()
+			return m, procCmd(name, func() error { return m.deps.StartProc(name) })
+		}
+	case "l":
+		if m.cursor < len(svcKeys) {
+			name := svcKeys[m.cursor]
+			m.showLogs = true
+			m.logKey = name
+			m.refreshLogs(name)
+			m.logView.follow(m.maxLogOffset())
 			return m, logsTick()
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(svcKeys)-1 {
-				m.cursor++
-			}
-		case "r":
-			if m.cursor < len(svcKeys) {
-				name := svcKeys[m.cursor]
-				return m, procCmd(name, func() error { return m.deps.RestartProc(name) })
-			}
-		case "s":
-			if m.cursor < len(svcKeys) {
-				name := svcKeys[m.cursor]
-				info := m.services[name]
-				if process.IsAlive(info.Status) {
-					return m, procCmd(name, func() error { return m.deps.StopProc(name) })
-				}
-				return m, procCmd(name, func() error { return m.deps.StartProc(name) })
-			}
-		case "l":
-			if m.cursor < len(svcKeys) {
-				name := svcKeys[m.cursor]
-				m.showLogs = true
-				m.logKey = name
-				m.logOffset = 0
-				m.logFollowing = true
-				m.refreshLogs(name)
-				m.logOffset = m.maxLogOffset()
-				return m, logsTick()
-			}
-		case "g":
-			if m.deps.QueueSnapshot != nil {
-				m.showQueue = true
-				m.queueSel = 0
-				m.queueFlash = ""
-			}
+		}
+	case "g":
+		if m.deps.QueueSnapshot != nil {
+			m.showQueue = true
+			m.queueSel = 0
+			m.queueFlash = ""
 		}
 	}
 	return m, nil
@@ -359,30 +288,16 @@ func (m DashboardModel) serviceOnlyKeys() []string {
 	return filtered
 }
 
-func (m DashboardModel) visibleLogLines() int {
+func (m DashboardModel) visibleLines() int {
 	return m.height - 4
 }
 
 func (m DashboardModel) maxLogOffset() int {
-	total := len(m.logLines)
-	visible := m.visibleLogLines()
-	if total <= visible {
-		return 0
-	}
-	return total - visible
-}
-
-func (m DashboardModel) visibleTermLines() int {
-	return m.height - 4
+	return maxScrollOffset(len(m.logLines), m.visibleLines())
 }
 
 func (m DashboardModel) maxTermOffset() int {
-	total := len(m.terminalLines)
-	visible := m.visibleTermLines()
-	if total <= visible {
-		return 0
-	}
-	return total - visible
+	return maxScrollOffset(len(m.terminalLines), m.visibleLines())
 }
 
 func (m DashboardModel) View() string {
@@ -414,21 +329,21 @@ func (m DashboardModel) viewLogs() string {
 	lines = append(lines, sep(w))
 
 	visible := h - 4
-	contentArea := m.renderScrollArea(m.logLines, m.logOffset, visible, w)
+	contentArea := m.renderScrollArea(m.logLines, m.logView.offset, visible, w)
 	lines = append(lines, contentArea...)
 
 	lines = append(lines, sep(w))
 
 	total := len(m.logLines)
-	top := m.logOffset + 1
-	bot := m.logOffset + visible
+	top := m.logView.offset + 1
+	bot := m.logView.offset + visible
 	if bot > total {
 		bot = total
 	}
 	scrollInfo := fmt.Sprintf(T("scroll.info"), top, bot, total)
 	footer := helpStyle.Render(T("logs.footer"))
 	footer += "  " + labelStyle.Render(scrollInfo)
-	if m.logFollowing {
+	if m.logView.following {
 		footer += "  " + progressGreen.Render(T("scroll.follow"))
 	}
 	lines = append(lines, footer)
@@ -444,21 +359,21 @@ func (m DashboardModel) viewTerminal() string {
 	lines = append(lines, sep(w))
 
 	visible := h - 4
-	contentArea := m.renderScrollArea(m.terminalLines, m.termOffset, visible, w)
+	contentArea := m.renderScrollArea(m.terminalLines, m.termView.offset, visible, w)
 	lines = append(lines, contentArea...)
 
 	lines = append(lines, sep(w))
 
 	total := len(m.terminalLines)
-	top := m.termOffset + 1
-	bot := m.termOffset + visible
+	top := m.termView.offset + 1
+	bot := m.termView.offset + visible
 	if bot > total {
 		bot = total
 	}
 	scrollInfo := fmt.Sprintf(T("scroll.info"), top, bot, total)
 	footer := helpStyle.Render(T("term.footer"))
 	footer += "  " + labelStyle.Render(scrollInfo)
-	if m.termFollowing {
+	if m.termView.following {
 		footer += "  " + progressGreen.Render(T("scroll.follow"))
 	}
 	lines = append(lines, footer)

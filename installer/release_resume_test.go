@@ -30,6 +30,7 @@ type rrServer struct {
 	files map[string][]byte
 	cut   map[string]int
 	reqs  map[string][]rrReq
+	etag  string
 }
 
 func newRRServer(t *testing.T) *rrServer {
@@ -55,7 +56,11 @@ func (s *rrServer) serve(w http.ResponseWriter, r *http.Request) {
 	if cut {
 		delete(s.cut, p)
 	}
+	etag := s.etag
 	s.mu.Unlock()
+	if etag != "" {
+		w.Header().Set("ETag", etag)
+	}
 
 	if !ok {
 		s.record(p, rng, http.StatusNotFound)
@@ -321,4 +326,19 @@ func TestEnsureInstalledNonReleaseBinaryPresentDownloadsNothing(t *testing.T) {
 
 	assert.Zero(t, atomic.LoadInt32(hits))
 	assert.FileExists(t, bin)
+}
+
+func TestInstallReleaseLeavesNoPartMeta(t *testing.T) {
+	a := rrArchives(t)[0]
+	pose := []byte(strings.Repeat("pose-", 4096))
+	s := newRRServer(t)
+	s.etag = `"v1"`
+	cfg := rtConfig(t, "v1")
+	arts := []Artifact{
+		{Name: "sd", URL: s.put(a.path, a.body), SHA256: rtSum(a.body), Size: int64(len(a.body)), Kind: a.kind, Dest: "engines/sd-cpp", Strip: 1},
+		{Name: "pose", URL: s.put("/pose.onnx", pose), SHA256: rtSum(pose), Size: int64(len(pose)), Kind: "file", Dest: "models/openpose/yolox_l.onnx"},
+	}
+	require.NoError(t, rtInstaller(cfg, arts).Install(config.SDCppBackendKey))
+	assert.Empty(t, findPartFiles(t, cfg.DataDir), "no .part or .part.meta after install")
+	assert.FileExists(t, filepath.Join(cfg.DataDir, "engines", "sd-cpp", exe("sd-server")))
 }

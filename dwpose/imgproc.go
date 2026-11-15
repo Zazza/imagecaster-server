@@ -70,8 +70,6 @@ func quantize(p plane) plane {
 	return p
 }
 
-type kernel func(src plane, dw, dh int) plane
-
 func cubicWeight(x float64) float64 {
 	const a = -0.75
 	x = math.Abs(x)

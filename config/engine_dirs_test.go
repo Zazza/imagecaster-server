@@ -68,7 +68,7 @@ func TestLegacyConfigLoadPinsEngineDirs(t *testing.T) {
 	cfgPath := filepath.Join(dir, "server-config.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("port: 8080\ndata_dir: "+dir+"\nactive_sd: sdcpp\nactive_llm: llamacpp\nbackends:\n  sdcpp:\n    kind: sdcpp\n    process_key: sd\n    binary: engines/llama-cpp/../sd-cpp/sd-server\n    install:\n      method: release\n      target: engines/sd-cpp\n      version: old\nprocesses:\n  llm:\n    name: llama.cpp\n    binary: engines/llama-cpp/llama-server\n    install:\n      method: release\n      target: engines/llama-cpp\n      version: old\n"), 0o644))
 
-	cfg, err := Load(cfgPath)
+	cfg, err := LoadWithDir(cfgPath, DefaultDataDir())
 	require.NoError(t, err)
 
 	b := cfg.Backends[SDCppBackendKey]

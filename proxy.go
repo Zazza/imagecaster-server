@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -9,7 +8,6 @@ import (
 	"sync"
 
 	"imagecaster-server/config"
-	"imagecaster-server/process"
 )
 
 type proxyRoute struct {
@@ -18,15 +16,13 @@ type proxyRoute struct {
 }
 
 type ProxyHandler struct {
-	mu      sync.RWMutex
-	routes  map[string]*proxyRoute
-	manager *process.ProcessManager
+	mu     sync.RWMutex
+	routes map[string]*proxyRoute
 }
 
-func NewProxyHandler(pm *process.ProcessManager, cfg *config.Config, gate *Gate) *ProxyHandler {
+func NewProxyHandler(cfg *config.Config, gate *Gate) *ProxyHandler {
 	ph := &ProxyHandler{
-		routes:  make(map[string]*proxyRoute),
-		manager: pm,
+		routes: make(map[string]*proxyRoute),
 	}
 
 	for _, pc := range cfg.Processes {
@@ -51,21 +47,6 @@ func (ph *ProxyHandler) SetHandler(proxyPath string, h http.Handler) {
 	}
 	ph.routes[proxyPath] = &proxyRoute{proxy: h, gate: gate}
 	ph.mu.Unlock()
-}
-
-func (ph *ProxyHandler) UpdateRoute(proxyPath, targetURL string) error {
-	target, err := url.Parse(targetURL)
-	if err != nil {
-		return fmt.Errorf("parse target URL: %w", err)
-	}
-	ph.mu.Lock()
-	var gate *Gate
-	if rt, ok := ph.routes[proxyPath]; ok {
-		gate = rt.gate
-	}
-	ph.routes[proxyPath] = &proxyRoute{proxy: newReverseProxy(target, proxyPath), gate: gate}
-	ph.mu.Unlock()
-	return nil
 }
 
 func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

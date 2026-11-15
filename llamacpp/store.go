@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"imagecaster-server/fsutil"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -434,11 +435,7 @@ func writePreset(list []Model, path string, opt PresetOptions) (map[string]strin
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := fsutil.WriteFileAtomic(path, []byte(b.String()), 0o644); err != nil {
 		return nil, err
 	}
 	return ids, nil

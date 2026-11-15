@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"imagecaster-server/dl"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,4 +210,40 @@ func TestFacadePullStreamsAndRefreshes(t *testing.T) {
 
 	rec = e.do(t, http.MethodPost, "/api/pull", `{"model":"missing","stream":false}`)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestPullFailsOnStalledBlob(t *testing.T) {
+	reg := newFakeRegistry()
+	mf := reg.add("library/m", "latest", "qwen2", fixtureLayer{MediaModel, []byte(strings.Repeat("x", 4096))})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.Contains(req.URL.Path, "/blobs/"+mf.Layers[0].Digest) {
+			w.Header().Set("Content-Length", "4096")
+			w.Write([]byte("xxxx"))
+			w.(http.Flusher).Flush()
+			select {
+			case <-release:
+			case <-req.Context().Done():
+			}
+			return
+		}
+		reg.ServeHTTP(w, req)
+	}))
+	t.Cleanup(func() {
+		close(release)
+		srv.Close()
+	})
+	st := &Store{Root: t.TempDir()}
+	p := &Puller{Store: st, Stall: 100 * time.Millisecond, BaseURL: func(string) string { return srv.URL }}
+
+	done := make(chan error, 1)
+	go func() { done <- p.Pull(context.Background(), "m", nil) }()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, dl.ErrStalled)
+	case <-time.After(10 * time.Second):
+		t.Fatal("pull hung on a frozen connection")
+	}
+	path, _ := st.BlobPath(mf.Layers[0].Digest)
+	assert.FileExists(t, path+"-partial", "partial blob stays for resume")
 }

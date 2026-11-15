@@ -1,4 +1,4 @@
-package installer
+package dl
 
 import (
 	"context"
@@ -30,29 +30,40 @@ func newDownloadTransport() *http.Transport {
 	return t
 }
 
-var errStalled = errors.New("download stalled: no data received")
+var ErrStalled = errors.New("download stalled: no data received")
 
-func HTTPGet(parent context.Context, url string) (*http.Response, error) {
-	return HTTPGetFrom(parent, url, 0)
+func Get(parent context.Context, url string) (*http.Response, error) {
+	return GetFrom(parent, url, 0, Options{})
 }
 
-func HTTPGetFrom(parent context.Context, url string, offset int64) (*http.Response, error) {
+func GetFrom(parent context.Context, url string, offset int64, o Options) (*http.Response, error) {
+	client := o.Client
+	if client == nil {
+		client = downloadClient
+	}
+	stall := o.Stall
+	if stall <= 0 {
+		stall = downloadStall
+	}
 	ctx, cancel := context.WithCancelCause(parent)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		cancel(nil)
 		return nil, err
 	}
+	for k, v := range o.Header {
+		req.Header[k] = v
+	}
 	if offset > 0 {
 		req.Header.Set("Range", "bytes="+strconv.FormatInt(offset, 10)+"-")
 	}
-	resp, err := downloadClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		cancel(nil)
 		return nil, err
 	}
-	timer := newStallTimer(downloadStall, func() { cancel(errStalled) })
-	resp.Body = &stallBody{body: resp.Body, ctx: ctx, timer: timer, cancel: cancel}
+	timer := newStallTimer(stall, func() { cancel(ErrStalled) })
+	resp.Body = &stallBody{body: resp.Body, ctx: ctx, timer: timer, cancel: cancel, stall: stall}
 	return resp, nil
 }
 
@@ -64,15 +75,16 @@ type stallBody struct {
 	ctx    context.Context
 	timer  stallTimer
 	cancel context.CancelCauseFunc
+	stall  time.Duration
 }
 
 func (s *stallBody) Read(p []byte) (int, error) {
 	n, err := s.body.Read(p)
 	if n > 0 {
-		s.timer.Reset(downloadStall)
+		s.timer.Reset(s.stall)
 	}
-	if err != nil && context.Cause(s.ctx) == errStalled {
-		return n, errStalled
+	if err != nil && context.Cause(s.ctx) == ErrStalled {
+		return n, ErrStalled
 	}
 	return n, err
 }

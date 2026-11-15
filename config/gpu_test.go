@@ -74,7 +74,7 @@ func TestConfig_ValidateGPUDefaults(t *testing.T) {
 func TestLoad_GPUValidSectionKeepsDefaults(t *testing.T) {
 	t.Parallel()
 	path := writeConfigFile(t, "gpu:\n  reserve_mb: 256\n")
-	cfg, err := Load(path)
+	cfg, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 
 	assert.Equal(t, 256, cfg.GPU.ReserveMB)
@@ -96,7 +96,7 @@ func TestLoad_GPUFullOverride(t *testing.T) {
 		"  sd_default_weight_mb: 6500\n" +
 		"  sd_overhead_mb: 500\n" +
 		"  llm_weight_mb: 8000\n"
-	cfg, err := Load(writeConfigFile(t, yaml))
+	cfg, err := LoadWithDir(writeConfigFile(t, yaml), DefaultDataDir())
 	require.NoError(t, err)
 
 	assert.Equal(t, 12000, cfg.GPU.TotalBudgetMB)
@@ -127,7 +127,7 @@ func TestLoad_GPUNegativeFieldsRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			cfg, err := Load(writeConfigFile(t, tt.yaml))
+			cfg, err := LoadWithDir(writeConfigFile(t, tt.yaml), DefaultDataDir())
 			require.Error(t, err)
 			assert.Nil(t, cfg)
 			assert.Contains(t, err.Error(), tt.key)

@@ -3,11 +3,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,11 +28,7 @@ type desktopEngine struct {
 
 	mu      sync.Mutex
 	cfg     *config.Config
-	d       *appDeps
-	ctx     context.Context
-	cancel  context.CancelFunc
-	srv     *http.Server
-	mdns    *MDNSService
+	rt      *appRuntime
 	logFile *process.RotatingFile
 	logPath string
 	working bool
@@ -115,24 +108,16 @@ func (e *desktopEngine) Start(dir string) error {
 	if e.port != 0 {
 		cfg.Port = e.port
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	ln, err := listen(cfg.Port)
 	if err != nil {
 		log.Printf("listen :%d: %v", cfg.Port, err)
 		return fail(fmt.Errorf(i18n.T("desktop.port_busy"), cfg.Port))
 	}
 
-	d := initApp(cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	srv := d.newServer()
-	go func() {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
-		}
-	}()
-	mdns := d.registerMDNS()
+	rt := startRuntime(cfg, ln, 5*time.Second)
 
 	e.mu.Lock()
-	e.cfg, e.d, e.ctx, e.cancel, e.srv, e.mdns, e.logFile, e.logPath = cfg, d, ctx, cancel, srv, mdns, lf, logPath
+	e.cfg, e.rt, e.logFile, e.logPath = cfg, rt, lf, logPath
 	e.mu.Unlock()
 	e.launch(true)
 	return nil
@@ -158,12 +143,12 @@ func (e *desktopEngine) loadConfig(dir string) (*config.Config, error) {
 
 func (e *desktopEngine) launch(first bool) {
 	e.mu.Lock()
-	if e.working || e.d == nil {
+	if e.working || e.rt == nil {
 		e.mu.Unlock()
 		return
 	}
 	e.working = true
-	d, ctx := e.d, e.ctx
+	rt := e.rt
 	e.mu.Unlock()
 	go func() {
 		defer func() {
@@ -171,14 +156,7 @@ func (e *desktopEngine) launch(first bool) {
 			e.working = false
 			e.mu.Unlock()
 		}()
-		d.ensureInstalled()
-		if ctx.Err() != nil {
-			return
-		}
-		d.pm.StartAll()
-		if first {
-			d.startMonitors(ctx)
-		}
+		rt.launch(first)
 	}()
 }
 
@@ -194,20 +172,13 @@ func (e *desktopEngine) LogPath() string {
 
 func (e *desktopEngine) Stop() {
 	e.mu.Lock()
-	d, cancel, srv, mdns, lf := e.d, e.cancel, e.srv, e.mdns, e.logFile
-	e.d = nil
+	rt, lf := e.rt, e.logFile
+	e.rt = nil
 	e.mu.Unlock()
-	if d == nil {
+	if rt == nil {
 		return
 	}
-	cancel()
-	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
-	defer done()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("HTTP shutdown: %v", err)
-	}
-	d.shutdown()
-	mdns.Shutdown()
+	rt.Stop()
 	log.Println("Server stopped")
 	log.SetOutput(os.Stderr)
 	lf.Close()
@@ -215,11 +186,12 @@ func (e *desktopEngine) Stop() {
 
 func (e *desktopEngine) Snapshot() desktop.Snapshot {
 	e.mu.Lock()
-	d, cfg := e.d, e.cfg
+	rt, cfg := e.rt, e.cfg
 	e.mu.Unlock()
-	if d == nil {
+	if rt == nil {
 		return desktop.Snapshot{}
 	}
+	d := rt.d
 
 	statuses := d.inst.Status()
 	keys := make([]string, 0, len(statuses))

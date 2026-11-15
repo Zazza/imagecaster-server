@@ -54,10 +54,6 @@ func openFile(path string) {
 	startOutsideJob("notepad.exe", path)
 }
 
-func openURL(url string) {
-	startOutsideJob("rundll32", "url.dll,FileProtocolHandler", url)
-}
-
 func copyText(text string) {
 	cmd := hide.Command("clip")
 	cmd.Stdin = strings.NewReader(text)

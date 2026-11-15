@@ -2,13 +2,12 @@ package health
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net/http"
 	"sync"
 	"time"
 
 	"imagecaster-server/config"
+	"imagecaster-server/probe"
 )
 
 type HealthResult struct {
@@ -19,18 +18,15 @@ type HealthResult struct {
 }
 
 type HealthMonitor struct {
-	mu       sync.RWMutex
-	results  map[string]HealthResult
-	config   *config.Config
-	client   *http.Client
-	OnUpdate func(map[string]HealthResult)
+	mu      sync.RWMutex
+	results map[string]HealthResult
+	config  *config.Config
 }
 
 func NewHealthMonitor(cfg *config.Config) *HealthMonitor {
 	return &HealthMonitor{
 		results: make(map[string]HealthResult),
 		config:  cfg,
-		client:  &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -60,43 +56,14 @@ func (hm *HealthMonitor) checkAll() {
 }
 
 func (hm *HealthMonitor) check(name, url string) {
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		hm.setResult(name, HealthResult{
-			Healthy:   false,
-			LatencyMs: 0,
-			CheckedAt: time.Now(),
-			Error:     err.Error(),
-		})
-		return
-	}
-
-	resp, err := hm.client.Do(req)
-	latency := time.Since(start).Milliseconds()
-
-	if err != nil {
-		hm.setResult(name, HealthResult{
-			Healthy:   false,
-			LatencyMs: latency,
-			CheckedAt: time.Now(),
-			Error:     err.Error(),
-		})
-		return
-	}
-	resp.Body.Close()
-
-	healthy := resp.StatusCode == http.StatusOK
+	latency, err := probe.ProbeTimeout(url, 5*time.Second)
 	result := HealthResult{
-		Healthy:   healthy,
-		LatencyMs: latency,
+		Healthy:   err == nil,
+		LatencyMs: latency.Milliseconds(),
 		CheckedAt: time.Now(),
 	}
-	if !healthy {
-		result.Error = fmt.Sprintf("status %d", resp.StatusCode)
+	if err != nil {
+		result.Error = err.Error()
 	}
 	hm.setResult(name, result)
 }
@@ -109,10 +76,6 @@ func (hm *HealthMonitor) setResult(name string, r HealthResult) {
 
 	if r.Healthy && !prev.Healthy {
 		log.Printf("[%s] healthy (latency: %dms)", name, r.LatencyMs)
-	}
-
-	if hm.OnUpdate != nil {
-		hm.OnUpdate(hm.Results())
 	}
 }
 

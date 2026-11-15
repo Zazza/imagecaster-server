@@ -40,9 +40,6 @@ func TestHealthMonitorStartChecksEveryProcessWithHealthURL(t *testing.T) {
 		"silent": {},
 	}}
 	hm := NewHealthMonitor(cfg)
-	updates := make(chan map[string]HealthResult, 16)
-	hm.OnUpdate = func(r map[string]HealthResult) { updates <- r }
-
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
@@ -50,15 +47,7 @@ func TestHealthMonitorStartChecksEveryProcessWithHealthURL(t *testing.T) {
 		close(stopped)
 	}()
 
-	var last map[string]HealthResult
-	timeout := time.After(10 * time.Second)
-	for len(last) < 3 {
-		select {
-		case last = <-updates:
-		case <-timeout:
-			t.Fatalf("got %d of 3 health results", len(last))
-		}
-	}
+	require.Eventually(t, func() bool { return len(hm.Results()) == 3 }, 10*time.Second, 10*time.Millisecond)
 	cancel()
 	<-stopped
 

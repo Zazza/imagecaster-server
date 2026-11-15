@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"imagecaster-server/api"
+	"imagecaster-server/textutil"
 )
 
 type API struct {
@@ -71,7 +72,7 @@ func (a *API) handleLeaseCreate(w http.ResponseWriter, r *http.Request) {
 
 	spec := Spec{
 		Kind:     req.Kind,
-		Client:   truncateRunes(SanitizeClient(req.Client), maxClientRunes),
+		Client:   textutil.Truncate(SanitizeClient(req.Client), maxClientRunes),
 		WeightMB: req.WeightMB,
 		Priority: req.Priority,
 	}
@@ -134,17 +135,6 @@ func (a *API) writeAcquireError(w http.ResponseWriter, ctx context.Context, err 
 		return
 	}
 	api.WriteError(w, err.Error(), http.StatusInternalServerError)
-}
-
-func truncateRunes(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max])
 }
 
 type leaseStatusResponse struct {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"imagecaster-server/textutil"
 	"sort"
 	"strings"
 
@@ -99,7 +100,7 @@ func (m InstallModel) View() string {
 			b.WriteString(label)
 			b.WriteString(m.spinner.View())
 			b.WriteString(" ")
-			b.WriteString(progressBlue.Render(truncateProgress(progressLabel(s.Progress), 40)))
+			b.WriteString(progressBlue.Render(textutil.Ellipsis(progressLabel(s.Progress), 40)))
 		case s.Error != "":
 			b.WriteString(label)
 			b.WriteString(progressRed.Render(" " + T("install.failed")))
@@ -144,12 +145,4 @@ func componentLabel(key string) string {
 	default:
 		return key
 	}
-}
-
-func truncateProgress(s string, maxLen int) string {
-	r := []rune(s)
-	if len(r) <= maxLen {
-		return s
-	}
-	return string(r[:maxLen-3]) + "..."
 }

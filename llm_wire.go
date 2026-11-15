@@ -13,6 +13,7 @@ import (
 	"imagecaster-server/config"
 	"imagecaster-server/installer"
 	"imagecaster-server/llamacpp"
+	"imagecaster-server/probe"
 	"imagecaster-server/process"
 )
 
@@ -50,19 +51,17 @@ func waitHealthy(ctx context.Context, url string, timeout time.Duration) error {
 	if url == "" {
 		return nil
 	}
+	if _, err := http.NewRequest(http.MethodGet, url, nil); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client := &http.Client{Timeout: 2 * time.Second}
 	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return err
-		}
-		if resp, err := client.Do(req); err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
+		actx, acancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err := probe.Probe(actx, url)
+		acancel()
+		if err == nil {
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -100,7 +99,7 @@ func newLlamaFacade(cfg *config.Config, pm *process.ProcessManager) *llamacpp.Fa
 		ContextSize: s.ContextSize,
 		KeepAlive:   ka,
 		Reload:      reload.Reload,
-		Puller:      &llamacpp.Puller{Store: store, HTTP: &http.Client{}},
+		Puller:      &llamacpp.Puller{Store: store},
 	})
 	if err := f.WritePreset(); err != nil {
 		log.Printf("[llamacpp] write %s: %v", cfg.LlamaPresetPath(), err)

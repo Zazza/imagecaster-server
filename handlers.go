@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,15 +47,15 @@ func NewHandlers(pm *process.ProcessManager, hm *sdhealth.HealthMonitor, gm *sdg
 
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/server/status", h.handleStatus)
-	mux.HandleFunc("/api/server/start/", h.handleStart)
-	mux.HandleFunc("/api/server/stop/", h.handleStop)
-	mux.HandleFunc("/api/server/restart/", h.handleRestart)
+	mux.HandleFunc("/api/server/start/", h.procAction("/api/server/start/", "started", h.manager.Start))
+	mux.HandleFunc("/api/server/stop/", h.procAction("/api/server/stop/", "stopped", h.manager.Stop))
+	mux.HandleFunc("/api/server/restart/", h.procAction("/api/server/restart/", "restarted", h.manager.Restart))
 	mux.HandleFunc("/api/server/logs/", h.handleLogs)
 }
 
 func (h *Handlers) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		api.WriteError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -76,76 +77,46 @@ func (h *Handlers) handleStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (h *Handlers) handleStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func (h *Handlers) procAction(prefix, done string, act func(string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			api.WriteError(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := strings.TrimPrefix(r.URL.Path, prefix)
+		if name == "" {
+			api.WriteError(w, "process name required", http.StatusBadRequest)
+			return
+		}
+		if err := act(name); err != nil {
+			api.WriteError(w, err.Error(), procErrorStatus(err))
+			return
+		}
+		api.WriteJSON(w, map[string]string{"status": done, "process": name})
 	}
-
-	name := strings.TrimPrefix(r.URL.Path, "/api/server/start/")
-	if name == "" {
-		http.Error(w, "process name required", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.manager.Start(name); err != nil {
-		api.WriteError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	api.WriteJSON(w, map[string]string{"status": "started", "process": name})
 }
 
-func (h *Handlers) handleStop(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func procErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, process.ErrNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, process.ErrAlreadyRunning):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
 	}
-
-	name := strings.TrimPrefix(r.URL.Path, "/api/server/stop/")
-	if name == "" {
-		http.Error(w, "process name required", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.manager.Stop(name); err != nil {
-		api.WriteError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	api.WriteJSON(w, map[string]string{"status": "stopped", "process": name})
-}
-
-func (h *Handlers) handleRestart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	name := strings.TrimPrefix(r.URL.Path, "/api/server/restart/")
-	if name == "" {
-		http.Error(w, "process name required", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.manager.Restart(name); err != nil {
-		api.WriteError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	api.WriteJSON(w, map[string]string{"status": "restarted", "process": name})
 }
 
 func (h *Handlers) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		api.WriteError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, "/api/server/logs/")
 	name := strings.TrimSuffix(path, "/")
 	if name == "" {
-		http.Error(w, "process name required", http.StatusBadRequest)
+		api.WriteError(w, "process name required", http.StatusBadRequest)
 		return
 	}
 

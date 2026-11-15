@@ -1,4 +1,4 @@
-package installer
+package dl
 
 import (
 	"context"
@@ -54,7 +54,7 @@ func useFakeStallTimer(t *testing.T) chan *fakeStallTimer {
 	return created
 }
 
-func TestHTTPGetFailsOnStalledBody(t *testing.T) {
+func TestGetFailsOnStalledBody(t *testing.T) {
 	created := useFakeStallTimer(t)
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func TestHTTPGetFailsOnStalledBody(t *testing.T) {
 	}))
 	t.Cleanup(func() { close(release); srv.Close() })
 
-	resp, err := HTTPGet(context.Background(), srv.URL)
+	resp, err := Get(context.Background(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	timer := <-created
@@ -80,10 +80,10 @@ func TestHTTPGetFailsOnStalledBody(t *testing.T) {
 
 	timer.fire()
 	_, err = io.ReadAll(resp.Body)
-	assert.ErrorIs(t, err, errStalled)
+	assert.ErrorIs(t, err, ErrStalled)
 }
 
-func TestHTTPGetSlowButSteadyBodyCompletes(t *testing.T) {
+func TestGetSlowButSteadyBodyCompletes(t *testing.T) {
 	created := useFakeStallTimer(t)
 	next := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +101,7 @@ func TestHTTPGetSlowButSteadyBodyCompletes(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	resp, err := HTTPGet(context.Background(), srv.URL)
+	resp, err := Get(context.Background(), srv.URL)
 	require.NoError(t, err)
 	timer := <-created
 
@@ -128,7 +128,7 @@ func TestHTTPGetSlowButSteadyBodyCompletes(t *testing.T) {
 	}
 }
 
-func TestHTTPGetRealTimerAbortsStall(t *testing.T) {
+func TestGetRealTimerAbortsStall(t *testing.T) {
 	old := downloadStall
 	downloadStall = 50 * time.Millisecond
 	t.Cleanup(func() { downloadStall = old })
@@ -144,7 +144,7 @@ func TestHTTPGetRealTimerAbortsStall(t *testing.T) {
 	}))
 	t.Cleanup(func() { close(release); srv.Close() })
 
-	resp, err := HTTPGet(context.Background(), srv.URL)
+	resp, err := Get(context.Background(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	done := make(chan error, 1)
@@ -152,7 +152,7 @@ func TestHTTPGetRealTimerAbortsStall(t *testing.T) {
 
 	select {
 	case err := <-done:
-		assert.ErrorIs(t, err, errStalled)
+		assert.ErrorIs(t, err, ErrStalled)
 	case <-time.After(10 * time.Second):
 		t.Fatal("stalled download was not aborted")
 	}

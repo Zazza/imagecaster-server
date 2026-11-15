@@ -25,11 +25,6 @@ func InstallProgressMsg(key, progress string) installProgressMsg {
 	return installProgressMsg{Key: key, Progress: progress}
 }
 
-type installDoneMsg struct {
-	Key   string
-	Error error
-}
-
 type allInstalledMsg struct{}
 
 type sysStatsMsg struct {

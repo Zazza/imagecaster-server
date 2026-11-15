@@ -39,7 +39,6 @@ func writeYAML(t *testing.T, body string) string {
 
 func loaders(dataDir string) map[string]func(string) (*Config, error) {
 	return map[string]func(string) (*Config, error){
-		"Load":        Load,
 		"LoadWithDir": func(p string) (*Config, error) { return LoadWithDir(p, dataDir) },
 	}
 }
@@ -113,7 +112,7 @@ func TestLoadDropsForgeBackendsWithoutModelsUsesDefaults(t *testing.T) {
 	body := "data_dir: " + filepath.ToSlash(dataDir) + "\nactive_sd: forge\nactive_llm: llamacpp\n" + legacyProcesses + "backends:\n" + forgeBackends
 	path := writeYAML(t, body)
 
-	cfg, err := Load(path)
+	cfg, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	assert.Equal(t, SDCppBackendKey, cfg.ActiveSD)
 	assert.Equal(t, filepath.Join(dataDir, "models", "checkpoints"), cfg.GetActiveBackend().ModelsDir)
@@ -124,7 +123,7 @@ func TestLoadDropsForgeBackendsWithoutModelsUsesDefaults(t *testing.T) {
 
 func TestLoadUnknownActiveSwitchesToSDCpp(t *testing.T) {
 	path := writeYAML(t, "active_sd: nope\nactive_llm: llamacpp\n")
-	cfg, err := Load(path)
+	cfg, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	assert.Equal(t, SDCppBackendKey, cfg.ActiveSD)
 	assert.Contains(t, cfg.Backends, SDCppBackendKey)
@@ -133,7 +132,7 @@ func TestLoadUnknownActiveSwitchesToSDCpp(t *testing.T) {
 func TestLoadKeepsCustomSDCppBackend(t *testing.T) {
 	body := "active_sd: my-sd\nactive_llm: llamacpp\nbackends:\n  my-sd:\n    name: Mine\n    kind: sdcpp\n    process_key: sd\n"
 	path := writeYAML(t, body)
-	cfg, err := Load(path)
+	cfg, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	assert.Equal(t, "my-sd", cfg.ActiveSD)
 	assert.Equal(t, "Mine", cfg.Backends["my-sd"].Name)
@@ -247,7 +246,7 @@ func TestLoadCleansForgeProcessLeftovers(t *testing.T) {
 func TestLoadKeepsCleanSDProcess(t *testing.T) {
 	body := "active_sd: sdcpp\nactive_llm: llamacpp\nprocesses:\n  sd:\n    name: SD\n    env:\n      CUDA_VISIBLE_DEVICES: \"1\"\n    health_url: http://localhost:7860/sdcpp/v1/capabilities\n    target_url: http://localhost:7860\n    proxy_path: /api/sd/\n    autostart: true\n"
 	path := writeYAML(t, body)
-	_, err := Load(path)
+	_, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	saved, _ := os.ReadFile(path)
 	assert.Equal(t, body, string(saved))

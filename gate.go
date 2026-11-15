@@ -14,6 +14,7 @@ import (
 	"imagecaster-server/api"
 	"imagecaster-server/gpuqueue"
 	"imagecaster-server/sdcpp"
+	"imagecaster-server/textutil"
 )
 
 const (
@@ -142,11 +143,7 @@ func clientTag(r *http.Request) string {
 	if ua == "" {
 		return "proxy"
 	}
-	runes := []rune(ua)
-	if len(runes) > maxClientTag {
-		runes = runes[:maxClientTag]
-	}
-	return string(runes)
+	return textutil.Truncate(ua, maxClientTag)
 }
 
 type sdWeightTracker struct {
@@ -221,14 +218,11 @@ func (g *Gate) sdJobWeight(checkpoint string) int {
 }
 
 func sdJobClient(c string) string {
-	runes := []rune(gpuqueue.SanitizeClient(c))
-	if len(runes) == 0 {
+	tag := gpuqueue.SanitizeClient(c)
+	if tag == "" {
 		return "sd-job"
 	}
-	if len(runes) > maxClientTag {
-		runes = runes[:maxClientTag]
-	}
-	return string(runes)
+	return textutil.Truncate(tag, maxClientTag)
 }
 
 func (g *Gate) LeaseSD(ctx context.Context, req sdcpp.LeaseRequest) (func(), error) {

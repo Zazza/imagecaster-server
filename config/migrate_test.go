@@ -66,7 +66,7 @@ func TestOldConfigMigration(t *testing.T) {
 func TestNewConfigNotMigrated(t *testing.T) {
 	for _, body := range []string{"active_sd: sdcpp\nactive_llm: llamacpp\n", "active_sd: sdcpp\nactive_llm: ollama\n"} {
 		path := writeYAML(t, body)
-		cfg, err := Load(path)
+		cfg, err := LoadWithDir(path, DefaultDataDir())
 		require.NoError(t, err)
 		assert.NotEmpty(t, cfg.ActiveLLM)
 		_, err = os.Stat(path + EngineMigrationBackupSuffix)
@@ -99,7 +99,7 @@ func TestCustomBackendModelsKeptOnLaterStarts(t *testing.T) {
 func TestMigrationKeepsFileMode(t *testing.T) {
 	path := writeYAML(t, "active_sd: forge-neo\n")
 	require.NoError(t, os.Chmod(path, 0o600))
-	_, err := Load(path)
+	_, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	st, err := os.Stat(path)
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestMigrationInMemoryWhenConfigReadOnly(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("active_sd: forge-neo\n"), 0o644))
 	require.NoError(t, os.Chmod(dir, 0o555))
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
-	cfg, err := Load(path)
+	cfg, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	assert.Equal(t, SDCppBackendKey, cfg.ActiveSD)
 	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
@@ -128,14 +128,14 @@ func TestMigrationInMemoryWhenConfigReadOnly(t *testing.T) {
 func TestFailedSaveRetriesNextStart(t *testing.T) {
 	path := writeYAML(t, "active_sd: forge-neo\n")
 	require.NoError(t, os.MkdirAll(filepath.Join(path+".tmp", "x"), 0o755))
-	cfg, err := Load(path)
+	cfg, err := LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)
 	_, err = os.Stat(path + EngineMigrationBackupSuffix)
 	assert.True(t, os.IsNotExist(err), "backup of a failed save must not look like a rollback")
 
 	require.NoError(t, os.RemoveAll(path+".tmp"))
-	cfg, err = Load(path)
+	cfg, err = LoadWithDir(path, DefaultDataDir())
 	require.NoError(t, err)
 	assert.Equal(t, SDCppBackendKey, cfg.ActiveSD)
 	assert.Equal(t, LLMLlamaCpp, cfg.ActiveLLM)

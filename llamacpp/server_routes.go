@@ -2,6 +2,7 @@ package llamacpp
 
 import (
 	"fmt"
+	"imagecaster-server/dl"
 	"net/http"
 	"net/url"
 	"strings"
@@ -40,7 +41,7 @@ func (f *Facade) serverModels(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]map[string]any, 0, len(list))
 		for _, m := range list {
-			item := map[string]any{"name": m.Name.String(), "size": gb(m.Size)}
+			item := map[string]any{"name": m.Name.String(), "size": dl.FormatBytes(m.Size)}
 			err := m.Supported()
 			switch {
 			case err != nil && m.ReadOnly:

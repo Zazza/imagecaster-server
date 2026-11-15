@@ -18,9 +18,6 @@ var (
 	labelStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#888888"))
 
-	valueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA"))
-
 	runningStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#04B575")).Bold(true)
 
@@ -32,9 +29,6 @@ var (
 
 	healthyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#04B575"))
-
-	unhealthyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF4672"))
 
 	progressGreen = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#04B575"))
@@ -61,18 +55,6 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#333333")).
 			Padding(1, 2)
-
-	inputPromptStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4"))
-
-	inputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA"))
-
-	checkboxStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA"))
-
-	checkedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575"))
 
 	barWidth = 30
 )

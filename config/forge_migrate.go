@@ -1,8 +1,8 @@
 package config
 
 import (
+	"imagecaster-server/fsutil"
 	"log"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -84,7 +84,7 @@ func dropForgeBackends(path string, data []byte, dataDir, origActive string) []b
 		})
 		candidates := append(slices.Clone(dropped), droppedBackend{key: "forge-neo", modelsDir: "sd-webui-forge-neo/models/Stable-diffusion"})
 		for _, d := range candidates {
-			if d.modelsDir == "" || !dirExists(resolveDirPath(dataDir, d.modelsDir)) {
+			if d.modelsDir == "" || !fsutil.DirExists(resolveDirPath(dataDir, d.modelsDir)) {
 				continue
 			}
 			n := adoptedSDCppNode(d)
@@ -261,12 +261,4 @@ func orDefault(v, def string) string {
 		return def
 	}
 	return v
-}
-
-func dirExists(p string) bool {
-	if p == "" {
-		return false
-	}
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
 }

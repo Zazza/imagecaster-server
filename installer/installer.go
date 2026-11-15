@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"imagecaster-server/config"
+	"imagecaster-server/fsutil"
 	"imagecaster-server/process"
 )
 
@@ -60,7 +61,7 @@ func NewInstaller(cfg *config.Config) *Installer {
 	for key, bc := range cfg.Backends {
 		if bc.Install.Method != "" && key == cfg.ActiveSD {
 			s := &InstallStatus{Key: key}
-			s.Installed = inst.checkInstalled(bc.Install) && fileExists(bc.Binary)
+			s.Installed = inst.checkInstalled(bc.Install) && fsutil.FileExists(bc.Binary)
 			if s.Installed {
 				s.Version = bc.Install.Version
 			}
@@ -341,14 +342,6 @@ func (inst *Installer) setProgress(key string, progress string) {
 	if inst.OnProgress != nil {
 		inst.OnProgress(key, progress)
 	}
-}
-
-func fileExists(p string) bool {
-	if p == "" {
-		return false
-	}
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 func (inst *Installer) Close() {

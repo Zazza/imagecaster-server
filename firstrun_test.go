@@ -35,7 +35,7 @@ func TestFirstRunConfig(t *testing.T) {
 			assert.Equal(t, dataDir, cfg.DataDir)
 			_, err = os.Stat(cfgFile)
 			require.NoError(t, err)
-			loaded, err := config.Load(cfgFile)
+			loaded, err := config.LoadWithDir(cfgFile, config.DefaultDataDir())
 			require.NoError(t, err)
 			assert.Equal(t, dataDir, loaded.DataDir)
 			assert.Equal(t, dataDir, config.SavedDataDir())
@@ -62,4 +62,18 @@ func TestAbsDir(t *testing.T) {
 			t.Errorf("absDir(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+func TestSaveConfigAtomicKeepsPermissions(t *testing.T) {
+	p := filepath.Join(t.TempDir(), configName)
+	require.NoError(t, os.WriteFile(p, []byte("old"), 0o600))
+	cfg := config.NewDefault()
+	require.NoError(t, saveConfig(p, &cfg))
+	st, err := os.Stat(p)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), st.Mode().Perm())
+	assert.NoFileExists(t, p+".tmp")
+	loaded, err := config.LoadWithDir(p, t.TempDir())
+	require.NoError(t, err)
+	assert.Equal(t, cfg.Port, loaded.Port)
 }

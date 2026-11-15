@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"imagecaster-server/api"
-	"imagecaster-server/installer"
+	"imagecaster-server/dl"
 )
 
 func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		api.WriteError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -32,17 +32,8 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var dir string
-	switch typ {
-	case "sd":
-		dir = backend.ModelsDir
-	case "lora":
-		dir = backend.LoraDir
-	case "vae":
-		dir = backend.VaeDir
-	case "text_encoder":
-		dir = textEncoderDir(backend)
-	default:
+	dir, ok := dirFor(backend, typ)
+	if !ok {
 		api.WriteError(w, "invalid type: must be sd, lora, vae or text_encoder", http.StatusBadRequest)
 		return
 	}
@@ -87,7 +78,7 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 		log.Printf("[download] %s already present, skipped", filename)
 		rep.status("already downloaded")
 	} else {
-		log.Printf("[download] complete: %s (%s)", filename, installer.FormatBytes(rep.done))
+		log.Printf("[download] complete: %s (%s)", filename, dl.FormatBytes(rep.done))
 	}
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
@@ -138,6 +129,6 @@ func (s *sseReporter) progress(done, total int64) {
 		if total > 0 {
 			pct = fmt.Sprintf(" (%.0f%%)", percent)
 		}
-		log.Printf("[download] %s: %s / %s%s", s.name, installer.FormatBytes(done), installer.FormatBytes(total), pct)
+		log.Printf("[download] %s: %s / %s%s", s.name, dl.FormatBytes(done), dl.FormatBytes(total), pct)
 	}
 }

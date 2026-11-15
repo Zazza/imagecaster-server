@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type ServerDeps struct {
@@ -252,25 +251,4 @@ func renderBar(pct float64, width int) string {
 	}
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
 	return fmt.Sprintf("[%-*s] %3.0f%%", width, bar, pct)
-}
-
-func centerBlock(width int, s string) string {
-	lines := strings.Split(s, "\n")
-	maxW := 0
-	for _, l := range lines {
-		if lipgloss.Width(l) > maxW {
-			maxW = lipgloss.Width(l)
-		}
-	}
-	if maxW >= width {
-		return s
-	}
-	pad := (width - maxW) / 2
-	var b strings.Builder
-	for _, l := range lines {
-		b.WriteString(strings.Repeat(" ", pad))
-		b.WriteString(l)
-		b.WriteString("\n")
-	}
-	return b.String()
 }

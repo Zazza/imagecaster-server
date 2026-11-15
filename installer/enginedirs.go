@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"imagecaster-server/config"
+	"imagecaster-server/fsutil"
 )
 
 // Перенос старых каталогов движков без суффикса платформы в новые.
@@ -31,7 +32,7 @@ func (inst *Installer) MigrateEngineDirs() {
 	for _, m := range moves {
 		legacy := filepath.Join(inst.config.DataDir, filepath.FromSlash(m.legacy))
 		next := filepath.Join(inst.config.DataDir, filepath.FromSlash(m.next))
-		if !targets[next] || !dirExists(legacy) || dirExists(next) {
+		if !targets[next] || !fsutil.DirExists(legacy) || fsutil.DirExists(next) {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(legacy, m.probe)); err != nil {
@@ -51,9 +52,4 @@ func exeSuffixFor(goos string) string {
 		return ".exe"
 	}
 	return ""
-}
-
-func dirExists(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
 }

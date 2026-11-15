@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"errors"
+	"imagecaster-server/fsutil"
 	"log"
 	"os"
 
@@ -82,20 +83,7 @@ func writeMigrated(path, suffix string, old, migrated []byte) error {
 }
 
 func replaceFile(path string, data []byte) error {
-	perm := os.FileMode(0o644)
-	if st, err := os.Stat(path); err == nil {
-		perm = st.Mode().Perm()
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return fsutil.ReplaceFile(path, data, 0o644)
 }
 
 func setMapValue(m *yaml.Node, key, value string) {

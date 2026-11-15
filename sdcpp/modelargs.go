@@ -2,6 +2,7 @@ package sdcpp
 
 import (
 	"fmt"
+	"imagecaster-server/fsutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +80,7 @@ func findCheckpoint(cfg Config, name string) (string, error) {
 	base := name
 	if hasModelExt(name) {
 		p := filepath.Join(cfg.ModelsDir, name)
-		if fileExists(p) {
+		if fsutil.FileExists(p) {
 			return p, nil
 		}
 		base = strings.TrimSuffix(name, filepath.Ext(name))
@@ -119,11 +120,11 @@ func ModelArgs(cfg Config, checkpoint string, modules []string) ([]string, error
 	for _, m := range modules {
 		mp := m
 		if !filepath.IsAbs(mp) {
-			if cfg.VAEDir != "" && fileExists(filepath.Join(cfg.VAEDir, mp)) {
+			if cfg.VAEDir != "" && fsutil.FileExists(filepath.Join(cfg.VAEDir, mp)) {
 				mp = filepath.Join(cfg.VAEDir, mp)
-			} else if cfg.TextEncoderDir != "" && fileExists(filepath.Join(cfg.TextEncoderDir, mp)) {
+			} else if cfg.TextEncoderDir != "" && fsutil.FileExists(filepath.Join(cfg.TextEncoderDir, mp)) {
 				mp = filepath.Join(cfg.TextEncoderDir, mp)
-			} else if cfg.TokenizerDir != "" && fileExists(filepath.Join(cfg.TokenizerDir, mp)) {
+			} else if cfg.TokenizerDir != "" && fsutil.FileExists(filepath.Join(cfg.TokenizerDir, mp)) {
 				mp = filepath.Join(cfg.TokenizerDir, mp)
 			} else if cfg.TextEncoderDir != "" {
 				mp = filepath.Join(cfg.TextEncoderDir, mp)
@@ -196,11 +197,6 @@ func isVAEModule(cfg Config, p string) bool {
 	return strings.Contains(strings.ToLower(filepath.Base(p)), "vae")
 }
 
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
-}
-
 func usesSingleFile(args []string) bool {
 	return len(args) > 0 && args[0] == "--model"
 }
@@ -217,14 +213,14 @@ func CheckpointFiles(cfg Config, checkpoint string) []string {
 	if alias, ok := lookupAlias(cfg, name); ok {
 		var out []string
 		for _, a := range alias {
-			if !strings.HasPrefix(a, "-") && fileExists(a) {
+			if !strings.HasPrefix(a, "-") && fsutil.FileExists(a) {
 				out = append(out, a)
 			}
 		}
 		return out
 	}
 	p, err := checkpointPath(cfg, name)
-	if err != nil || !fileExists(p) {
+	if err != nil || !fsutil.FileExists(p) {
 		return nil
 	}
 	return []string{p}

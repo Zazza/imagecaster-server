@@ -3,12 +3,11 @@ package installer
 import (
 	"archive/zip"
 	"fmt"
+	"imagecaster-server/fsutil"
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
 )
 
 func mergeInto(src, dst string) error {
@@ -30,22 +29,11 @@ func mergeInto(src, dst string) error {
 				return err
 			}
 		}
-		if err := renameRetry(s, d); err != nil {
+		if err := fsutil.Rename(s, d); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func renameRetry(src, dst string) error {
-	var err error
-	for i := 0; i < 20; i++ {
-		if err = os.Rename(src, dst); err == nil {
-			return nil
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	return err
 }
 
 func safeJoin(root, name string) (string, error) {
@@ -71,16 +59,6 @@ func writeZipEntry(root, name string, f *zip.File) error {
 		return err
 	}
 	return extractZipEntry(f, dest)
-}
-
-func matchBinaryName(name, target string) bool {
-	if name == target {
-		return true
-	}
-	if runtime.GOOS == "windows" && name == target+".exe" {
-		return true
-	}
-	return false
 }
 
 func extractZipEntry(f *zip.File, dest string) error {

@@ -2,11 +2,11 @@ package llamacpp
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"imagecaster-server/dl"
+	"imagecaster-server/fsutil"
 	"io"
 	"net/http"
 	"os"
@@ -27,14 +27,8 @@ type Progress struct {
 type Puller struct {
 	Store   *Store
 	HTTP    *http.Client
+	Stall   time.Duration
 	BaseURL func(host string) string
-}
-
-func (p *Puller) client() *http.Client {
-	if p.HTTP != nil {
-		return p.HTTP
-	}
-	return &http.Client{Timeout: 0}
 }
 
 func (p *Puller) base(n Name) string {
@@ -44,18 +38,8 @@ func (p *Puller) base(n Name) string {
 	return "https://" + n.Host
 }
 
-func (p *Puller) get(ctx context.Context, url string, offset int64, accept string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if accept != "" {
-		req.Header.Set("Accept", accept)
-	}
-	if offset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-	}
-	return p.client().Do(req)
+func (p *Puller) getManifest(ctx context.Context, url string) (*http.Response, error) {
+	return dl.GetFrom(ctx, url, 0, dl.Options{Client: p.HTTP, Stall: p.Stall, Header: http.Header{"Accept": {MediaManifest}}})
 }
 
 func (p *Puller) Pull(ctx context.Context, name string, progress func(Progress)) error {
@@ -71,7 +55,7 @@ func (p *Puller) Pull(ctx context.Context, name string, progress func(Progress))
 	}
 	progress(Progress{Status: "pulling manifest"})
 	repo := p.base(n) + "/v2/" + n.Namespace + "/" + n.Model
-	resp, err := p.get(ctx, repo+"/manifests/"+n.Tag, 0, MediaManifest)
+	resp, err := p.getManifest(ctx, repo+"/manifests/"+n.Tag)
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", n, err)
 	}
@@ -124,11 +108,7 @@ func (p *Puller) Pull(ctx context.Context, name string, progress func(Progress))
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	tmp := dest + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, dest); err != nil {
+	if err := fsutil.WriteFileAtomic(dest, raw, 0o644); err != nil {
 		return err
 	}
 	progress(Progress{Status: "success"})
@@ -142,7 +122,8 @@ func (p *Puller) fetchBlob(ctx context.Context, repo string, l Layer, progress f
 	if err != nil {
 		return err
 	}
-	status := "pulling " + strings.TrimPrefix(l.Digest, "sha256:")[:12]
+	want, _ := digestHex(l.Digest)
+	status := "pulling " + want[:12]
 	if st, err := os.Stat(dest); err == nil && (l.Size <= 0 || st.Size() == l.Size) {
 		progress(Progress{Status: status, Digest: l.Digest, Total: l.Size, Completed: l.Size})
 		return nil
@@ -151,76 +132,28 @@ func (p *Puller) fetchBlob(ctx context.Context, repo string, l Layer, progress f
 		return err
 	}
 	part := dest + "-partial"
-	h := sha256.New()
-	var have int64
-	if f, err := os.Open(part); err == nil {
-		have, err = io.Copy(h, f)
-		f.Close()
-		if err != nil {
-			return err
-		}
+	var last time.Time
+	err = dl.Resume(ctx, repo+"/blobs/"+l.Digest, part, dl.Options{
+		SHA256: want,
+		Size:   l.Size,
+		Client: p.HTTP,
+		Stall:  p.Stall,
+		OnProgress: func(done, total int64) {
+			if time.Since(last) > 500*time.Millisecond {
+				last = time.Now()
+				progress(Progress{Status: status, Digest: l.Digest, Total: l.Size, Completed: done})
+			}
+		},
+	})
+	var ce *dl.ChecksumError
+	if errors.As(err, &ce) {
+		return fmt.Errorf("%s: %w (got sha256:%s)", status, ErrDigest, ce.Got)
 	}
-	if l.Size > 0 && have > l.Size {
-		if err := os.Remove(part); err != nil {
-			return err
-		}
-		have = 0
-		h.Reset()
-	}
-	if l.Size <= 0 || have < l.Size {
-		resp, err := p.get(ctx, repo+"/blobs/"+l.Digest, have, "")
-		if err != nil {
-			return fmt.Errorf("%s: %w", status, err)
-		}
-		defer resp.Body.Close()
-		flags := os.O_CREATE | os.O_WRONLY
-		switch {
-		case have > 0 && resp.StatusCode == http.StatusPartialContent:
-			flags |= os.O_APPEND
-		case resp.StatusCode == http.StatusOK:
-			flags |= os.O_TRUNC
-			have = 0
-			h.Reset()
-		default:
-			return fmt.Errorf("%s: HTTP %d", status, resp.StatusCode)
-		}
-		f, err := os.OpenFile(part, flags, 0o644)
-		if err != nil {
-			return err
-		}
-		pw := &pullWriter{total: l.Size, done: have, status: status, digest: l.Digest, progress: progress}
-		_, cerr := io.Copy(io.MultiWriter(f, h, pw), resp.Body)
-		if err := f.Close(); err != nil && cerr == nil {
-			cerr = err
-		}
-		if cerr != nil {
-			return fmt.Errorf("%s: %w", status, cerr)
-		}
-	}
-	got := "sha256:" + hex.EncodeToString(h.Sum(nil))
-	if got != strings.ToLower(l.Digest) {
-		os.Remove(part)
-		return fmt.Errorf("%s: %w (got %s)", status, ErrDigest, got)
+	if err != nil {
+		return fmt.Errorf("%s: %w", status, err)
 	}
 	progress(Progress{Status: status, Digest: l.Digest, Total: l.Size, Completed: l.Size})
-	return os.Rename(part, dest)
-}
-
-type pullWriter struct {
-	total, done int64
-	status      string
-	digest      string
-	progress    func(Progress)
-	last        time.Time
-}
-
-func (w *pullWriter) Write(b []byte) (int, error) {
-	w.done += int64(len(b))
-	if time.Since(w.last) > 500*time.Millisecond {
-		w.last = time.Now()
-		w.progress(Progress{Status: w.status, Digest: w.digest, Total: w.total, Completed: w.done})
-	}
-	return len(b), nil
+	return dl.Commit(part, dest)
 }
 
 func (f *Facade) Pull(ctx context.Context, name string, progress func(Progress)) error {
@@ -272,15 +205,5 @@ func FormatProgress(p Progress) string {
 		return p.Status
 	}
 	pct := p.Completed * 100 / p.Total
-	return fmt.Sprintf("%s: %d%% %s/%s", p.Status, pct, gb(p.Completed), gb(p.Total))
-}
-
-func gb(n int64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.0f MB", float64(n)/(1<<20))
-	}
-	return fmt.Sprintf("%d B", n)
+	return fmt.Sprintf("%s: %d%% %s/%s", p.Status, pct, dl.FormatBytes(p.Completed), dl.FormatBytes(p.Total))
 }

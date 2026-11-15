@@ -7,48 +7,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func Load(path string) (*Config, error) {
-	cfg := NewDefault()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			cfg.DataDir = DefaultDataDir()
-			if writeErr := WriteTemplate(path, cfg.DataDir); writeErr != nil {
-				return nil, fmt.Errorf("create default config: %w", writeErr)
-			}
-			cfg.ApplyEnvOverrides()
-			cfg.ApplyInstallDefaults()
-			cfg.ResolvePaths()
-			return &cfg, nil
-		}
-		return nil, fmt.Errorf("read config: %w", err)
-	}
-
-	origSD := activeSDOf(data)
-	data = migrateEngines(path, data)
-	data = dropForgeBackends(path, data, DefaultDataDir(), origSD)
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-
-	if cfg.DataDir == "" {
-		cfg.DataDir = DefaultDataDir()
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	cfg.MergeProcessEnvDefaults()
-	cfg.ApplyEnvOverrides()
-	cfg.ApplyInstallDefaults()
-	cfg.ResolvePaths()
-	cfg.adoptOllamaProcess()
-	cfg.migrateLegacy()
-	return &cfg, nil
-}
-
 func LoadWithDir(path, dataDir string) (*Config, error) {
 	cfg := NewDefault()
 	cfg.DataDir = dataDir

@@ -87,13 +87,15 @@ func TestGpuQueueSnapshot_WarningsCopied(t *testing.T) {
 	assert.Equal(t, "b", st.Warnings[1])
 }
 
-func TestQueueJobDTO_SanitizesClient(t *testing.T) {
+func TestGpuQueueSnapshot_SanitizesClient(t *testing.T) {
 	t.Parallel()
-	dto := queueJobDTO(gpuqueue.Job{
+	snap := gpuQueueSnapshot(gpuqueue.Status{Running: []gpuqueue.Job{{
 		ID:     "sd-1",
 		Kind:   gpuqueue.KindSD,
 		Client: "\u001b]52;c;boom\u0007x\ty\nz\u009bm",
-	})
+	}}})
+	require.Len(t, snap.Running, 1)
+	dto := snap.Running[0]
 
 	assert.Equal(t, "]52;c;boomxyzm", dto.Client)
 	for _, bad := range []string{"\u001b", "\u0007", "\t", "\n", "\u009b"} {

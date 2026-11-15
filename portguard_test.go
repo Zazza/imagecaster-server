@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"imagecaster-server/config"
-	"imagecaster-server/installer"
-	"imagecaster-server/process"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -318,8 +316,7 @@ func newPortGuardE2E(t *testing.T) (*e2eEnv, func() int) {
 			"ollama": {Name: "Ollama", TargetURL: llmBackend.URL, ProxyPath: "/api/llm/"},
 		},
 	}
-	pm := process.NewProcessManager(cfg, installer.NewInstaller(cfg), "")
-	ph := NewProxyHandler(pm, cfg, gate)
+	ph := NewProxyHandler(cfg, gate)
 
 	held := map[string]net.Listener{}
 	env.sdAddr = holdAddr(t, held)

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/grandcat/zeroconf"
 )
 
@@ -9,6 +11,7 @@ type MDNSService struct {
 	port    int
 	enabled bool
 	version string
+	stop    sync.Once
 }
 
 func NewMDNS(port int, enabled bool, version string) *MDNSService {
@@ -36,7 +39,9 @@ func (m *MDNSService) Register() error {
 }
 
 func (m *MDNSService) Shutdown() {
-	if m.server != nil {
-		m.server.Shutdown()
-	}
+	m.stop.Do(func() {
+		if m.server != nil {
+			m.server.Shutdown()
+		}
+	})
 }
