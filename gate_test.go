@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -480,4 +481,64 @@ func TestGate_CancelledFromQueueReturns503NotEmpty200(t *testing.T) {
 
 	close(hold)
 	require.True(t, waitFor(t, time.Second, func() bool { return len(q.Status().Running) == 0 }))
+}
+
+func TestGate_FullQueueReturns503InsteadOfBypass(t *testing.T) {
+	cfg := GateConfig{SDDefaultWeightMB: 3000, SDOverheadMB: 100, LLMWeightMB: 3000, MaxWaitSeconds: 10}
+	q := gpuqueue.New(gpuqueue.Config{
+		TotalBudgetMB: 3000,
+		MaxWait:       10 * time.Second,
+		LeaseTTL:      30 * time.Second,
+		MaxQueueLen:   1,
+	})
+	gate := NewGate(q, cfg, newSDWeight(cfg, dirResolver("")))
+
+	hold := make(chan struct{})
+	var served atomic.Int32
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		served.Add(1)
+		<-hold
+		w.WriteHeader(http.StatusOK)
+	})
+	mux := http.NewServeMux()
+	mux.Handle("/api/llm/", gate.Middleware(next))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	var once sync.Once
+	release := func() { once.Do(func() { close(hold) }) }
+	defer release()
+
+	done := make(chan struct{}, 2)
+	post := func() {
+		resp, err := http.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
+		if err == nil {
+			resp.Body.Close()
+		}
+		done <- struct{}{}
+	}
+	go post()
+	require.True(t, waitFor(t, 2*time.Second, func() bool { return len(q.Status().Running) == 1 }))
+	go post()
+	require.True(t, waitFor(t, 2*time.Second, func() bool { return len(q.Status().Queue) == 1 }))
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Post(srv.URL+"/api/llm/api/chat", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Equal(t, "10", resp.Header.Get("Retry-After"))
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "gpu queue full")
+	assert.Equal(t, int32(1), served.Load())
+
+	release()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("queued requests did not complete")
+		}
+	}
+	assert.Equal(t, int32(2), served.Load())
 }

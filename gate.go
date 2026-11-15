@@ -80,7 +80,8 @@ func (g *Gate) Middleware(next http.Handler) http.Handler {
 				api.WriteError(w, gpuqueue.ErrTimeout.Error(), http.StatusServiceUnavailable)
 				return
 			}
-			next.ServeHTTP(w, r)
+			w.Header().Set("Retry-After", retryAfterSeconds(g.q))
+			api.WriteError(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 		defer lease.Release()

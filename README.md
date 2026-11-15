@@ -115,7 +115,7 @@ Environment: `IMAGECASTER_LANG=ru|en` — interface language; `SD_PORT`, `SD_DAT
 
 **Text models step aside.** When an image job and the loaded text model don't fit into the budget together, the server unloads idle text models before the job (a model answering right now is not touched) — it loads again by itself on the next request in a couple of seconds.
 
-**Waiting and failures.** Leases have a TTL and are renewed while the request runs; a lease of a dead client frees itself. Waiting longer than `max_wait_seconds` answers `503` with `Retry-After` (image jobs wait without a limit). If the queue itself misbehaves, the request passes through (fail-open).
+**Waiting and failures.** Leases have a TTL and are renewed while the request runs; a lease of a dead client frees itself. Waiting longer than `max_wait_seconds` answers `503` with `Retry-After` (image jobs wait without a limit).
 
 **Port guard.** The server takes the standard SD (`7860`) and LLM (`11434`) ports and moves the engines to loopback ports — so requests from any program in the LAN, not only Imagecaster, go through the same queue. External GPU consumers can take a lease directly: `/api/gpu/*`.
 

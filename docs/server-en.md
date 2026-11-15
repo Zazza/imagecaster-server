@@ -220,8 +220,8 @@ Environment overrides: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 | everything else, including all of `/api/sd/*` | * | 0 — passes freely |
 
 - Leases have a TTL and are renewed while the request runs; a lease of a dead client frees itself.
-- An internal queue error lets the request through and adds a warning to the status (fail-open).
 - Waiting longer than `max_wait_seconds` → `503` with `Retry-After` (HTTP requests only; SD jobs wait without a limit).
+- 100 requests already waiting (LLM and `/api/gpu/lease` leases; SD jobs do not count) → `503 gpu queue full` with `Retry-After`; the request does not bypass the queue.
 - An SD job is visible in `/api/gpu/status` and the dashboard while it waits and runs (kind `sd`, client from the job), moves with `PATCH /api/gpu/queue/{id}`; cancelling its lease there ends the job as `cancelled`.
 - State is in memory; a server restart starts from an empty queue.
 - Managed in the dashboard (`g`) — locally and in attach mode.
