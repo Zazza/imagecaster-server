@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0] — 2026-11-16
+
+The server generates images with stable-diffusion.cpp and runs text models on llama.cpp: no Python, Forge Neo or Ollama program. Imagecaster 2.0 needs this version.
 
 ### Changed
 - With sd.cpp, `/api/sd/` is a job API instead of the Forge-compatible one: `POST /api/sd/jobs` answers at once with a job id, the job runs in the background, the client polls `GET /api/sd/jobs/{id}`, takes `.../result` and deletes the job. Each job carries its own model, VAE, modules and Klein/Moss flags — there is no shared "current model" any more. A client that disconnects no longer cancels the generation; only `POST .../cancel` (or cancelling the job's lease in the GPU queue) does. Resubmitting with the same `client_ref` returns the existing job. Lists moved to `/api/sd/checkpoints`, `vaes`, `loras`, `samplers`, `schedulers`, `upscalers`, plus `memory`, `state`, `unload`. Only sd.cpp names are accepted (`euler_a`, `karras`, upscaler file names, `lanczos`, `nearest`); Forge names give `invalid_params`. `GET /` lists the `sd_jobs` feature
@@ -13,10 +15,22 @@
 - Engine folders get a platform suffix: `engines/sd-cpp-windows`, `engines/llama-cpp-linux` and so on. The data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each OS now keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place and its OS reinstalls fresh), and engine paths in old configs are updated automatically
 
 ### Added
+- sd.cpp step cache: SD jobs accept `params.cache_mode` (`easycache`, `ucache`, `dbcache`, `taylorseer`, `cache-dit`, `spectrum`) and `cache_option`. Off unless the job asks; bad values give 400; the mode is written to the result info and `GET /` lists the `sd_cache` feature. Moss 50 steps: 67 s → 26–30 s
+- Model downloads resume a `.part` file with HTTP Range, start over when the source changed or ignores Range, verify sha256 when given, skip complete files and refuse a second download of the same file
+- On GPUs below 15 GB sd-server gets `--max-vram -3` (part of the model goes to RAM instead of failing) unless a memory flag is set by hand
+- Multi-file models: text encoders, VAE and modules are passed as `--llm`, `--clip_l`, `--t5xxl`, `--tokenizer`; the mmproj vision module as `--llm_vision` (Qwen-Image edits); Z-Image from split files under any name; Chroma gets `chroma_use_dit_mask=false`; a checkpoint name whose extension does not exist falls back to the same stem with another extension
+- DWPose detection for ControlNet in the server, matching Forge output
 - Models of an installed Ollama (`OLLAMA_MODELS`, `~/.ollama/models`, on Linux `/usr/share/ollama/.ollama/models`) are used without downloading again, read-only: the server's own copy wins, deleting them answers 409 with a hint to run `ollama rm`, models llama.cpp cannot open are not listed. Switch off: `llm.read_ollama_models: false`
 - `GET /` lists `features` (active engines and capabilities), so Imagecaster can tell an old server from a new one
 
 ### Fixed
+- An LLM request no longer bypasses a full GPU queue: it answers 503 `gpu queue full` with `Retry-After`
+- Cancel during a model switch returns at once; Unix stop sends SIGTERM to the process group and SIGKILL after the grace period, Windows stop uses `taskkill /T`
+- Process status races: a manually stopped process stays stopped; a health check that never answers gives the `unhealthy` status instead of `running`
+- Service logs and `server.log` rotate at 20 MB
+- Queued jobs keep their init image and mask on disk instead of memory
+- A missing LoRA is skipped instead of failing the generation
+- SDXL models gave white images: the Forge default `clip_skip=1` is no longer passed to sd.cpp
 - Windows: the tray **Dashboard** button opened a console that flashed and closed. The console exe got a NUL stdin instead of the new console's keyboard (spawned from the windowed exe), treated it as "not a terminal" and exited; it now opens `CONIN$`/`CONOUT$` of its own console window and shows the dashboard
 
 ### Removed
@@ -27,4 +41,4 @@
 
 ## Earlier versions
 
-Versions 1.0.0 – 1.2.0 (May – November 2025) ran the image engine on Forge / Forge Neo and text models on the Ollama program, shipped a Docker image and an embedded web panel, and were released for more platforms. That stack is gone: the server moved to stable-diffusion.cpp and llama.cpp, Docker and the web panel were removed, and releases are built for Windows x64, Linux x64 and macOS arm64 only. The section above describes the move; older details are in the git history (tags `v1.0.0` – `v1.2.0`).
+Versions 1.0.0 – 1.2.0 (May – November 2026) ran the image engine on Forge / Forge Neo and text models on the Ollama program, shipped a Docker image and an embedded web panel, and were released for more platforms. That stack is gone: the server moved to stable-diffusion.cpp and llama.cpp, Docker and the web panel were removed, and releases are built for Windows x64, Linux x64 and macOS arm64 only. The section above describes the move; older details are in the git history (tags up to `v1.2.0`).
