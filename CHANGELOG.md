@@ -13,6 +13,7 @@ The server generates images with stable-diffusion.cpp and runs text models on ll
 - Upgrading from an old version moves the server to sd.cpp and llama.cpp on the first start: models stay where they are (Forge folders, Ollama model store), nothing is downloaded; the old config is kept as `server-config.yaml.bak-before-sdcpp`
 - The server no longer installs or starts the Ollama program: text models run on llama.cpp only (Ollama-compatible API on `:11434` and `/api/llm/`, models in the Ollama layout). An old config is taken over on start without rewriting the file: `OLLAMA_MODELS` becomes `llm.models_dir`, `OLLAMA_KEEP_ALIVE` becomes `llm.keep_alive` (default 24h, 5m on cards under 24 GB), the `ollama` process is dropped. Linux ARM, Windows ARM and Intel Macs have no llama.cpp build, so they have no text models; `GET /` then has no `llamacpp` feature and the LLM routes answer 503
 - Engine folders get a platform suffix: `engines/sd-cpp-windows`, `engines/llama-cpp-linux` and so on. The data folder may be a shared volume between Windows and Linux, and engine builds are not compatible across OSes — each OS now keeps its own. On the first start the old unsuffixed folder is moved to the new name if it holds a binary for this OS (a foreign build is left in place and its OS reinstalls fresh), and engine paths in old configs are updated automatically
+- Process-control API errors: an unknown process answers 404, an already running one 409, a missing model 404; every error is JSON `{"error": ...}`
 
 ### Added
 - sd.cpp step cache: SD jobs accept `params.cache_mode` (`easycache`, `ucache`, `dbcache`, `taylorseer`, `cache-dit`, `spectrum`) and `cache_option`. Off unless the job asks; bad values give 400; the mode is written to the result info and `GET /` lists the `sd_cache` feature. Moss 50 steps: 67 s → 26–30 s
@@ -28,6 +29,7 @@ The server generates images with stable-diffusion.cpp and runs text models on ll
 - Cancel during a model switch returns at once; Unix stop sends SIGTERM to the process group and SIGKILL after the grace period, Windows stop uses `taskkill /T`
 - Process status races: a manually stopped process stays stopped; a health check that never answers gives the `unhealthy` status instead of `running`
 - Service logs and `server.log` rotate at 20 MB
+- `llama pull` no longer hangs on a frozen connection: downloads share one resumable downloader with a stall detector
 - Queued jobs keep their init image and mask on disk instead of memory
 - A missing LoRA is skipped instead of failing the generation
 - SDXL models gave white images: the Forge default `clip_skip=1` is no longer passed to sd.cpp
