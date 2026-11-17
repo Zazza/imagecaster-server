@@ -338,19 +338,20 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 ### LoRA training API (people)
 
-Feature `lora_train`. Training is a Z-Image LoRA (ai-toolkit, 768 px, rank 16). One job at a time; it holds the whole GPU budget, so SD jobs wait (2000 steps ≈ 77 min on 16 GB). The server's SD model is unloaded before training.
+Feature `lora_train`. Training is a Z-Image or Moss LoRA (ai-toolkit, 768 px, rank 16). Moss is offered only when its files are on the server: `<models_dir>/moss_image_sft_bf16.safetensors`, `<text_encoder_dir>/qwen35_9b_int8_convrot.safetensors` and one of `flux2-klein-vae.safetensors`, `flux2-vae.safetensors`, `flux2-vae_small.safetensors` in `<vae_dir>` (the first in this order); nothing is downloaded. On 16 GB Moss takes ~11 GB, ~2 s per step. One job at a time; it holds the whole GPU budget, so SD jobs wait (2000 steps ≈ 77 min on 16 GB). The server's SD model is unloaded before training.
 
 ```
-POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, client, client_ref, photos (10–50 JPEG/PNG/WebP)
-       -> 202 Job | 200 Job (same client + client_ref is active) | 400 invalid_request | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, base Z-Image|Moss-Image (empty — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
+       -> 202 Job | 200 Job (same client + client_ref is active) | 400 invalid_request | 400 base_unavailable (model files missing) | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
 POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when the trainer stops)
-GET    /api/train/people             -> {people: [{name, trigger, gender, base: "Z-Image", lora, steps, created_at}]}
+GET    /api/train/bases              -> {bases: ["Z-Image", "Moss-Image"?]}  (models training is possible for)
+GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (old records without base are Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 ```
 
-Job: `{id, client, client_ref, name, trigger, gender, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished and are deleted after any end; `status.json` and `train.log` stay 7 days. A server restart turns unfinished jobs into `lost` (`server_restarted`). The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
+Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished and are deleted after any end; `status.json` and `train.log` stay 7 days. A server restart turns unfinished jobs into `lost` (`server_restarted`). The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
 
 mDNS: service `_imagecaster._tcp`, instance "Imagecaster Server", TXT `version=<version>`; `mdns: false` turns it off.
 

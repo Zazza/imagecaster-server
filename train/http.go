@@ -72,6 +72,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"jobs": m.list(r.URL.Query().Get("client"))})
 	case strings.HasPrefix(p, "jobs/"):
 		m.handleJob(w, r, strings.TrimPrefix(p, "jobs/"))
+	case p == "bases" && r.Method == http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]any{"bases": m.Bases()})
 	case p == "people" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]any{"people": m.people()})
 	case strings.HasPrefix(p, "people/") && r.Method == http.MethodDelete:
@@ -122,8 +124,8 @@ func (m *Manager) handleDeletePerson(w http.ResponseWriter, name string) {
 }
 
 type submitForm struct {
-	name, gender, client, clientRef string
-	photos                          int
+	name, gender, base, client, clientRef string
+	photos                                int
 }
 
 func normalizeName(s string) string {
@@ -164,6 +166,15 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, herr)
 		return
 	}
+	if form.base == "" {
+		form.base = baseZImage
+	}
+	if form.base == baseMoss {
+		if _, ok := m.findMoss(); !ok {
+			writeError(w, errf(http.StatusBadRequest, "base_unavailable", "Moss-Image model files are missing on the server"))
+			return
+		}
+	}
 	trigger := form.name + "_" + form.gender
 	if err := writeCaptions(filepath.Join(dir, datasetDir), form.gender); err != nil {
 		writeError(w, errf(http.StatusInternalServerError, "internal", "write captions: %v", err))
@@ -189,7 +200,7 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	j := &Job{
 		ID: id, Client: form.client, ClientRef: form.clientRef, Name: form.name, Trigger: trigger,
-		Gender: form.gender, Photos: form.photos, Status: statusQueued,
+		Gender: form.gender, Base: form.base, Photos: form.photos, Status: statusQueued,
 		Progress: Progress{Steps: m.cfg.Steps}, CreatedAt: &now,
 	}
 	m.jobs[id] = j
@@ -207,6 +218,9 @@ func validateForm(f submitForm) *httpError {
 	}
 	if !genders[f.gender] {
 		return errf(http.StatusBadRequest, "invalid_request", "gender must be man, woman or person")
+	}
+	if f.base != "" && f.base != baseZImage && f.base != baseMoss {
+		return errf(http.StatusBadRequest, "invalid_request", "base must be %s or %s", baseZImage, baseMoss)
 	}
 	if f.photos < minPhotos || f.photos > maxPhotos {
 		return errf(http.StatusBadRequest, "invalid_request", "need %d-%d photos, got %d", minPhotos, maxPhotos, f.photos)
@@ -256,6 +270,8 @@ func (m *Manager) readPart(part *multipart.Part, dst string, f *submitForm, tota
 			f.name = normalizeName(v)
 		case "gender":
 			f.gender = strings.ToLower(v)
+		case "base":
+			f.base = v
 		case "client":
 			f.client = v
 		case "client_ref":

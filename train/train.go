@@ -21,7 +21,8 @@ import (
 
 const (
 	defaultSteps = 2000
-	baseModel    = "Z-Image"
+	baseZImage   = "Z-Image"
+	baseMoss     = "Moss-Image"
 	statusFile   = "status.json"
 	datasetDir   = "dataset"
 	jobTTL       = 7 * 24 * time.Hour
@@ -42,6 +43,10 @@ type Config struct {
 	JobsDir    string
 	LoraDir    string
 	Steps      int
+
+	ModelsDir      string
+	TextEncoderDir string
+	VAEDir         string
 }
 
 type RunSpec struct {
@@ -76,6 +81,7 @@ type Job struct {
 	Name       string     `json:"name"`
 	Trigger    string     `json:"trigger"`
 	Gender     string     `json:"gender"`
+	Base       string     `json:"base"`
 	Photos     int        `json:"photos"`
 	Status     string     `json:"status"`
 	Progress   Progress   `json:"progress"`
@@ -223,6 +229,9 @@ func (m *Manager) restore() {
 				log.Printf("[train] remove broken job dir %s: %v", dir, rmErr)
 			}
 			continue
+		}
+		if j.Base == "" {
+			j.Base = baseZImage
 		}
 		if j.active() {
 			j.Status = statusLost
@@ -445,7 +454,15 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 		LogPath:    filepath.Join(dir, "train.log"),
 		Steps:      m.cfg.Steps,
 	}
-	if err := writeTrainConfig(spec, j.Name, j.Trigger); err != nil {
+	block := zimageBlock
+	if j.Base == baseMoss {
+		f, ok := m.findMoss()
+		if !ok {
+			return &codedError{code: "base_unavailable", err: errors.New("Moss-Image model files are missing on the server")}
+		}
+		block = mossBlock(f)
+	}
+	if err := writeBaseConfig(spec, j.Name, j.Trigger, block); err != nil {
 		return &codedError{code: "config_failed", err: err}
 	}
 	if m.lease != nil {
@@ -497,7 +514,7 @@ func (m *Manager) installPerson(j *Job, output string) error {
 		return &codedError{code: "install_failed", err: err}
 	}
 	now := time.Now()
-	p := Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: baseModel, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}
+	p := Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return &codedError{code: "install_failed", err: err}
@@ -529,6 +546,9 @@ func (m *Manager) people() []Person {
 		var p Person
 		if err := json.Unmarshal(data, &p); err != nil || p.Name == "" {
 			continue
+		}
+		if p.Base == "" {
+			p.Base = baseZImage
 		}
 		if _, err := os.Stat(filepath.Join(m.cfg.LoraDir, p.Lora+".safetensors")); err != nil {
 			continue
@@ -597,4 +617,50 @@ func newID() (string, error) {
 		return "", err
 	}
 	return "t" + hex.EncodeToString(b), nil
+}
+
+type mossSet struct {
+	checkpoint, textEncoder, vae string
+}
+
+var mossVAEs = []string{"flux2-klein-vae.safetensors", "flux2-vae.safetensors", "flux2-vae_small.safetensors"}
+
+func existingFile(dir, name string) (string, bool) {
+	if dir == "" {
+		return "", false
+	}
+	p, err := filepath.Abs(filepath.Join(dir, name))
+	if err != nil {
+		return "", false
+	}
+	st, err := os.Stat(p)
+	if err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	return p, true
+}
+
+func (m *Manager) findMoss() (mossSet, bool) {
+	var f mossSet
+	var ok bool
+	if f.checkpoint, ok = existingFile(m.cfg.ModelsDir, "moss_image_sft_bf16.safetensors"); !ok {
+		return f, false
+	}
+	if f.textEncoder, ok = existingFile(m.cfg.TextEncoderDir, "qwen35_9b_int8_convrot.safetensors"); !ok {
+		return f, false
+	}
+	for _, name := range mossVAEs {
+		if f.vae, ok = existingFile(m.cfg.VAEDir, name); ok {
+			return f, true
+		}
+	}
+	return f, false
+}
+
+func (m *Manager) Bases() []string {
+	out := []string{baseZImage}
+	if _, ok := m.findMoss(); ok {
+		out = append(out, baseMoss)
+	}
+	return out
 }

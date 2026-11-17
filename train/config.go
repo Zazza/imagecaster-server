@@ -29,8 +29,7 @@ config:
       datasets:
         - folder_path: {{dataset}}
           caption_ext: txt
-          caption_dropout_rate: 0.05
-          cache_latents_to_disk: true
+{{dataset_extra}}          cache_latents_to_disk: true
           resolution: [768]
       train:
         batch_size: 1
@@ -38,7 +37,7 @@ config:
         gradient_accumulation_steps: 1
         train_unet: true
         train_text_encoder: false
-        gradient_checkpointing: true
+{{train_extra}}        gradient_checkpointing: true
         noise_scheduler: flowmatch
         timestep_type: weighted
         optimizer: adamw8bit
@@ -46,14 +45,7 @@ config:
         dtype: bf16
         disable_sampling: true
       model:
-        arch: zimage
-        name_or_path: Tongyi-MAI/Z-Image-Turbo
-        assistant_lora_path: ostris/zimage_turbo_training_adapter/zimage_turbo_training_adapter_v2.safetensors
-        quantize: true
-        quantize_te: true
-        qtype: qfloat8
-        low_vram: true
-      sample:
+{{model}}      sample:
         sampler: flowmatch
         sample_every: 1000000
         width: 1024
@@ -70,8 +62,47 @@ func yamlQuote(s string) string {
 	return strconv.Quote(filepath.ToSlash(s))
 }
 
+type modelBlock struct {
+	model, datasetExtra, trainExtra string
+}
+
+var zimageBlock = modelBlock{
+	model: `        arch: zimage
+        name_or_path: Tongyi-MAI/Z-Image-Turbo
+        assistant_lora_path: ostris/zimage_turbo_training_adapter/zimage_turbo_training_adapter_v2.safetensors
+        quantize: true
+        quantize_te: true
+        qtype: qfloat8
+        low_vram: true
+`,
+	datasetExtra: "          caption_dropout_rate: 0.05\n",
+}
+
+func mossBlock(f mossSet) modelBlock {
+	return modelBlock{
+		model: `        arch: moss_image
+        name_or_path: ` + yamlQuote(f.checkpoint) + `
+        te_name_or_path: ` + yamlQuote(f.textEncoder) + `
+        vae_path: ` + yamlQuote(f.vae) + `
+        quantize: true
+        quantize_te: true
+        qtype: qfloat8
+        low_vram: true
+`,
+		datasetExtra: "          cache_text_embeddings: true\n",
+		trainExtra:   "        unload_text_encoder: true\n",
+	}
+}
+
 func writeTrainConfig(spec RunSpec, name, trigger string) error {
+	return writeBaseConfig(spec, name, trigger, zimageBlock)
+}
+
+func writeBaseConfig(spec RunSpec, name, trigger string, b modelBlock) error {
 	r := strings.NewReplacer(
+		"{{model}}", b.model,
+		"{{dataset_extra}}", b.datasetExtra,
+		"{{train_extra}}", b.trainExtra,
 		"{{name}}", yamlQuote(name),
 		"{{trigger}}", yamlQuote(trigger),
 		"{{steps}}", strconv.Itoa(spec.Steps),

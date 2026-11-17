@@ -338,19 +338,20 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 ### API обучения LoRA (люди)
 
-Возможность `lora_train`. Обучается LoRA для Z-Image (ai-toolkit, 768 px, rank 16). Одно задание за раз; оно занимает весь бюджет видеокарты, задания SD ждут (2000 шагов ≈ 77 мин на 16 ГБ). Перед обучением модель SD выгружается.
+Возможность `lora_train`. Обучается LoRA для Z-Image или Moss (ai-toolkit, 768 px, rank 16). Moss доступна, только если на сервере есть её файлы: `<models_dir>/moss_image_sft_bf16.safetensors`, `<text_encoder_dir>/qwen35_9b_int8_convrot.safetensors` и в `<vae_dir>` один из `flux2-klein-vae.safetensors`, `flux2-vae.safetensors`, `flux2-vae_small.safetensors` (берётся первый по этому порядку); ничего не скачивается. На 16 ГБ Moss занимает ~11 ГБ, шаг ~2 с. Одно задание за раз; оно занимает весь бюджет видеокарты, задания SD ждут (2000 шагов ≈ 77 мин на 16 ГБ). Перед обучением модель SD выгружается.
 
 ```
-POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, client, client_ref, photos (10–50 JPEG/PNG/WebP)
-       -> 202 Job | 200 Job (такой client + client_ref уже идёт) | 400 invalid_request | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, base Z-Image|Moss-Image (пусто — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
+       -> 202 Job | 200 Job (такой client + client_ref уже идёт) | 400 invalid_request | 400 base_unavailable (нет файлов модели) | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
 POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тренер остановится)
-GET    /api/train/people             -> {people: [{name, trigger, gender, base: "Z-Image", lora, steps, created_at}]}
+GET    /api/train/bases              -> {bases: ["Z-Image", "Moss-Image"?]}  (модели, для которых можно обучать)
+GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (старые записи без base — Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 ```
 
-Job: `{id, client, client_ref, name, trigger, gender, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней. Перезапуск сервера переводит незаконченные задания в `lost` (`server_restarted`). Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
+Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней. Перезапуск сервера переводит незаконченные задания в `lost` (`server_restarted`). Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
 
 mDNS: сервис `_imagecaster._tcp`, экземпляр «Imagecaster Server», TXT `version=<version>`. `mdns: false` выключает объявление.
 

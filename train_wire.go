@@ -45,12 +45,17 @@ func newTrainManager(cfg *config.Config, gate *Gate, sd *sdcpp.Facade) *train.Ma
 		}
 		return release, nil
 	}
+	b := cfg.GetActiveBackend()
 	m, err := train.New(train.Config{
 		Python:     cfg.Train.Python,
 		ToolkitDir: cfg.Train.ToolkitDir,
 		JobsDir:    filepath.Join(cfg.DataDir, "trainjobs"),
 		LoraDir:    loraDir,
 		Steps:      cfg.Train.Steps,
+
+		ModelsDir:      b.ModelsDir,
+		TextEncoderDir: b.TextEncoderDir,
+		VAEDir:         b.VaeDir,
 	}, train.NewProcessRunner(cfg.Train.Python, cfg.Train.ToolkitDir), leaser)
 	if err != nil {
 		log.Printf("[train] disabled: %v", err)
