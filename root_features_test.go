@@ -19,12 +19,14 @@ func TestRootReportsFeatures(t *testing.T) {
 		kind     string
 		llm      string
 		facade   bool
+		train    bool
 		want     []string
 	}{
-		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
-		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
-		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, []string{"sdcpp", "sd_jobs", "sd_cache", "download_stream"}},
-		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, []string{"llamacpp", "download_stream"}},
+		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
+		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
+		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, false, []string{"sdcpp", "sd_jobs", "sd_cache", "download_stream"}},
+		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, false, []string{"llamacpp", "download_stream"}},
+		{"trainer installed", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "lora_train", "download_stream"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -34,6 +36,7 @@ func TestRootReportsFeatures(t *testing.T) {
 			if tc.facade {
 				h.llmRunning = func() []string { return nil }
 			}
+			h.trainAvailable = func() bool { return tc.train }
 			h.config.Backends = map[string]config.BackendConfig{"sdcpp": {Kind: config.KindSDCpp}}
 			rec := httptest.NewRecorder()
 			h.handleRoot(rec, httptest.NewRequest(http.MethodGet, "/", nil))

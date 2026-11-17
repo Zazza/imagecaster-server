@@ -2,6 +2,7 @@ package sdcpp
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -866,4 +867,27 @@ func TestInMemoryJobsWithoutJobsDir(t *testing.T) {
 	require.Equal(t, statusCompleted, st["status"], st)
 	assert.Len(t, imgs, 1)
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, "/jobs/"+st["id"].(string)+"/x", nil).Code)
+}
+
+func TestUnloadModelWaitsForGenerationAndHonoursContext(t *testing.T) {
+	e := newEnv(t)
+	e.sd.hold.Store(true)
+	code, st := e.submit(t, txt(map[string]any{"prompt": "p"}))
+	require.Equal(t, http.StatusAccepted, code)
+	require.Eventually(t, func() bool { return len(e.sd.imgGenBodies()) == 1 }, 2*time.Second, 5*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	assert.ErrorIs(t, e.f.UnloadModel(ctx), context.DeadlineExceeded)
+
+	done := make(chan error, 1)
+	go func() { done <- e.f.UnloadModel(context.Background()) }()
+	e.sd.hold.Store(false)
+	assert.Equal(t, statusCompleted, e.wait(t, st["id"].(string))["status"])
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("UnloadModel did not return after generation finished")
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"imagecaster-server/llamacpp"
 	"imagecaster-server/models"
 	"imagecaster-server/process"
+	"imagecaster-server/train"
 	"log"
 	"net"
 	"net/http"
@@ -31,6 +32,7 @@ type appDeps struct {
 	mux    http.Handler
 	q      *gpuqueue.Queue
 	llm    *llamacpp.Facade
+	train  *train.Manager
 	stop   sync.Once
 }
 
@@ -87,14 +89,22 @@ func initApp(cfg *config.Config) *appDeps {
 		log.Printf("LLM backend: llama.cpp on /api/llm/")
 	}
 	handlers := NewHandlers(pm, hm, gm, cfg, inst)
+	var tm *train.Manager
 	if sdRoutes != nil {
 		handlers.sdCheckpoint = sdRoutes.jobs.LoadedCheckpoint
+		tm = newTrainManager(cfg, gate, sdRoutes.jobs)
+	}
+	if tm != nil {
+		handlers.trainAvailable = tm.Available
 	}
 	if lf != nil {
 		handlers.llmRunning = lf.RunningNames
 	}
 	mux := setupMux(handlers, inst, mm, bm, proxy)
 	gpuqueue.NewAPI(q).RegisterRoutes(mux)
+	if tm != nil {
+		mux.Handle("/api/train/", tm)
+	}
 
 	for _, msg := range guardWarns {
 		q.Warn(msg)
@@ -103,7 +113,7 @@ func initApp(cfg *config.Config) *appDeps {
 
 	return &appDeps{
 		cfg: cfg, inst: inst, pm: pm, hm: hm, gm: gm,
-		guards: guards, mux: withLLMServerRoutes(lf, mux), q: q, llm: lf,
+		guards: guards, mux: withLLMServerRoutes(lf, mux), q: q, llm: lf, train: tm,
 	}
 }
 
@@ -152,6 +162,9 @@ func (d *appDeps) shutdown() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		d.guards.shutdown(ctx)
+		if d.train != nil {
+			d.train.Close()
+		}
 		d.inst.Close()
 		d.pm.Close()
 	})

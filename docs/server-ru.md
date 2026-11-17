@@ -205,6 +205,14 @@ backends:
 - `pose_models_dir` — папка с `yolox_l.onnx` и `dw-ll_ucoco_384.onnx` для `/controlnet/detect` (`dw_openpose_full`). По умолчанию `<models_dir>/../ControlNetPreprocessor/openpose`;
 - `onnxruntime_lib` — путь к библиотеке ONNX Runtime. Если не указан, библиотека ищется рядом с исполняемым файлом сервера (и в папке `onnxruntime/` рядом с ним), а в Linux ещё и системным загрузчиком. Если библиотеки или моделей нет, `/controlnet/detect` отвечает 503, остальной сервер работает.
 
+**Обучение LoRA на людей** (`train:`). Включается, только если существуют оба пути и работает очередь GPU; тогда в `features` корня появляется `lora_train`.
+```yaml
+train:
+  python: /home/user/lora-lab/venv/bin/python      # Python из venv ai-toolkit
+  toolkit_dir: /home/user/lora-lab/ai-toolkit      # папка с run.py
+  steps: 2000                                      # 0 = 2000
+```
+
 Переопределение через переменные окружения: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 ## Очередь GPU и сторож портов
@@ -258,7 +266,7 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 
 | Эндпоинт | Метод | Что делает |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` (активен бэкенд sd.cpp), `sd_jobs` (API заданий SD ниже), `sd_cache` (задания принимают `cache_mode`), `llamacpp` (если текстовые модели доступны), `download_stream`. Старые версии сервера поля не отдают |
+| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` (активен бэкенд sd.cpp), `sd_jobs` (API заданий SD ниже), `sd_cache` (задания принимают `cache_mode`), `llamacpp` (если текстовые модели доступны), `lora_train` (установлено обучение LoRA, см. ниже), `download_stream`. Старые версии сервера поля не отдают |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, процессор и память компьютера `sys` |
 | `/api/server/start/{name}` | POST | запустить процесс |
 | `/api/server/stop/{name}` | POST | остановить процесс |
@@ -326,7 +334,23 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 - `cache_mode` — кэш шагов sd.cpp: `easycache`, `dbcache`, `taylorseer`, `cache-dit` (трансформерные модели: Flux, Chroma, Moss, Z-Image), `ucache` (U-Net: SD 1.5, SDXL), `spectrum` (оба вида). Пропускает почти одинаковые вычисления соседних шагов: быстрее примерно в 2 раза ценой мелких деталей; на моделях с 4–8 шагами почти бесполезен. `cache_option` — параметры sd.cpp `ключ=число[,ключ=число…]` (например `threshold=0.2,start=0.15`). Без `cache_mode` кэш выключен, `cache_option` без режима — `400`. Режим и параметры попадают в `info` результата. Сервер с этой возможностью сообщает `sd_cache` в `features` корня `/`.
 - `running` начинается, когда движок сообщает первый шаг (загрузка модели считается `queued`).
 - Результаты хранятся на диске в `<data>/sdjobs` `sd.job_result_ttl_hours` часов (по умолчанию 24) и переживают перезапуск; задания, которые при перезапуске стояли в очереди или шли, становятся `lost` с `server_restarted`. Просроченные результаты удаляются. Папка и файлы доступны только пользователю сервера (0700/0600); входные картинки задания после его окончания в памяти не хранятся.
-- `/api/sd/*` не отдаёт заголовков CORS: веб-страница в браузере из локальной сети не может прочитать результаты заданий (у остальных маршрутов `Access-Control-Allow-Origin: *` остаётся).
+- `/api/sd/*` и `/api/train/*` не отдают заголовков CORS: веб-страница в браузере из локальной сети не может прочитать результаты заданий (у остальных маршрутов `Access-Control-Allow-Origin: *` остаётся).
+
+### API обучения LoRA (люди)
+
+Возможность `lora_train`. Обучается LoRA для Z-Image (ai-toolkit, 768 px, rank 16). Одно задание за раз; оно занимает весь бюджет видеокарты, задания SD ждут (2000 шагов ≈ 77 мин на 16 ГБ). Перед обучением модель SD выгружается.
+
+```
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, client, client_ref, photos (10–50 JPEG/PNG/WebP)
+       -> 202 Job | 200 Job (такой client + client_ref уже идёт) | 400 invalid_request | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
+GET    /api/train/jobs?client=       -> {jobs: [Job]}
+GET    /api/train/jobs/{id}          -> Job | 404
+POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тренер остановится)
+GET    /api/train/people             -> {people: [{name, trigger, gender, base: "Z-Image", lora, steps, created_at}]}
+DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
+```
+
+Job: `{id, client, client_ref, name, trigger, gender, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней. Перезапуск сервера переводит незаконченные задания в `lost` (`server_restarted`). Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
 
 mDNS: сервис `_imagecaster._tcp`, экземпляр «Imagecaster Server», TXT `version=<version>`. `mdns: false` выключает объявление.
 

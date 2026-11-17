@@ -25,7 +25,7 @@ func setupMux(handlers *Handlers, inst *installer.Installer, mm *models.ModelMan
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/sd/") {
+		if strings.HasPrefix(r.URL.Path, "/api/sd/") || strings.HasPrefix(r.URL.Path, "/api/train/") {
 			next.ServeHTTP(w, r)
 			return
 		}

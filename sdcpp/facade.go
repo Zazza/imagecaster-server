@@ -263,21 +263,37 @@ func (f *Facade) unload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-f.gen }()
-	code, body, err := f.do(r.Context(), http.MethodPost, "/sdcpp/v1/models/unload", map[string]any{}, 60*time.Second)
-	if err != nil {
-		writeErr(w, apiErr(http.StatusBadGateway, "sd_failed", "sd-server unavailable: %v", err))
+	if err := f.unloadModel(r.Context()); err != nil {
+		writeErr(w, err)
 		return
 	}
+	respondJSON(w, http.StatusOK, map[string]any{})
+}
+
+func (f *Facade) UnloadModel(ctx context.Context) error {
+	select {
+	case f.gen <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-f.gen }()
+	return f.unloadModel(ctx)
+}
+
+func (f *Facade) unloadModel(ctx context.Context) error {
+	code, body, err := f.do(ctx, http.MethodPost, "/sdcpp/v1/models/unload", map[string]any{}, 60*time.Second)
+	if err != nil {
+		return apiErr(http.StatusBadGateway, "sd_failed", "sd-server unavailable: %v", err)
+	}
 	if code >= 300 && code != http.StatusServiceUnavailable {
-		writeErr(w, apiErr(http.StatusBadGateway, "sd_failed", "sd-server unload HTTP %d: %s", code, truncate(body, 200)))
-		return
+		return apiErr(http.StatusBadGateway, "sd_failed", "sd-server unload HTTP %d: %s", code, truncate(body, 200))
 	}
 	f.mu.Lock()
 	f.args = nil
 	f.loadedName = ""
 	f.pending = nil
 	f.mu.Unlock()
-	respondJSON(w, http.StatusOK, map[string]any{})
+	return nil
 }
 
 func (f *Facade) memory(w http.ResponseWriter) {

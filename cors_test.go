@@ -17,6 +17,8 @@ func TestCORSNotForSDJobs(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/sd/jobs/abc/result", false, http.StatusTeapot},
 		{http.MethodOptions, "/api/sd/jobs", false, http.StatusTeapot},
+		{http.MethodGet, "/api/train/people", false, http.StatusTeapot},
+		{http.MethodOptions, "/api/train/people/anna", false, http.StatusTeapot},
 		{http.MethodGet, "/api/server/status", true, http.StatusTeapot},
 		{http.MethodOptions, "/api/server/status", true, http.StatusOK},
 	} {

@@ -254,25 +254,11 @@ func (g *Gate) LeaseSD(ctx context.Context, req sdcpp.LeaseRequest) (func(), err
 	if g.beforeSD != nil {
 		g.beforeSD(ctx, weight)
 	}
-	var released atomic.Bool
-	stop := make(chan struct{})
-	if done := lease.Done(); done != nil {
-		go func() {
-			select {
-			case <-done:
-				if !released.Load() && g.sdLeaseLost != nil {
-					g.sdLeaseLost(req.JobID)
-				}
-			case <-stop:
-			}
-		}()
-	}
-	return func() {
-		if released.CompareAndSwap(false, true) {
-			close(stop)
-			lease.Release()
+	return holdLease(lease, func() {
+		if g.sdLeaseLost != nil {
+			g.sdLeaseLost(req.JobID)
 		}
-	}, nil
+	}), nil
 }
 
 func (g *Gate) SDPosition(jobID string) int {
@@ -288,4 +274,52 @@ func (g *Gate) SDPosition(jobID string) int {
 		return 0
 	}
 	return j.Position
+}
+
+func (g *Gate) LeaseTrain(ctx context.Context, client string, onLost func()) (func(), error) {
+	if !g.Enabled() {
+		return func() {}, nil
+	}
+	weight := g.q.Budget()
+	lease, err := g.q.Acquire(ctx, gpuqueue.Spec{
+		Kind:         gpuqueue.KindSD,
+		Client:       sdJobClient(client),
+		WeightMB:     weight,
+		AutoRenew:    true,
+		NoWaitLimit:  true,
+		NoQueueLimit: true,
+		Exclusive:    true,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, context.Canceled
+		}
+		return nil, err
+	}
+	if g.beforeSD != nil {
+		g.beforeSD(ctx, weight)
+	}
+	return holdLease(lease, onLost), nil
+}
+
+func holdLease(lease *gpuqueue.Lease, onLost func()) func() {
+	var released atomic.Bool
+	stop := make(chan struct{})
+	if done := lease.Done(); done != nil {
+		go func() {
+			select {
+			case <-done:
+				if !released.Load() && onLost != nil {
+					onLost()
+				}
+			case <-stop:
+			}
+		}()
+	}
+	return func() {
+		if released.CompareAndSwap(false, true) {
+			close(stop)
+			lease.Release()
+		}
+	}
 }

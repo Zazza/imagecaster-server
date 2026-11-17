@@ -25,6 +25,13 @@ type Config struct {
 	Backends       map[string]BackendConfig `yaml:"backends"`
 	GPU            GPUConfig                `yaml:"gpu"`
 	SD             SDConfig                 `yaml:"sd,omitempty"`
+	Train          TrainConfig              `yaml:"train,omitempty"`
+}
+
+type TrainConfig struct {
+	Python     string `yaml:"python,omitempty"`
+	ToolkitDir string `yaml:"toolkit_dir,omitempty"`
+	Steps      int    `yaml:"steps,omitempty"`
 }
 
 type SDConfig struct {

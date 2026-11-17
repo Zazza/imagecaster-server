@@ -19,13 +19,14 @@ import (
 )
 
 type Handlers struct {
-	manager      *process.ProcessManager
-	health       *sdhealth.HealthMonitor
-	gpu          *sdgpu.GPUMonitor
-	config       *config.Config
-	installer    *installer.Installer
-	llmRunning   func() []string
-	sdCheckpoint func() string
+	manager        *process.ProcessManager
+	health         *sdhealth.HealthMonitor
+	gpu            *sdgpu.GPUMonitor
+	config         *config.Config
+	installer      *installer.Installer
+	llmRunning     func() []string
+	sdCheckpoint   func() string
+	trainAvailable func() bool
 }
 
 type sysJSON struct {
@@ -195,6 +196,9 @@ func (h *Handlers) features() []string {
 	}
 	if h.llmRunning != nil {
 		out = append(out, config.LLMLlamaCpp)
+	}
+	if h.trainAvailable != nil && h.trainAvailable() {
+		out = append(out, "lora_train")
 	}
 	out = append(out, "download_stream")
 	return out

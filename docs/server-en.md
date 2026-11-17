@@ -205,6 +205,14 @@ Relative paths are resolved against the data folder.
 - `pose_models_dir` — folder with `yolox_l.onnx` and `dw-ll_ucoco_384.onnx` for `/controlnet/detect` (`dw_openpose_full`). Default: `<models_dir>/../ControlNetPreprocessor/openpose`;
 - `onnxruntime_lib` — path to the ONNX Runtime library. If unset, the library is looked up next to the server executable (and in an `onnxruntime/` folder next to it), and on Linux also through the system loader. Without the library or the models, `/controlnet/detect` returns 503 and the rest of the server keeps working.
 
+**LoRA training of people** (`train:`). On only when both paths exist and the GPU queue is on; then the root `features` lists `lora_train`.
+```yaml
+train:
+  python: /home/user/lora-lab/venv/bin/python      # Python of the ai-toolkit venv
+  toolkit_dir: /home/user/lora-lab/ai-toolkit      # folder with run.py
+  steps: 2000                                      # 0 = 2000
+```
+
 Environment overrides: `SD_PORT`, `SD_DATA_DIR`, `SD_ACTIVE_BACKEND`.
 
 ## GPU queue and port guard
@@ -258,7 +266,7 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 
 | Endpoint | Method | What it does |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` (sd.cpp is the active backend), `sd_jobs` (the SD jobs API below), `sd_cache` (jobs accept `cache_mode`), `llamacpp` (when text models are available), `download_stream`. Old server versions don't send it |
+| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` (sd.cpp is the active backend), `sd_jobs` (the SD jobs API below), `sd_cache` (jobs accept `cache_mode`), `llamacpp` (when text models are available), `lora_train` (LoRA training installed, see below), `download_stream`. Old server versions don't send it |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, host CPU/RAM `sys` |
 | `/api/server/start/{name}` | POST | start a process |
 | `/api/server/stop/{name}` | POST | stop a process |
@@ -326,7 +334,23 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 - `cache_mode` — sd.cpp step cache: `easycache`, `dbcache`, `taylorseer`, `cache-dit` (transformer models: Flux, Chroma, Moss, Z-Image), `ucache` (U-Net: SD 1.5, SDXL), `spectrum` (both). It skips nearly identical work of neighbouring steps: about 2× faster at the cost of fine detail; barely useful on 4–8 step models. `cache_option` — sd.cpp parameters `key=number[,key=number…]` (e.g. `threshold=0.2,start=0.15`). No `cache_mode` means no cache; `cache_option` without a mode is `400`. Mode and options are added to the result `info`. A server with this feature lists `sd_cache` in the `/` root `features`.
 - `running` starts when the engine reports the first step (model loading counts as `queued`).
 - Results are kept on disk in `<data>/sdjobs` for `sd.job_result_ttl_hours` (24 by default) and survive a restart; jobs that were queued or running at a restart become `lost` with `server_restarted`. Expired results are removed. The folder and files are readable by the server user only (0700/0600); job input images are not kept in memory after the job ends.
-- `/api/sd/*` sends no CORS headers: a web page in a LAN browser cannot read job results (other routes keep `Access-Control-Allow-Origin: *`).
+- `/api/sd/*` and `/api/train/*` send no CORS headers: a web page in a LAN browser cannot read job results (other routes keep `Access-Control-Allow-Origin: *`).
+
+### LoRA training API (people)
+
+Feature `lora_train`. Training is a Z-Image LoRA (ai-toolkit, 768 px, rank 16). One job at a time; it holds the whole GPU budget, so SD jobs wait (2000 steps ≈ 77 min on 16 GB). The server's SD model is unloaded before training.
+
+```
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, client, client_ref, photos (10–50 JPEG/PNG/WebP)
+       -> 202 Job | 200 Job (same client + client_ref is active) | 400 invalid_request | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
+GET    /api/train/jobs?client=       -> {jobs: [Job]}
+GET    /api/train/jobs/{id}          -> Job | 404
+POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when the trainer stops)
+GET    /api/train/people             -> {people: [{name, trigger, gender, base: "Z-Image", lora, steps, created_at}]}
+DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
+```
+
+Job: `{id, client, client_ref, name, trigger, gender, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished and are deleted after any end; `status.json` and `train.log` stay 7 days. A server restart turns unfinished jobs into `lost` (`server_restarted`). The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
 
 mDNS: service `_imagecaster._tcp`, instance "Imagecaster Server", TXT `version=<version>`; `mdns: false` turns it off.
 
