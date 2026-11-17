@@ -21,8 +21,6 @@ import (
 
 const (
 	defaultSteps = 2000
-	baseZImage   = "Z-Image"
-	baseMoss     = "Moss-Image"
 	statusFile   = "status.json"
 	datasetDir   = "dataset"
 	jobTTL       = 7 * 24 * time.Hour
@@ -47,6 +45,7 @@ type Config struct {
 	ModelsDir      string
 	TextEncoderDir string
 	VAEDir         string
+	TrainDir       string
 }
 
 type RunSpec struct {
@@ -55,6 +54,7 @@ type RunSpec struct {
 	DatasetDir string
 	OutputPath string
 	LogPath    string
+	LocalPath  string
 	Steps      int
 }
 
@@ -452,18 +452,11 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 		DatasetDir: filepath.Join(dir, datasetDir),
 		OutputPath: filepath.Join(dir, "output", j.Name, j.Name+".safetensors"),
 		LogPath:    filepath.Join(dir, "train.log"),
+		LocalPath:  filepath.Join(dir, "local.json"),
 		Steps:      m.cfg.Steps,
 	}
-	block := zimageBlock
-	if j.Base == baseMoss {
-		f, ok := m.findMoss()
-		if !ok {
-			return &codedError{code: "base_unavailable", err: errors.New("Moss-Image model files are missing on the server")}
-		}
-		block = mossBlock(f)
-	}
-	if err := writeBaseConfig(spec, j.Name, j.Trigger, block); err != nil {
-		return &codedError{code: "config_failed", err: err}
+	if err := m.prepareBase(j.Base, spec, j.Name, j.Trigger); err != nil {
+		return err
 	}
 	if m.lease != nil {
 		release, err := m.lease(ctx, "lora-train")
@@ -617,50 +610,4 @@ func newID() (string, error) {
 		return "", err
 	}
 	return "t" + hex.EncodeToString(b), nil
-}
-
-type mossSet struct {
-	checkpoint, textEncoder, vae string
-}
-
-var mossVAEs = []string{"flux2-klein-vae.safetensors", "flux2-vae.safetensors", "flux2-vae_small.safetensors"}
-
-func existingFile(dir, name string) (string, bool) {
-	if dir == "" {
-		return "", false
-	}
-	p, err := filepath.Abs(filepath.Join(dir, name))
-	if err != nil {
-		return "", false
-	}
-	st, err := os.Stat(p)
-	if err != nil || !st.Mode().IsRegular() {
-		return "", false
-	}
-	return p, true
-}
-
-func (m *Manager) findMoss() (mossSet, bool) {
-	var f mossSet
-	var ok bool
-	if f.checkpoint, ok = existingFile(m.cfg.ModelsDir, "moss_image_sft_bf16.safetensors"); !ok {
-		return f, false
-	}
-	if f.textEncoder, ok = existingFile(m.cfg.TextEncoderDir, "qwen35_9b_int8_convrot.safetensors"); !ok {
-		return f, false
-	}
-	for _, name := range mossVAEs {
-		if f.vae, ok = existingFile(m.cfg.VAEDir, name); ok {
-			return f, true
-		}
-	}
-	return f, false
-}
-
-func (m *Manager) Bases() []string {
-	out := []string{baseZImage}
-	if _, ok := m.findMoss(); ok {
-		out = append(out, baseMoss)
-	}
-	return out
 }

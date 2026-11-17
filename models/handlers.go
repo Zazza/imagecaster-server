@@ -19,7 +19,7 @@ func (m *ModelManager) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/server/models/download/stream", m.handleDownloadStream)
 }
 
-var modelTypes = []string{"sd", "lora", "vae", "text_encoder"}
+var modelTypes = []string{"sd", "lora", "vae", "text_encoder", "train"}
 
 func dirFor(b *config.BackendConfig, typ string) (string, bool) {
 	if b == nil {
@@ -34,6 +34,8 @@ func dirFor(b *config.BackendConfig, typ string) (string, bool) {
 		return b.VaeDir, true
 	case "text_encoder":
 		return textEncoderDir(b), true
+	case "train":
+		return TrainDir(b), true
 	}
 	return "", false
 }
@@ -58,6 +60,13 @@ func (m *ModelManager) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 var textEncoderFileExts = map[string]bool{".safetensors": true, ".gguf": true, ".bin": true, ".json": true}
+
+func TrainDir(b *config.BackendConfig) string {
+	if b == nil || b.ModelsDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(b.ModelsDir), "train")
+}
 
 func textEncoderDir(b *config.BackendConfig) string {
 	if b == nil {

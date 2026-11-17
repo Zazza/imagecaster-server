@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +19,11 @@ import (
 	"imagecaster-server/process"
 )
 
+//go:embed launcher/aitk_local.py
+var launcherScript []byte
+
+const launcherName = "aitk_local.py"
+
 var progressRe = regexp.MustCompile(`(\d+)/(\d+) \[`)
 
 type processRunner struct {
@@ -30,7 +36,11 @@ func NewProcessRunner(python, toolkitDir string) Runner {
 }
 
 func (p *processRunner) Run(ctx context.Context, spec RunSpec, progress func(step, steps int)) error {
-	cmd := exec.CommandContext(ctx, p.python, filepath.Join(p.toolkitDir, "run.py"), spec.ConfigPath)
+	launcher := filepath.Join(spec.WorkDir, launcherName)
+	if err := os.WriteFile(launcher, launcherScript, 0o644); err != nil {
+		return fmt.Errorf("write trainer launcher: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, p.python, launcher, p.toolkitDir, spec.ConfigPath, spec.LocalPath)
 	cmd.Dir = p.toolkitDir
 	cmd.Env = append(os.Environ(), "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True", "PYTHONUNBUFFERED=1")
 	process.SetPlatformProcAttr(cmd)

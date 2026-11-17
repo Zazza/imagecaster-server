@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"imagecaster-server/config"
+	"imagecaster-server/models"
 	"imagecaster-server/sdcpp"
 	"imagecaster-server/train"
 )
@@ -56,6 +57,7 @@ func newTrainManager(cfg *config.Config, gate *Gate, sd *sdcpp.Facade) *train.Ma
 		ModelsDir:      b.ModelsDir,
 		TextEncoderDir: b.TextEncoderDir,
 		VAEDir:         b.VaeDir,
+		TrainDir:       models.TrainDir(b),
 	}, train.NewProcessRunner(cfg.Train.Python, cfg.Train.ToolkitDir), leaser)
 	if err != nil {
 		log.Printf("[train] disabled: %v", err)

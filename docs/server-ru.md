@@ -281,9 +281,10 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 | `/api/server/models/lora` | GET / POST | то же для LoRA |
 | `/api/server/models/vae` | GET / POST | то же для VAE |
 | `/api/server/models/text_encoder` | GET / POST | то же для энкодеров текста и токенизаторов (`.json`); без `text_encoder_dir` — папка `text_encoder` рядом с `models_dir` |
+| `/api/server/models/train` | GET / POST | то же для файлов, нужных только обучению LoRA: папка `train` рядом с `models_dir` |
 | `/api/server/models/llm` | GET / POST | список текстовых моделей / скачать модель (тем же кодом, что `/api/pull`; без llama.cpp — 503) |
 | `/api/server/models/llm/pull` | GET | скачать текстовую модель с ходом загрузки в потоке, `?name=` |
-| `/api/server/models/download/stream` | GET | скачать модель с ходом загрузки в потоке, `?type=sd\|lora\|vae\|text_encoder&url=&filename=` |
+| `/api/server/models/download/stream` | GET | скачать модель с ходом загрузки в потоке, `?type=sd\|lora\|vae\|text_encoder\|train&url=&filename=` |
 | `/api/server/models/delete/{sd,lora,vae,text_encoder,llm}/{name}` | DELETE | удалить модель |
 | `/api/gpu/*` | | очередь и аренды, см. выше |
 | `/api/sd/*` | * | API заданий SD ниже |
@@ -338,15 +339,24 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 ### API обучения LoRA (люди)
 
-Возможность `lora_train`. Обучается LoRA для Z-Image или Moss (ai-toolkit, 768 px, rank 16). Moss доступна, только если на сервере есть её файлы: `<models_dir>/moss_image_sft_bf16.safetensors`, `<text_encoder_dir>/qwen35_9b_int8_convrot.safetensors` и в `<vae_dir>` один из `flux2-klein-vae.safetensors`, `flux2-vae.safetensors`, `flux2-vae_small.safetensors` (берётся первый по этому порядку); ничего не скачивается. На 16 ГБ Moss занимает ~11 ГБ, шаг ~2 с. Одно задание за раз; оно занимает весь бюджет видеокарты, задания SD ждут (2000 шагов ≈ 77 мин на 16 ГБ). Перед обучением модель SD выгружается.
+Возможность `lora_train`. Обучается LoRA для Z-Image, Moss, SDXL или Flux.2 Klein 4B (ai-toolkit, rank 16; 768 px, у SDXL 1024 px). Модель доступна, только когда на сервере есть все её файлы; ничего тяжёлого не скачивается — сервер передаёт ai-toolkit пути к файлам через вшитый запускатель `aitk_local.py` (из интернета берутся только файлы настроек и токенизатора, мегабайты):
+
+| База | Файлы | Память / шаг на 16 ГБ |
+|---|---|---|
+| `Z-Image` | `<train>/z_image_turbo_bf16.safetensors`, `<train>/zimage_turbo_training_adapter_v2.safetensors`, `<text_encoder_dir>/qwen_3_4b.safetensors`, `<vae_dir>/ae.safetensors` | 15,4 ГБ / 2,3 с |
+| `Moss-Image` | `<models_dir>/moss_image_sft_bf16.safetensors`, `<text_encoder_dir>/qwen35_9b_int8_convrot.safetensors`, в `<vae_dir>` первый из `flux2-klein-vae`, `flux2-vae`, `flux2-vae_small` (`.safetensors`) | 11 ГБ / 2 с |
+| `SDXL` | в `<models_dir>` первый из `juggernautXL_ragnarokBy`, `epicrealismXL_pureFix` (`.safetensors`); LoRA подходит к любой SDXL-модели | 10 ГБ / 0,6 с |
+| `Flux.2` | `<models_dir>/flux-2-klein-4b.safetensors`, `<text_encoder_dir>/qwen_3_4b.safetensors`, `<vae_dir>/flux2-klein-vae.safetensors` | 12,3 ГБ / 1,7 с |
+
+`<train>` — каталог `train` рядом с `models_dir` (тип моделей `train`). Одно задание за раз; оно занимает весь бюджет видеокарты, задания SD ждут (2000 шагов: SDXL ≈ 21 мин, Klein ≈ 55, Moss ≈ 70, Z-Image ≈ 77). Перед обучением модель SD выгружается. Файлы пропали, пока задание ждало очереди, — задание падает с `base_unavailable`.
 
 ```
-POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, base Z-Image|Moss-Image (пусто — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, base Z-Image|Moss-Image|SDXL|Flux.2 (пусто — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
        -> 202 Job | 200 Job (такой client + client_ref уже идёт) | 400 invalid_request | 400 base_unavailable (нет файлов модели) | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
 POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тренер остановится)
-GET    /api/train/bases              -> {bases: ["Z-Image", "Moss-Image"?]}  (модели, для которых можно обучать)
+GET    /api/train/bases              -> {bases: [...]}  (базы, у которых есть все файлы, в порядке Z-Image, Moss-Image, SDXL, Flux.2; может быть пустым)
 GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (старые записи без base — Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 ```

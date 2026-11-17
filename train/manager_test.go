@@ -172,7 +172,10 @@ func testConfig(t *testing.T) Config {
 	loras := filepath.Join(dir, "loras")
 	require.NoError(t, os.MkdirAll(jobs, 0o755))
 	require.NoError(t, os.MkdirAll(loras, 0o755))
-	return Config{Python: python, ToolkitDir: toolkit, JobsDir: jobs, LoraDir: loras, Steps: 10}
+	cfg := Config{Python: python, ToolkitDir: toolkit, JobsDir: jobs, LoraDir: loras, Steps: 10}
+	setModelDirs(t, &cfg, filepath.Join(dir, "models"))
+	addBaseFiles(t, cfg, "Z-Image")
+	return cfg
 }
 
 func startEnv(t *testing.T, cfg Config, configure func(r *fakeRunner, l *fakeLeaser)) *env {

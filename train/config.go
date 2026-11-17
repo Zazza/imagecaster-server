@@ -30,7 +30,7 @@ config:
         - folder_path: {{dataset}}
           caption_ext: txt
 {{dataset_extra}}          cache_latents_to_disk: true
-          resolution: [768]
+          resolution: [{{resolution}}]
       train:
         batch_size: 1
         steps: {{steps}}
@@ -38,15 +38,14 @@ config:
         train_unet: true
         train_text_encoder: false
 {{train_extra}}        gradient_checkpointing: true
-        noise_scheduler: flowmatch
-        timestep_type: weighted
+        noise_scheduler: {{noise}}
         optimizer: adamw8bit
         lr: 1e-4
         dtype: bf16
         disable_sampling: true
       model:
 {{model}}      sample:
-        sampler: flowmatch
+        sampler: {{sampler}}
         sample_every: 1000000
         width: 1024
         height: 1024
@@ -64,42 +63,71 @@ func yamlQuote(s string) string {
 
 type modelBlock struct {
 	model, datasetExtra, trainExtra string
+	resolution                      int
+	ddpm                            bool
 }
 
-var zimageBlock = modelBlock{
-	model: `        arch: zimage
-        name_or_path: Tongyi-MAI/Z-Image-Turbo
-        assistant_lora_path: ostris/zimage_turbo_training_adapter/zimage_turbo_training_adapter_v2.safetensors
-        quantize: true
+const flowmatchQuant = `        quantize: true
         quantize_te: true
         qtype: qfloat8
         low_vram: true
-`,
-	datasetExtra: "          caption_dropout_rate: 0.05\n",
+`
+
+func zimageBlock(checkpoint, adapter string) modelBlock {
+	return modelBlock{
+		model: `        arch: zimage
+        name_or_path: ` + yamlQuote(checkpoint) + `
+        assistant_lora_path: ` + yamlQuote(adapter) + `
+` + flowmatchQuant,
+		datasetExtra: "          caption_dropout_rate: 0.05\n",
+	}
 }
 
-func mossBlock(f mossSet) modelBlock {
+func mossBlock(checkpoint, textEncoder, vae string) modelBlock {
 	return modelBlock{
 		model: `        arch: moss_image
-        name_or_path: ` + yamlQuote(f.checkpoint) + `
-        te_name_or_path: ` + yamlQuote(f.textEncoder) + `
-        vae_path: ` + yamlQuote(f.vae) + `
-        quantize: true
-        quantize_te: true
-        qtype: qfloat8
-        low_vram: true
-`,
+        name_or_path: ` + yamlQuote(checkpoint) + `
+        te_name_or_path: ` + yamlQuote(textEncoder) + `
+        vae_path: ` + yamlQuote(vae) + `
+` + flowmatchQuant,
 		datasetExtra: "          cache_text_embeddings: true\n",
 		trainExtra:   "        unload_text_encoder: true\n",
 	}
 }
 
-func writeTrainConfig(spec RunSpec, name, trigger string) error {
-	return writeBaseConfig(spec, name, trigger, zimageBlock)
+func kleinBlock(checkpoint, vae string) modelBlock {
+	return modelBlock{
+		model: `        arch: flux2_klein_4b
+        name_or_path: ` + yamlQuote(checkpoint) + `
+        vae_path: ` + yamlQuote(vae) + `
+` + flowmatchQuant,
+	}
+}
+
+func sdxlBlock(checkpoint string) modelBlock {
+	return modelBlock{
+		model: `        name_or_path: ` + yamlQuote(checkpoint) + `
+        is_xl: true
+        quantize: false
+        low_vram: true
+`,
+		resolution: 1024,
+		ddpm:       true,
+	}
 }
 
 func writeBaseConfig(spec RunSpec, name, trigger string, b modelBlock) error {
+	resolution, noise, sampler := 768, "flowmatch\n        timestep_type: weighted", "flowmatch"
+	if b.resolution > 0 {
+		resolution = b.resolution
+	}
+	if b.ddpm {
+		noise, sampler = "ddpm", "ddpm"
+	}
 	r := strings.NewReplacer(
+		"{{resolution}}", strconv.Itoa(resolution),
+		"{{noise}}", noise,
+		"{{sampler}}", sampler,
 		"{{model}}", b.model,
 		"{{dataset_extra}}", b.datasetExtra,
 		"{{train_extra}}", b.trainExtra,

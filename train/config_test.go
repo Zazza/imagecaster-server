@@ -20,7 +20,7 @@ func TestTrainConfigKeepsNamesAsStrings(t *testing.T) {
 				OutputPath: filepath.Join(dir, "output", name, name+".safetensors"),
 				Steps:      100,
 			}
-			require.NoError(t, writeTrainConfig(spec, name, name+"_man"))
+			require.NoError(t, writeBaseConfig(spec, name, name+"_man", sdxlBlock("/models/sdxl.safetensors")))
 			data, err := os.ReadFile(spec.ConfigPath)
 			require.NoError(t, err)
 			var doc struct {

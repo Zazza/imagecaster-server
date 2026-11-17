@@ -281,9 +281,10 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 | `/api/server/models/lora` | GET / POST | the same for LoRA |
 | `/api/server/models/vae` | GET / POST | the same for VAE |
 | `/api/server/models/text_encoder` | GET / POST | the same for text encoders and tokenizers (`.json`); without `text_encoder_dir` — the `text_encoder` folder next to `models_dir` |
+| `/api/server/models/train` | GET / POST | the same for files used only by LoRA training: the `train` folder next to `models_dir` |
 | `/api/server/models/llm` | GET / POST | list text models / pull one (the same code as `/api/pull`; 503 when there is no llama.cpp) |
 | `/api/server/models/llm/pull` | GET | pull a text model with streamed progress, `?name=` |
-| `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae\|text_encoder&url=&filename=` |
+| `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae\|text_encoder\|train&url=&filename=` |
 | `/api/server/models/delete/{sd,lora,vae,text_encoder,llm}/{name}` | DELETE | delete a model |
 | `/api/gpu/*` | | queue and leases, see above |
 | `/api/sd/*` | * | the SD jobs API below |
@@ -338,15 +339,24 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 ### LoRA training API (people)
 
-Feature `lora_train`. Training is a Z-Image or Moss LoRA (ai-toolkit, 768 px, rank 16). Moss is offered only when its files are on the server: `<models_dir>/moss_image_sft_bf16.safetensors`, `<text_encoder_dir>/qwen35_9b_int8_convrot.safetensors` and one of `flux2-klein-vae.safetensors`, `flux2-vae.safetensors`, `flux2-vae_small.safetensors` in `<vae_dir>` (the first in this order); nothing is downloaded. On 16 GB Moss takes ~11 GB, ~2 s per step. One job at a time; it holds the whole GPU budget, so SD jobs wait (2000 steps ≈ 77 min on 16 GB). The server's SD model is unloaded before training.
+Feature `lora_train`. Training is a Z-Image, Moss, SDXL or Flux.2 Klein 4B LoRA (ai-toolkit, rank 16; 768 px, SDXL 1024 px). A model is offered only when all its files are on the server; nothing heavy is downloaded — the server hands ai-toolkit the file paths through the embedded launcher `aitk_local.py` (only config and tokenizer files, megabytes, come from the internet):
+
+| Base | Files | Memory / step on 16 GB |
+|---|---|---|
+| `Z-Image` | `<train>/z_image_turbo_bf16.safetensors`, `<train>/zimage_turbo_training_adapter_v2.safetensors`, `<text_encoder_dir>/qwen_3_4b.safetensors`, `<vae_dir>/ae.safetensors` | 15.4 GB / 2.3 s |
+| `Moss-Image` | `<models_dir>/moss_image_sft_bf16.safetensors`, `<text_encoder_dir>/qwen35_9b_int8_convrot.safetensors`, in `<vae_dir>` the first of `flux2-klein-vae`, `flux2-vae`, `flux2-vae_small` (`.safetensors`) | 11 GB / 2 s |
+| `SDXL` | in `<models_dir>` the first of `juggernautXL_ragnarokBy`, `epicrealismXL_pureFix` (`.safetensors`); the LoRA fits any SDXL model | 10 GB / 0.6 s |
+| `Flux.2` | `<models_dir>/flux-2-klein-4b.safetensors`, `<text_encoder_dir>/qwen_3_4b.safetensors`, `<vae_dir>/flux2-klein-vae.safetensors` | 12.3 GB / 1.7 s |
+
+`<train>` is the `train` folder next to `models_dir` (model type `train`). One job at a time; it takes the whole GPU budget and SD jobs wait (2000 steps: SDXL ≈ 21 min, Klein ≈ 55, Moss ≈ 70, Z-Image ≈ 77). The SD model is unloaded before training. If the files disappear while the job is queued, the job fails with `base_unavailable`.
 
 ```
-POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, base Z-Image|Moss-Image (empty — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, base Z-Image|Moss-Image|SDXL|Flux.2 (empty — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
        -> 202 Job | 200 Job (same client + client_ref is active) | 400 invalid_request | 400 base_unavailable (model files missing) | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
 POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when the trainer stops)
-GET    /api/train/bases              -> {bases: ["Z-Image", "Moss-Image"?]}  (models training is possible for)
+GET    /api/train/bases              -> {bases: [...]}  (bases with all files present, in order Z-Image, Moss-Image, SDXL, Flux.2; may be empty)
 GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (old records without base are Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 ```

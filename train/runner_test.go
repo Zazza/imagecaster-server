@@ -63,6 +63,8 @@ func newProcessFixture(t *testing.T, body string) processFixture {
 	require.NoError(t, os.MkdirAll(filepath.Join(work, "dataset"), 0o755))
 	configPath := filepath.Join(work, "config.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte("job: extension\n"), 0o644))
+	localPath := filepath.Join(work, "local.json")
+	require.NoError(t, os.WriteFile(localPath, []byte("{}"), 0o644))
 	return processFixture{
 		python:  python,
 		toolkit: toolkit,
@@ -71,6 +73,7 @@ func newProcessFixture(t *testing.T, body string) processFixture {
 		spec: RunSpec{
 			WorkDir:    work,
 			ConfigPath: configPath,
+			LocalPath:  localPath,
 			DatasetDir: filepath.Join(work, "dataset"),
 			OutputPath: filepath.Join(work, "output", "lora.safetensors"),
 			LogPath:    filepath.Join(work, "train.log"),
@@ -118,6 +121,8 @@ func TestProcessRunner_ExitCode(t *testing.T) {
 func TestProcessRunner_CommandLine(t *testing.T) {
 	f := newProcessFixture(t, "exit 0")
 	r := NewProcessRunner(f.python, f.toolkit)
+	script := filepath.Join(f.spec.WorkDir, "aitk_local.py")
+	require.NoFileExists(t, script)
 
 	require.NoError(t, r.Run(context.Background(), f.spec, func(step, steps int) {}))
 
@@ -126,12 +131,31 @@ func TestProcessRunner_CommandLine(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	wantDir, err := filepath.EvalSymlinks(f.toolkit)
 	require.NoError(t, err)
-	require.Len(t, lines, 3, string(data))
+	require.Len(t, lines, 5, string(data))
 	gotDir, err := filepath.EvalSymlinks(lines[0])
 	require.NoError(t, err)
 	assert.Equal(t, wantDir, gotDir)
-	assert.Equal(t, filepath.Join(f.toolkit, "run.py"), lines[1])
-	assert.Equal(t, f.spec.ConfigPath, lines[2])
+	assert.Equal(t, []string{script, f.toolkit, f.spec.ConfigPath, f.spec.LocalPath}, lines[1:])
+
+	body, err := os.ReadFile(script)
+	require.NoError(t, err)
+	assert.NotEmpty(t, strings.TrimSpace(string(body)), "aitk_local.py must contain the embedded script")
+}
+
+func TestProcessRunner_ScriptWrittenBeforeStart(t *testing.T) {
+	copyTo := filepath.Join(t.TempDir(), "seen.py")
+	f := newProcessFixture(t, fmt.Sprintf("cp \"$1\" %q || exit 7\nexit 0", copyTo))
+	script := filepath.Join(f.spec.WorkDir, "aitk_local.py")
+	r := NewProcessRunner(f.python, f.toolkit)
+
+	require.NoError(t, r.Run(context.Background(), f.spec, func(step, steps int) {}))
+
+	seen, err := os.ReadFile(copyTo)
+	require.NoError(t, err)
+	onDisk, err := os.ReadFile(script)
+	require.NoError(t, err)
+	assert.Equal(t, onDisk, seen)
+	assert.NotEmpty(t, seen)
 }
 
 func TestProcessRunner_Progress(t *testing.T) {

@@ -169,11 +169,9 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	if form.base == "" {
 		form.base = baseZImage
 	}
-	if form.base == baseMoss {
-		if _, ok := m.findMoss(); !ok {
-			writeError(w, errf(http.StatusBadRequest, "base_unavailable", "Moss-Image model files are missing on the server"))
-			return
-		}
+	if !m.baseAvailable(form.base) {
+		writeError(w, errf(http.StatusBadRequest, "base_unavailable", "%s model files are missing on the server", form.base))
+		return
 	}
 	trigger := form.name + "_" + form.gender
 	if err := writeCaptions(filepath.Join(dir, datasetDir), form.gender); err != nil {
@@ -219,8 +217,8 @@ func validateForm(f submitForm) *httpError {
 	if !genders[f.gender] {
 		return errf(http.StatusBadRequest, "invalid_request", "gender must be man, woman or person")
 	}
-	if f.base != "" && f.base != baseZImage && f.base != baseMoss {
-		return errf(http.StatusBadRequest, "invalid_request", "base must be %s or %s", baseZImage, baseMoss)
+	if f.base != "" && !knownBase(f.base) {
+		return errf(http.StatusBadRequest, "invalid_request", "base must be %s, %s, %s or %s", baseZImage, baseMoss, baseSDXL, baseFlux2)
 	}
 	if f.photos < minPhotos || f.photos > maxPhotos {
 		return errf(http.StatusBadRequest, "invalid_request", "need %d-%d photos, got %d", minPhotos, maxPhotos, f.photos)
