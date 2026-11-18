@@ -76,6 +76,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"bases": m.Bases()})
 	case p == "people" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]any{"people": m.people()})
+	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/rename") && r.Method == http.MethodPost:
+		m.handleRenamePerson(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/rename"))
 	case strings.HasPrefix(p, "people/") && r.Method == http.MethodDelete:
 		m.handleDeletePerson(w, strings.TrimPrefix(p, "people/"))
 	default:
@@ -94,6 +96,17 @@ func (m *Manager) handleJob(w http.ResponseWriter, r *http.Request, rest string)
 		j, ok = m.get(id)
 	case action == "cancel" && r.Method == http.MethodPost:
 		j, ok = m.cancelJob(id)
+	case (action == "pause" || action == "resume") && r.Method == http.MethodPost:
+		var code string
+		if action == "pause" {
+			j, code, ok = m.pauseJob(id)
+		} else {
+			j, code, ok = m.resumeJob(id)
+		}
+		if ok && code != "" {
+			writeError(w, errf(http.StatusConflict, code, "training job %s is %s", id, j.Status))
+			return
+		}
 	default:
 		writeError(w, errf(http.StatusNotFound, "not_found", "not found: %s %s", r.Method, r.URL.Path))
 		return
@@ -120,6 +133,36 @@ func (m *Manager) handleDeletePerson(w http.ResponseWriter, name string) {
 		writeError(w, errf(status, code, "person %q not found", name))
 	default:
 		writeError(w, errf(status, code, "cannot delete person %q", name))
+	}
+}
+
+func (m *Manager) handleRenamePerson(w http.ResponseWriter, r *http.Request, name string) {
+	if !nameRe.MatchString(name) {
+		writeError(w, errf(http.StatusNotFound, "not_found", "person %q not found", name))
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxFieldBytes)).Decode(&body); err != nil {
+		writeError(w, errf(http.StatusBadRequest, "invalid_request", "expected JSON body {\"name\": ...}: %v", err))
+		return
+	}
+	to := normalizeName(body.Name)
+	if !nameRe.MatchString(to) {
+		writeError(w, errf(http.StatusBadRequest, "invalid_request", "name must be 2-32 characters: latin letters, digits, _"))
+		return
+	}
+	p, status, code := m.renamePerson(name, to)
+	switch status {
+	case http.StatusOK:
+		writeJSON(w, http.StatusOK, map[string]any{"person": p})
+	case http.StatusNotFound:
+		writeError(w, errf(status, code, "person %q not found", name))
+	case http.StatusConflict:
+		writeError(w, errf(status, code, "name %q is already used", to))
+	default:
+		writeError(w, errf(status, code, "cannot rename person %q", name))
 	}
 }
 

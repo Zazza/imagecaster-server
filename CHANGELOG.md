@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- LoRA training: `POST /api/train/jobs/{id}/pause` and `.../resume` (new status `paused`, the trainer saves every 250 steps and resumes from the last save); a server restart pauses unfinished training instead of losing it; `POST /api/train/people/{name}/rename`
+
 ## [2.0.0] — 2026-11-16
 
 The server generates images with stable-diffusion.cpp and runs text models on llama.cpp: no Python, Forge Neo or Ollama program. Imagecaster 2.0 needs this version.

@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const saveEvery = 250
+
 const trainConfigTemplate = `job: extension
 config:
   name: {{name}}
@@ -23,7 +25,7 @@ config:
         linear_alpha: 16
       save:
         dtype: float16
-        save_every: {{steps}}
+        save_every: {{save_every}}
         max_step_saves_to_keep: 1
         push_to_hub: false
       datasets:
@@ -134,6 +136,7 @@ func writeBaseConfig(spec RunSpec, name, trigger string, b modelBlock) error {
 		"{{name}}", yamlQuote(name),
 		"{{trigger}}", yamlQuote(trigger),
 		"{{steps}}", strconv.Itoa(spec.Steps),
+		"{{save_every}}", strconv.Itoa(min(saveEvery, spec.Steps)),
 		"{{output}}", yamlQuote(filepath.Dir(filepath.Dir(spec.OutputPath))),
 		"{{dataset}}", yamlQuote(spec.DatasetDir),
 	)

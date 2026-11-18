@@ -355,13 +355,16 @@ POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, прив�
        -> 202 Job | 200 Job (такой client + client_ref уже идёт) | 400 invalid_request | 400 base_unavailable (нет файлов модели) | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
-POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тренер остановится)
+POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тренер остановится; задание на паузе — сразу)
+POST   /api/train/jobs/{id}/pause    -> 200 Job (running → paused, когда тренер остановится; paused — ничего) | 409 not_running
+POST   /api/train/jobs/{id}/resume   -> 200 Job (paused → queued; queued/running — ничего) | 409 not_paused
 GET    /api/train/bases              -> {bases: [...]}  (базы, у которых есть все файлы, в порядке Z-Image, Moss-Image, SDXL, Flux.2; может быть пустым)
 GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (старые записи без base — Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
+POST   /api/train/people/{name}/rename  JSON {name} -> 200 {person} | 400 invalid_request | 404 | 409 name_taken
 ```
 
-Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней. Перезапуск сервера переводит незаконченные задания в `lost` (`server_restarted`). Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
+Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|paused|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено (в том числе на паузе) и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней после окончания. Тренер сохраняется каждые 250 шагов; задание на паузе продолжает с последнего сохранения (переделывается до 250 шагов). Перезапуск или остановка сервера ставит незаконченные задания на паузу. Переименование человека переименовывает оба файла; стили, где старая LoRA вписана вручную, перестают её находить. Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
 
 mDNS: сервис `_imagecaster._tcp`, экземпляр «Imagecaster Server», TXT `version=<version>`. `mdns: false` выключает объявление.
 

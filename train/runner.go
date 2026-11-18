@@ -53,7 +53,7 @@ func (p *processRunner) Run(ctx context.Context, spec RunSpec, progress func(ste
 	cmd.Stderr = pw
 	var logOut io.Writer = io.Discard
 	if spec.LogPath != "" {
-		if f, err := os.Create(spec.LogPath); err == nil {
+		if f, err := os.OpenFile(spec.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			defer f.Close()
 			logOut = f
 		} else {

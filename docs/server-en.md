@@ -355,13 +355,16 @@ POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercase
        -> 202 Job | 200 Job (same client + client_ref is active) | 400 invalid_request | 400 base_unavailable (model files missing) | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
-POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when the trainer stops)
+POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when the trainer stops; a paused job is cancelled at once)
+POST   /api/train/jobs/{id}/pause    -> 200 Job (running → paused once the trainer stops; paused → no-op) | 409 not_running
+POST   /api/train/jobs/{id}/resume   -> 200 Job (paused → queued; queued/running → no-op) | 409 not_paused
 GET    /api/train/bases              -> {bases: [...]}  (bases with all files present, in order Z-Image, Moss-Image, SDXL, Flux.2; may be empty)
 GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (old records without base are Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
+POST   /api/train/people/{name}/rename  JSON {name} -> 200 {person} | 400 invalid_request | 404 | 409 name_taken
 ```
 
-Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished and are deleted after any end; `status.json` and `train.log` stay 7 days. A server restart turns unfinished jobs into `lost` (`server_restarted`). The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
+Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|paused|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished (including paused) and are deleted after any end; `status.json` and `train.log` stay 7 days after the end. The trainer saves every 250 steps; a paused job resumes from the last save (up to 250 steps are redone). A server restart or stop turns unfinished jobs into `paused`. Renaming a person renames both files; styles that name the old LoRA by hand stop finding it. The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
 
 mDNS: service `_imagecaster._tcp`, instance "Imagecaster Server", TXT `version=<version>`; `mdns: false` turns it off.
 

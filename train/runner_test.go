@@ -231,3 +231,13 @@ func TestProcessRunner_CancelKillsChildren(t *testing.T) {
 	assert.Less(t, time.Since(start), 10*time.Second)
 	assert.Eventually(t, func() bool { return !processAlive(pid) }, 5*time.Second, 20*time.Millisecond, "child sleep %d survived cancel", pid)
 }
+
+func TestProcessRunner_LogKeptAcrossResume(t *testing.T) {
+	f := newProcessFixture(t, "echo run-output\nexit 0")
+	r := NewProcessRunner(f.python, f.toolkit)
+	require.NoError(t, r.Run(context.Background(), f.spec, func(step, steps int) {}))
+	require.NoError(t, r.Run(context.Background(), f.spec, func(step, steps int) {}))
+	data, err := os.ReadFile(f.spec.LogPath)
+	require.NoError(t, err)
+	assert.Equal(t, 2, strings.Count(string(data), "run-output"))
+}

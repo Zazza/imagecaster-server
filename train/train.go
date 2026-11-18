@@ -33,6 +33,7 @@ const (
 	statusFailed    = "failed"
 	statusCancelled = "cancelled"
 	statusLost      = "lost"
+	statusPaused    = "paused"
 )
 
 type Config struct {
@@ -95,6 +96,10 @@ func (j *Job) active() bool {
 	return j.Status == statusQueued || j.Status == statusRunning
 }
 
+func (j *Job) holdsName() bool {
+	return j.active() || j.Status == statusPaused
+}
+
 type Person struct {
 	Name      string     `json:"name"`
 	Trigger   string     `json:"trigger"`
@@ -115,6 +120,7 @@ type Manager struct {
 	jobs      map[string]*Job
 	busy      bool
 	cancelCur context.CancelCauseFunc
+	cancelReq bool
 	curID     string
 
 	wake   chan struct{}
@@ -125,8 +131,8 @@ type Manager struct {
 
 var (
 	errCancelled = errors.New("cancelled")
+	errPaused    = errors.New("paused")
 	errLeaseLost = errors.New("gpu lease lost")
-	errStopped   = errors.New("server stopped")
 )
 
 func New(cfg Config, run Runner, lease Leaser) (*Manager, error) {
@@ -233,10 +239,10 @@ func (m *Manager) restore() {
 		if j.Base == "" {
 			j.Base = baseZImage
 		}
-		if j.active() {
-			j.Status = statusLost
-			j.Error = &JobError{Code: "server_restarted", Message: "the server restarted before training finished"}
-			j.FinishedAt = &now
+		if j.holdsName() {
+			j.Status = statusPaused
+			j.Error = nil
+			j.FinishedAt = nil
 		}
 		if j.FinishedAt != nil && now.Sub(*j.FinishedAt) > jobTTL {
 			if err := os.RemoveAll(dir); err != nil {
@@ -244,7 +250,9 @@ func (m *Manager) restore() {
 			}
 			continue
 		}
-		m.removeJobFiles(j.ID)
+		if j.Status != statusPaused {
+			m.removeJobFiles(j.ID)
+		}
 		m.jobs[j.ID] = &j
 		m.persist(&j)
 	}
@@ -325,8 +333,9 @@ func (m *Manager) cancelJob(id string) (Job, bool) {
 	}
 	switch {
 	case m.curID == id && m.cancelCur != nil:
+		m.cancelReq = true
 		m.cancelCur(errCancelled)
-	case j.Status == statusQueued:
+	case j.Status == statusQueued || j.Status == statusPaused:
 		now := time.Now()
 		j.Status = statusCancelled
 		j.FinishedAt = &now
@@ -335,6 +344,43 @@ func (m *Manager) cancelJob(id string) (Job, bool) {
 		m.idle.Broadcast()
 	}
 	return m.snapshot(j), true
+}
+
+func (m *Manager) pauseJob(id string) (Job, string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok {
+		return Job{}, "", false
+	}
+	switch {
+	case j.Status == statusPaused:
+	case m.curID == id && m.cancelCur != nil && j.Status == statusRunning:
+		m.cancelCur(errPaused)
+	default:
+		return m.snapshot(j), "not_running", true
+	}
+	return m.snapshot(j), "", true
+}
+
+func (m *Manager) resumeJob(id string) (Job, string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok {
+		return Job{}, "", false
+	}
+	switch j.Status {
+	case statusPaused:
+		j.Status = statusQueued
+		j.Error = nil
+		m.persist(j)
+		m.notify()
+	case statusQueued, statusRunning:
+	default:
+		return m.snapshot(j), "not_paused", true
+	}
+	return m.snapshot(j), "", true
 }
 
 func (m *Manager) worker() {
@@ -404,18 +450,24 @@ func (m *Manager) execute(j *Job) {
 	m.curID = ""
 	m.cancelCur = nil
 	m.busy = false
+	cause := context.Cause(ctx)
+	cancelReq := m.cancelReq
+	m.cancelReq = false
+	if err != nil && !cancelReq && (errors.Is(cause, errPaused) || m.ctx.Err() != nil) {
+		j.Status = statusPaused
+		j.FinishedAt = nil
+		m.persist(j)
+		m.idle.Broadcast()
+		return
+	}
 	end := time.Now()
 	j.FinishedAt = &end
-	cause := context.Cause(ctx)
 	switch {
 	case err == nil:
 		j.Status = statusCompleted
 		j.Progress.Step = j.Progress.Steps
-	case errors.Is(cause, errCancelled):
+	case cancelReq || errors.Is(cause, errCancelled):
 		j.Status = statusCancelled
-	case m.ctx.Err() != nil:
-		j.Status = statusLost
-		j.Error = &JobError{Code: "server_stopped", Message: errStopped.Error()}
 	case errors.Is(cause, errLeaseLost):
 		j.Status = statusFailed
 		j.Error = &JobError{Code: "gpu_lease_lost", Message: errLeaseLost.Error()}
@@ -472,7 +524,7 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 	now := time.Now()
 	j.Status = statusRunning
 	j.StartedAt = &now
-	j.Progress = Progress{Step: 0, Steps: m.cfg.Steps}
+	j.Progress = Progress{Step: j.Progress.Step, Steps: m.cfg.Steps}
 	m.persist(j)
 	m.mu.Unlock()
 	err := m.run.Run(ctx, spec, func(step, steps int) {
@@ -554,7 +606,7 @@ func (m *Manager) people() []Person {
 
 func (m *Manager) nameTakenLocked(name string) bool {
 	for _, j := range m.jobs {
-		if j.Name == name && j.active() {
+		if j.Name == name && j.holdsName() {
 			return true
 		}
 	}
@@ -589,7 +641,7 @@ func (m *Manager) deletePerson(name string) (int, string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, j := range m.jobs {
-		if j.Name == name && j.active() {
+		if j.Name == name && j.holdsName() {
 			return 409, "busy"
 		}
 	}
@@ -610,4 +662,48 @@ func newID() (string, error) {
 		return "", err
 	}
 	return "t" + hex.EncodeToString(b), nil
+}
+
+func (m *Manager) renamePerson(from, to string) (Person, int, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, err := os.ReadFile(m.personPath(from))
+	if err != nil {
+		return Person{}, 404, "not_found"
+	}
+	var p Person
+	if err := json.Unmarshal(data, &p); err != nil {
+		return Person{}, 500, "internal"
+	}
+	if p.Lora == "" {
+		p.Lora = from
+	}
+	if from == to {
+		return p, 200, ""
+	}
+	if m.nameTakenLocked(to) {
+		return Person{}, 409, "name_taken"
+	}
+	oldLora := filepath.Join(m.cfg.LoraDir, p.Lora+".safetensors")
+	newLora := filepath.Join(m.cfg.LoraDir, to+".safetensors")
+	if err := fsutil.Rename(oldLora, newLora); err != nil {
+		log.Printf("[train] rename %s: %v", oldLora, err)
+		return Person{}, 500, "rename_failed"
+	}
+	p.Name, p.Lora = to, to
+	out, err := json.MarshalIndent(p, "", "  ")
+	if err == nil {
+		err = fsutil.WriteFileAtomic(m.personPath(to), out, 0o644)
+	}
+	if err != nil {
+		log.Printf("[train] write %s: %v", m.personPath(to), err)
+		if rbErr := fsutil.Rename(newLora, oldLora); rbErr != nil {
+			log.Printf("[train] rename back %s: %v", newLora, rbErr)
+		}
+		return Person{}, 500, "rename_failed"
+	}
+	if err := os.Remove(m.personPath(from)); err != nil {
+		log.Printf("[train] remove %s: %v", m.personPath(from), err)
+	}
+	return p, 200, ""
 }

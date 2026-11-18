@@ -901,12 +901,11 @@ func TestNew_RestoresJobsAfterRestart(t *testing.T) {
 
 	after := startEnv(t, cfg, nil)
 
-	lost := after.job(unfinished.ID())
-	assert.Equal(t, "lost", lost.Status)
-	assert.Equal(t, "boris", lost.Name)
+	paused := after.job(unfinished.ID())
+	assert.Equal(t, "paused", paused.Status)
+	assert.Equal(t, "boris", paused.Name)
 	assert.Equal(t, "completed", after.job(done.ID()).Status)
-	assertGone(t, call.spec.DatasetDir)
-	assert.Empty(t, imagesUnder(t, cfg.JobsDir))
+	assert.Equal(t, 10, countImages(call.spec.DatasetDir))
 
 	names := []string{}
 	for _, j := range after.jobsOf(testClient) {
