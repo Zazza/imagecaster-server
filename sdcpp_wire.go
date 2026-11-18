@@ -12,9 +12,12 @@ import (
 
 	"imagecaster-server/config"
 	"imagecaster-server/dwpose"
+	"imagecaster-server/faceswap"
 	sdgpu "imagecaster-server/gpu"
+	"imagecaster-server/models"
 	"imagecaster-server/process"
 	"imagecaster-server/sdcpp"
+	"imagecaster-server/train"
 )
 
 type processRestarter struct {
@@ -178,4 +181,12 @@ func newSDCppFacade(cfg *config.Config, pm *process.ProcessManager, gm *sdgpu.GP
 		JobsDir:        sdJobsDir(cfg),
 		JobTTL:         cfg.SDJobResultTTL(),
 	}, &processRestarter{pm: pm, cfg: cfg, key: b.ProcessKey}, &gpuMemory{gm: gm})
+}
+
+func wireFaceSwap(cfg *config.Config, f *sdcpp.Facade) *faceswap.Engine {
+	b := cfg.GetActiveBackend()
+	fs := faceswap.New(faceswap.Config{LibPath: b.OnnxRuntimeLib, ModelsDir: models.FaceDir(b)})
+	loraDir := trainLoraDir(cfg)
+	f.SetFaceSwap(fs, func(name string) ([]float32, error) { return train.ReadIdentity(loraDir, name) })
+	return fs
 }

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"imagecaster-server/faceswap"
 	"imagecaster-server/fsutil"
 )
 
@@ -84,6 +85,7 @@ type Job struct {
 	Gender     string     `json:"gender"`
 	Base       string     `json:"base"`
 	Photos     int        `json:"photos"`
+	Identity   string     `json:"identity,omitempty"`
 	Status     string     `json:"status"`
 	Progress   Progress   `json:"progress"`
 	Error      *JobError  `json:"error"`
@@ -108,12 +110,30 @@ type Person struct {
 	Lora      string     `json:"lora"`
 	Steps     int        `json:"steps"`
 	CreatedAt *time.Time `json:"created_at"`
+	Identity  bool       `json:"identity"`
+}
+
+type personFile struct {
+	Person
+	Identity *faceswap.Identity `json:"identity,omitempty"`
+}
+
+func (pf personFile) public() Person {
+	p := pf.Person
+	p.Identity = pf.Identity != nil
+	return p
+}
+
+type IdentityBuilder interface {
+	Available() bool
+	FromImages(ctx context.Context, paths []string) (faceswap.Identity, error)
 }
 
 type Manager struct {
 	cfg   Config
 	run   Runner
 	lease Leaser
+	ident IdentityBuilder
 
 	mu        sync.Mutex
 	idle      *sync.Cond
@@ -510,6 +530,10 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 	if err := m.prepareBase(j.Base, spec, j.Name, j.Trigger); err != nil {
 		return err
 	}
+	ident, err := m.buildIdentity(ctx, j, spec.DatasetDir)
+	if err != nil {
+		return err
+	}
 	if m.lease != nil {
 		release, err := m.lease(ctx, "lora-train")
 		if err != nil {
@@ -527,7 +551,7 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 	j.Progress = Progress{Step: j.Progress.Step, Steps: m.cfg.Steps}
 	m.persist(j)
 	m.mu.Unlock()
-	err := m.run.Run(ctx, spec, func(step, steps int) {
+	err = m.run.Run(ctx, spec, func(step, steps int) {
 		m.mu.Lock()
 		j.Progress = Progress{Step: step, Steps: steps}
 		m.mu.Unlock()
@@ -541,10 +565,10 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 	if _, err := os.Stat(spec.OutputPath); err != nil {
 		return &codedError{code: "no_output", err: errors.New("trainer finished without a LoRA file")}
 	}
-	return m.installPerson(j, spec.OutputPath)
+	return m.installPerson(j, spec.OutputPath, ident)
 }
 
-func (m *Manager) installPerson(j *Job, output string) error {
+func (m *Manager) installPerson(j *Job, output string, ident *faceswap.Identity) error {
 	dst := filepath.Join(m.cfg.LoraDir, j.Name+".safetensors")
 	if err := os.MkdirAll(m.cfg.LoraDir, 0o755); err != nil {
 		return &codedError{code: "install_failed", err: err}
@@ -559,7 +583,7 @@ func (m *Manager) installPerson(j *Job, output string) error {
 		return &codedError{code: "install_failed", err: err}
 	}
 	now := time.Now()
-	p := Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}
+	p := personFile{Person: Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}, Identity: ident}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return &codedError{code: "install_failed", err: err}
@@ -584,14 +608,11 @@ func (m *Manager) people() []Person {
 		return out
 	}
 	for _, path := range matches {
-		data, err := os.ReadFile(path)
-		if err != nil {
+		pf, err := readPersonFile(path)
+		if err != nil || pf.Name == "" {
 			continue
 		}
-		var p Person
-		if err := json.Unmarshal(data, &p); err != nil || p.Name == "" {
-			continue
-		}
+		p := pf.public()
 		if p.Base == "" {
 			p.Base = baseZImage
 		}
@@ -667,19 +688,18 @@ func newID() (string, error) {
 func (m *Manager) renamePerson(from, to string) (Person, int, string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	data, err := os.ReadFile(m.personPath(from))
-	if err != nil {
+	p, err := readPersonFile(m.personPath(from))
+	if errors.Is(err, os.ErrNotExist) {
 		return Person{}, 404, "not_found"
 	}
-	var p Person
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err != nil {
 		return Person{}, 500, "internal"
 	}
 	if p.Lora == "" {
 		p.Lora = from
 	}
 	if from == to {
-		return p, 200, ""
+		return p.public(), 200, ""
 	}
 	if m.nameTakenLocked(to) {
 		return Person{}, 409, "name_taken"
@@ -705,5 +725,28 @@ func (m *Manager) renamePerson(from, to string) (Person, int, string) {
 	if err := os.Remove(m.personPath(from)); err != nil {
 		log.Printf("[train] remove %s: %v", m.personPath(from), err)
 	}
-	return p, 200, ""
+	return p.public(), 200, ""
+}
+
+func readPersonFile(path string) (personFile, error) {
+	var pf personFile
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return pf, err
+	}
+	var raw struct {
+		Person
+		Identity json.RawMessage `json:"identity"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return pf, err
+	}
+	pf.Person = raw.Person
+	if len(raw.Identity) > 0 && raw.Identity[0] == '{' {
+		pf.Identity = &faceswap.Identity{}
+		if err := json.Unmarshal(raw.Identity, pf.Identity); err != nil {
+			return pf, err
+		}
+	}
+	return pf, nil
 }

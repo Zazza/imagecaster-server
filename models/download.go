@@ -34,7 +34,7 @@ func (m *ModelManager) handleDownloadStream(w http.ResponseWriter, r *http.Reque
 
 	dir, ok := dirFor(backend, typ)
 	if !ok {
-		api.WriteError(w, "invalid type: must be sd, lora, vae, text_encoder or train", http.StatusBadRequest)
+		api.WriteError(w, "invalid type: must be sd, lora, vae, text_encoder, train or face", http.StatusBadRequest)
 		return
 	}
 

@@ -266,7 +266,7 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 
 | Эндпоинт | Метод | Что делает |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` (активен бэкенд sd.cpp), `sd_jobs` (API заданий SD ниже), `sd_cache` (задания принимают `cache_mode`), `llamacpp` (если текстовые модели доступны), `lora_train` (установлено обучение LoRA, см. ниже), `download_stream`. Старые версии сервера поля не отдают |
+| `/` | GET | `{name, version, status, features}`; `features` — активные движки и возможности: `sdcpp` (активен бэкенд sd.cpp), `sd_jobs` (API заданий SD ниже), `sd_cache` (задания принимают `cache_mode`), `llamacpp` (если текстовые модели доступны), `lora_train` (установлено обучение LoRA, см. ниже), `face_swap` (есть ONNX Runtime и все шесть моделей лица, см. ниже), `download_stream`. Старые версии сервера поля не отдают |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, процессор и память компьютера `sys` |
 | `/api/server/start/{name}` | POST | запустить процесс |
 | `/api/server/stop/{name}` | POST | остановить процесс |
@@ -282,9 +282,10 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 | `/api/server/models/vae` | GET / POST | то же для VAE |
 | `/api/server/models/text_encoder` | GET / POST | то же для энкодеров текста и токенизаторов (`.json`); без `text_encoder_dir` — папка `text_encoder` рядом с `models_dir` |
 | `/api/server/models/train` | GET / POST | то же для файлов, нужных только обучению LoRA: папка `train` рядом с `models_dir` |
+| `/api/server/models/face` | GET / POST | модели подмены лица (только `.onnx`): папка `face` рядом с `models_dir` |
 | `/api/server/models/llm` | GET / POST | список текстовых моделей / скачать модель (тем же кодом, что `/api/pull`; без llama.cpp — 503) |
 | `/api/server/models/llm/pull` | GET | скачать текстовую модель с ходом загрузки в потоке, `?name=` |
-| `/api/server/models/download/stream` | GET | скачать модель с ходом загрузки в потоке, `?type=sd\|lora\|vae\|text_encoder\|train&url=&filename=` |
+| `/api/server/models/download/stream` | GET | скачать модель с ходом загрузки в потоке, `?type=sd\|lora\|vae\|text_encoder\|train\|face&url=&filename=` |
 | `/api/server/models/delete/{sd,lora,vae,text_encoder,llm}/{name}` | DELETE | удалить модель |
 | `/api/gpu/*` | | очередь и аренды, см. выше |
 | `/api/sd/*` | * | API заданий SD ниже |
@@ -299,7 +300,7 @@ GET    /api/gpu/status                -> {enabled, budget, running[], queue[], w
 Ошибки: `4xx/5xx {"error":{"code","message"}}`, коды `invalid_params`, `model_not_found`, `queue_full`, `not_found`, `not_ready`, `sd_failed`, `cancelled`, `server_restarted`.
 
 ```
-POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_ref?,
+POST   /api/sd/jobs            {kind: txt2img|img2img|upscale|face_swap, client, client_ref?,
                                 model: {checkpoint, vae, modules[], klein_reference, moss_reference},
                                 params: {prompt, negative_prompt, sampler, scheduler, steps, cfg_scale,
                                          distilled_cfg_scale, width, height, seed (-1 случайный), clip_skip, batch_size,
@@ -307,7 +308,8 @@ POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_re
                                          cache_mode?, cache_option?,               (кэш шагов sd.cpp, см. ниже)
                                          init_image, mask, denoising_strength,      (img2img)
                                          ref_image?,                                (img2img с klein_reference: вторая картинка-образец, например вещь для примерки)
-                                         image, upscaler, scale}}                   (upscale; модель не нужна)
+                                         image, upscaler, scale,                    (upscale; модель не нужна)
+                                         image, person, restore_blend?}}            (face_swap; модель не нужна)
        -> 202 JobStatus | 200 JobStatus (тот же client + client_ref уже в очереди, идёт или готов)
        -> 400 invalid_params | model_not_found;  409 model_not_found (пустой checkpoint, ничего не загружено и не в очереди);  429 queue_full (100 незавершённых заданий; задания SD не входят в лимит длины очереди видеокарты, поэтому очередь, полная текстовых запросов, их не отклоняет)
 GET    /api/sd/jobs[?client=X]  -> {jobs: [JobStatus]}  (незавершённые и недавние)
@@ -334,6 +336,7 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 - `model.checkpoint: ""` — определяется при постановке: модель последнего незавершённого задания в очереди, а если очередь пуста — загруженная, с её VAE и модулями, если задание не задаёт свои; ни того ни другого — `409 model_not_found`. Аренда видеокарты и статус задания дальше идут с этим чекпоинтом.
 - `info` результата txt2img/img2img: `checkpoint` (итоговый), `vae`, `modules`, `sampler`, `scheduler`, `steps`, `cfg_scale` (фактические, с подставленными 20 и 7 по умолчанию), `seed` (фактический), `all_seeds`, `width`, `height`, `prompt`, `negative_prompt`, `batch_size`, `denoising_strength` (только img2img), `sd_model_name`, `backend`.
 - `cache_mode` — кэш шагов sd.cpp: `easycache`, `dbcache`, `taylorseer`, `cache-dit` (трансформерные модели: Flux, Chroma, Moss, Z-Image), `ucache` (U-Net: SD 1.5, SDXL), `spectrum` (оба вида). Пропускает почти одинаковые вычисления соседних шагов: быстрее примерно в 2 раза ценой мелких деталей; на моделях с 4–8 шагами почти бесполезен. `cache_option` — параметры sd.cpp `ключ=число[,ключ=число…]` (например `threshold=0.2,start=0.15`). Без `cache_mode` кэш выключен, `cache_option` без режима — `400`. Режим и параметры попадают в `info` результата. Сервер с этой возможностью сообщает `sd_cache` в `features` корня `/`.
+- `face_swap` вставляет лицо обученного человека (`person` — имя из `/api/train/people` с `identity: true`) в `image`: находится самое крупное лицо (SCRFD), подменяется (inswapper 128), восстанавливается (GFPGAN 1.4, доля `restore_blend`, 0..1, по умолчанию 0.6) и вклеивается только в области лица (BiSeNet) — волосы и фон не меняются. Работает на процессоре (ONNX Runtime, около 1.3 с на кадр на 6 ядрах), очередь GPU не ждёт, задания идут по одному. Кадр без лица, с лицом ниже 60 px или повёрнутым больше чем на 65° не меняется: `images: []`. `info` результата: `face_swap: done|skipped`, `skip: ""|no_face|face_small|yaw`, `face_px`, `yaw`. Ошибки при отправке: `400 invalid_params` (нет image/person, `restore_blend` вне 0..1), `404 person_not_found`, `409 identity_missing` (у человека ещё нет отпечатка лица), `503 face_models_missing`. Модели в `<face>` (папка `face` рядом с `models_dir`): `det_10g.onnx`, `1k3d68.onnx`, `w600k_r50.onnx` (insightface buffalo_l), `inswapper_128.onnx` (fp32), `bisenet_resnet_34.onnx`, `gfpgan_1.4.onnx`.
 - `running` начинается, когда движок сообщает первый шаг (загрузка модели считается `queued`).
 - Результаты хранятся на диске в `<data>/sdjobs` `sd.job_result_ttl_hours` часов (по умолчанию 24) и переживают перезапуск; задания, которые при перезапуске стояли в очереди или шли, становятся `lost` с `server_restarted`. Просроченные результаты удаляются. Папка и файлы доступны только пользователю сервера (0700/0600); входные картинки задания после его окончания в памяти не хранятся.
 - `/api/sd/*` и `/api/train/*` не отдают заголовков CORS: веб-страница в браузере из локальной сети не может прочитать результаты заданий (у остальных маршрутов `Access-Control-Allow-Origin: *` остаётся).
@@ -360,12 +363,13 @@ POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тре
 POST   /api/train/jobs/{id}/pause    -> 200 Job (running → paused, когда тренер остановится; paused — ничего) | 409 not_running
 POST   /api/train/jobs/{id}/resume   -> 200 Job (paused → queued; queued/running — ничего) | 409 not_paused
 GET    /api/train/bases              -> {bases: [...]}  (базы, у которых есть все файлы, в порядке Z-Image, Moss-Image, SDXL, Flux.2; может быть пустым)
-GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (старые записи без base — Z-Image)
+GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at, identity}]}  (старые записи без base — Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 POST   /api/train/people/{name}/rename  JSON {name} -> 200 {person} | 400 invalid_request | 404 | 409 name_taken
+POST   /api/train/people/{name}/identity  multipart: photos (3–50, те же ограничения, что у обучения) -> 200 {person} | 400 invalid_request | 400 too_few_faces (меньше 3 фото с лицом от 60 px) | 404 | 413 too_large | 503 face_models_missing
 ```
 
-Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|paused|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено (в том числе на паузе) и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней после окончания. Тренер сохраняется каждые 250 шагов; задание на паузе продолжает с последнего сохранения (переделывается до 250 шагов). Перезапуск или остановка сервера ставит незаконченные задания на паузу. Переименование человека переименовывает оба файла; стили, где старая LoRA вписана вручную, перестают её находить. Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
+Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|paused|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. Кодовое слово — `<name>_<gender>`; в описании пишется оно и `<lora:<name>:1>`. Фото лежат в `<data>/trainjobs/<id>` только пока задание не закончено (в том числе на паузе) и удаляются при любом исходе; `status.json` и `train.log` хранятся 7 дней после окончания. Тренер сохраняется каждые 250 шагов; задание на паузе продолжает с последнего сохранения (переделывается до 250 шагов). Перезапуск или остановка сервера ставит незаконченные задания на паузу. До захвата GPU обучение считает и отпечаток лица человека для `face_swap` (среднее ArcFace w600k_r50 по самому крупному лицу на каждом фото; нужно не меньше 3 лиц); он хранится в `<name>.person.json`, API показывает только `identity: true|false`. Если отпечаток не посчитался, обучение идёт дальше, а у задания `identity: "skipped:too_few_faces|face_models_missing|failed"` (иначе `"done"`); `.../identity` считает его позже по новым фото, которые сразу удаляются. Переименование человека переименовывает оба файла и сохраняет отпечаток; стили, где старая LoRA вписана вручную, перестают её находить. Результат — `<lora_dir>/<name>.safetensors` и `<name>.person.json`; удаление человека убирает оба. Запросы с заголовком `Origin` (со страницы в браузере) получают `403 forbidden`. Фото уходят только на этот сервер: авторизации у него нет, работайте в доверенной локальной сети.
 
 mDNS: сервис `_imagecaster._tcp`, экземпляр «Imagecaster Server», TXT `version=<version>`. `mdns: false` выключает объявление.
 

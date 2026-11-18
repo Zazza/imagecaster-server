@@ -80,9 +80,12 @@ type Facade struct {
 
 	gen chan struct{}
 
-	jobs   *jobStore
-	leaser func(ctx context.Context, req LeaseRequest) (func(), error)
-	posFn  func(jobID string) int
+	jobs     *jobStore
+	faceSem  chan struct{}
+	faceSwap FaceSwapper
+	identity func(person string) ([]float32, error)
+	leaser   func(ctx context.Context, req LeaseRequest) (func(), error)
+	posFn    func(jobID string) int
 }
 
 func New(cfg Config, r Restarter, mem MemoryReader) *Facade {
@@ -99,7 +102,7 @@ func New(cfg Config, r Restarter, mem MemoryReader) *Facade {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	f := &Facade{cfg: cfg, restart: r, mem: mem, hc: &http.Client{}, gen: make(chan struct{}, 1)}
+	f := &Facade{cfg: cfg, restart: r, mem: mem, hc: &http.Client{}, gen: make(chan struct{}, 1), faceSem: make(chan struct{}, 1)}
 	f.jobs = newJobStore(cfg.JobsDir, cfg.JobTTL, cfg.Now)
 	return f
 }

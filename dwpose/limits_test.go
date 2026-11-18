@@ -9,7 +9,6 @@ import (
 	"image"
 	"image/png"
 	"net/http"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -49,17 +48,6 @@ func TestHandlerRejectsOversized(t *testing.T) {
 	}
 	rec := serve(NewHandler(&fakeEstimator{}), "/controlnet/detect", detectBody(t, moduleName, 1024, grayB64(t, 832, 1216)))
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-}
-
-func TestLibCandidatesNoRelativePaths(t *testing.T) {
-	for _, p := range libCandidates("") {
-		if filepath.IsAbs(p) {
-			continue
-		}
-		assert.Equal(t, p, filepath.Base(p), "candidate %q must be absolute or a bare name for the system loader", p)
-		assert.NotContains(t, p, "lib/")
-	}
-	assert.Equal(t, []string{"/x/libonnxruntime.so"}, libCandidates("/x/libonnxruntime.so"))
 }
 
 type blockingEstimator struct {

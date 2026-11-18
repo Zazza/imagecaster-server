@@ -74,6 +74,10 @@ func (f *Facade) runJob(j *job) {
 	s.mu.Lock()
 	model, params := j.model, j.params
 	s.mu.Unlock()
+	if j.kind == kindFaceSwap {
+		f.runFaceSwap(j, params)
+		return
+	}
 	f.mu.Lock()
 	leaser := f.leaser
 	loaded := f.loadedName

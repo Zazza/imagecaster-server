@@ -19,7 +19,7 @@ func (m *ModelManager) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/server/models/download/stream", m.handleDownloadStream)
 }
 
-var modelTypes = []string{"sd", "lora", "vae", "text_encoder", "train"}
+var modelTypes = []string{"sd", "lora", "vae", "text_encoder", "train", "face"}
 
 func dirFor(b *config.BackendConfig, typ string) (string, bool) {
 	if b == nil {
@@ -36,6 +36,8 @@ func dirFor(b *config.BackendConfig, typ string) (string, bool) {
 		return textEncoderDir(b), true
 	case "train":
 		return TrainDir(b), true
+	case "face":
+		return FaceDir(b), true
 	}
 	return "", false
 }
@@ -56,7 +58,20 @@ func (m *ModelManager) handleModels(w http.ResponseWriter, r *http.Request) {
 		m.handleTextEncoderModels(w, r, backend, dir)
 		return
 	}
-	m.handleFileDir(w, r, dir, modelFileExts)
+	exts := modelFileExts
+	if typ == "face" {
+		exts = faceFileExts
+	}
+	m.handleFileDir(w, r, dir, exts)
+}
+
+var faceFileExts = map[string]bool{".onnx": true}
+
+func FaceDir(b *config.BackendConfig) string {
+	if b == nil || b.ModelsDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(b.ModelsDir), "face")
 }
 
 var textEncoderFileExts = map[string]bool{".safetensors": true, ".gguf": true, ".bin": true, ".json": true}

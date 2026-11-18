@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"image"
 	"math"
-	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"sync"
 
 	ort "github.com/getcharzp/onnxruntime_purego"
+
+	"imagecaster-server/onnxrt"
 )
 
 const (
@@ -35,7 +35,6 @@ type Config struct {
 type ONNXEstimator struct {
 	cfg  Config
 	mu   sync.Mutex
-	eng  *ort.Engine
 	det  *ort.Session
 	pose *ort.Session
 }
@@ -44,80 +43,24 @@ func NewONNX(cfg Config) *ONNXEstimator {
 	return &ONNXEstimator{cfg: cfg}
 }
 
-func libCandidates(explicit string) []string {
-	if explicit != "" {
-		return []string{explicit}
-	}
-	var names []string
-	switch runtime.GOOS {
-	case "windows":
-		names = []string{"onnxruntime.dll"}
-	case "darwin":
-		names = []string{"libonnxruntime.dylib"}
-	default:
-		names = []string{"libonnxruntime.so", "libonnxruntime.so.1"}
-	}
-	var out []string
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		for _, n := range names {
-			out = append(out, filepath.Join(dir, n), filepath.Join(dir, "onnxruntime", n))
-		}
-	}
-	if runtime.GOOS == "linux" {
-		out = append(out, names...)
-	}
-	return out
-}
-
 func (e *ONNXEstimator) init() error {
 	if e.pose != nil {
 		return nil
 	}
-	var eng *ort.Engine
-	var lastErr error
-	for _, p := range libCandidates(e.cfg.LibPath) {
-		if filepath.IsAbs(p) {
-			if _, err := os.Stat(p); err != nil {
-				lastErr = err
-				continue
-			}
-		}
-		en, err := ort.NewEngine(p)
-		if err == nil {
-			eng = en
-			break
-		}
-		lastErr = err
-	}
-	if eng == nil {
-		return fmt.Errorf("%w: load ONNX Runtime: %v", ErrUnavailable, lastErr)
-	}
-	newSession := func(name string) (*ort.Session, error) {
-		opts, err := eng.NewSessionOptions()
-		if err != nil {
-			return nil, err
-		}
-		defer opts.Close()
-		if e.cfg.Threads > 0 {
-			if err := opts.SetIntraOpNumThreads(e.cfg.Threads); err != nil {
-				return nil, err
-			}
-		}
-		return eng.NewSession(filepath.Join(e.cfg.ModelsDir, name), opts)
-	}
-	det, err := newSession("yolox_l.onnx")
+	eng, err := onnxrt.Shared(e.cfg.LibPath)
 	if err != nil {
-		eng.Close()
+		return fmt.Errorf("%w: load ONNX Runtime: %v", ErrUnavailable, err)
+	}
+	det, err := onnxrt.Open(eng, filepath.Join(e.cfg.ModelsDir, "yolox_l.onnx"), e.cfg.Threads)
+	if err != nil {
 		return fmt.Errorf("%w: load yolox_l.onnx: %v", ErrUnavailable, err)
 	}
-	pose, err := newSession("dw-ll_ucoco_384.onnx")
+	pose, err := onnxrt.Open(eng, filepath.Join(e.cfg.ModelsDir, "dw-ll_ucoco_384.onnx"), e.cfg.Threads)
 	if err != nil {
 		det.Close()
-		eng.Close()
 		return fmt.Errorf("%w: load dw-ll_ucoco_384.onnx: %v", ErrUnavailable, err)
 	}
-	e.eng, e.det, e.pose = eng, det, pose
+	e.det, e.pose = det, pose
 	return nil
 }
 
@@ -127,9 +70,8 @@ func (e *ONNXEstimator) Close() {
 	if e.pose != nil {
 		e.pose.Close()
 		e.det.Close()
-		e.eng.Close()
 	}
-	e.eng, e.det, e.pose = nil, nil, nil
+	e.det, e.pose = nil, nil
 }
 
 func (e *ONNXEstimator) Estimate(ctx context.Context, img *image.RGBA) ([]Person, error) {
@@ -153,42 +95,7 @@ func (e *ONNXEstimator) Estimate(ctx context.Context, img *image.RGBA) ([]Person
 }
 
 func run(ctx context.Context, s *ort.Session, data []float32, shape []int64) ([][]float32, [][]int64, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	in, err := ort.NewTensor(shape, data)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer in.Close()
-	outs, err := s.Run(map[string]*ort.Value{s.Inputs[0].Name: in})
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() {
-		for _, o := range outs {
-			o.Close()
-		}
-	}()
-	var datas [][]float32
-	var shapes [][]int64
-	for _, info := range s.Outputs {
-		v, ok := outs[info.Name]
-		if !ok {
-			return nil, nil, fmt.Errorf("output %q missing", info.Name)
-		}
-		d, err := ort.GetTensorData[float32](v)
-		if err != nil {
-			return nil, nil, err
-		}
-		sh, err := v.GetShape()
-		if err != nil {
-			return nil, nil, err
-		}
-		datas = append(datas, append([]float32(nil), d...))
-		shapes = append(shapes, append([]int64(nil), sh...))
-	}
-	return datas, shapes, nil
+	return onnxrt.Run(ctx, s, onnxrt.Input{Name: s.Inputs[0].Name, Shape: shape, Data: data})
 }
 
 func (e *ONNXEstimator) detect(ctx context.Context, src plane) ([][4]float64, bool, error) {

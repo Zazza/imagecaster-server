@@ -228,7 +228,7 @@ func (s *jobStore) runningID() string {
 func (s *jobStore) lastQueuedModelLocked() (ModelSpec, bool) {
 	var last *job
 	for _, j := range s.jobs {
-		if terminal(j.st.Status) || j.kind == kindUpscale || cleanName(j.model.Checkpoint) == "" {
+		if terminal(j.st.Status) || j.kind == kindUpscale || j.kind == kindFaceSwap || cleanName(j.model.Checkpoint) == "" {
 			continue
 		}
 		if last == nil || j.st.CreatedAt.After(*last.st.CreatedAt) || (j.st.CreatedAt.Equal(*last.st.CreatedAt) && j.st.ID > last.st.ID) {

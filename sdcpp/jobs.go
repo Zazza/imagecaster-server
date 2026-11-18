@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	kindTxt2Img = "txt2img"
-	kindImg2Img = "img2img"
-	kindUpscale = "upscale"
+	kindTxt2Img  = "txt2img"
+	kindImg2Img  = "img2img"
+	kindUpscale  = "upscale"
+	kindFaceSwap = "face_swap"
 
 	statusQueued    = "queued"
 	statusRunning   = "running"
@@ -62,6 +63,8 @@ type GenParams struct {
 	Scale             *float64     `json:"scale"`
 	CacheMode         string       `json:"cache_mode"`
 	CacheOption       string       `json:"cache_option"`
+	Person            string       `json:"person"`
+	RestoreBlend      *float64     `json:"restore_blend"`
 }
 
 type jobRequest struct {

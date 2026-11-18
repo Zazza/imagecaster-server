@@ -78,6 +78,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"people": m.people()})
 	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/rename") && r.Method == http.MethodPost:
 		m.handleRenamePerson(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/rename"))
+	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/identity") && r.Method == http.MethodPost:
+		m.handleIdentity(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/identity"))
 	case strings.HasPrefix(p, "people/") && r.Method == http.MethodDelete:
 		m.handleDeletePerson(w, strings.TrimPrefix(p, "people/"))
 	default:

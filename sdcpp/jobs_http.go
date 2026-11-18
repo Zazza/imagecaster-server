@@ -42,9 +42,9 @@ func (f *Facade) lookup(id string) (*job, error) {
 
 func (f *Facade) validate(req *jobRequest) error {
 	switch req.Kind {
-	case kindTxt2Img, kindImg2Img, kindUpscale:
+	case kindTxt2Img, kindImg2Img, kindUpscale, kindFaceSwap:
 	default:
-		return apiErr(http.StatusBadRequest, "invalid_params", "kind must be txt2img, img2img or upscale, got %q", req.Kind)
+		return apiErr(http.StatusBadRequest, "invalid_params", "kind must be txt2img, img2img, upscale or face_swap, got %q", req.Kind)
 	}
 	if req.Params == nil {
 		req.Params = &GenParams{}
@@ -52,6 +52,10 @@ func (f *Facade) validate(req *jobRequest) error {
 	p := req.Params
 	if req.Kind == kindUpscale {
 		return f.checkUpscale(*p)
+	}
+	if req.Kind == kindFaceSwap {
+		req.Model = nil
+		return f.checkFaceSwap(*p)
 	}
 	if req.Model == nil {
 		return apiErr(http.StatusBadRequest, "invalid_params", "model is required for %s", req.Kind)
@@ -180,7 +184,7 @@ func (f *Facade) submitJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *Facade) fillDefaultModel(req *jobRequest) error {
-	if req.Kind == kindUpscale || req.Model == nil || cleanName(req.Model.Checkpoint) != "" {
+	if req.Kind == kindUpscale || req.Kind == kindFaceSwap || req.Model == nil || cleanName(req.Model.Checkpoint) != "" {
 		return nil
 	}
 	f.mu.Lock()

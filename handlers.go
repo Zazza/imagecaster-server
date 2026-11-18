@@ -27,6 +27,8 @@ type Handlers struct {
 	llmRunning     func() []string
 	sdCheckpoint   func() string
 	trainAvailable func() bool
+
+	faceSwapAvailable func() bool
 }
 
 type sysJSON struct {
@@ -199,6 +201,9 @@ func (h *Handlers) features() []string {
 	}
 	if h.trainAvailable != nil && h.trainAvailable() {
 		out = append(out, "lora_train")
+	}
+	if h.faceSwapAvailable != nil && h.faceSwapAvailable() {
+		out = append(out, "face_swap")
 	}
 	out = append(out, "download_stream")
 	return out

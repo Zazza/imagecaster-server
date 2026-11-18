@@ -20,13 +20,15 @@ func TestRootReportsFeatures(t *testing.T) {
 		llm      string
 		facade   bool
 		train    bool
+		face     bool
 		want     []string
 	}{
-		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
-		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
-		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, false, []string{"sdcpp", "sd_jobs", "sd_cache", "download_stream"}},
-		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, false, []string{"llamacpp", "download_stream"}},
-		{"trainer installed", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "lora_train", "download_stream"}},
+		{"new engines", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, false, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
+		{"old active_llm ollama value", "sdcpp", config.KindSDCpp, "ollama", true, false, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "download_stream"}},
+		{"no llama.cpp facade", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, false, false, false, []string{"sdcpp", "sd_jobs", "sd_cache", "download_stream"}},
+		{"unknown active backend", "nope", "", config.LLMLlamaCpp, true, false, false, []string{"llamacpp", "download_stream"}},
+		{"trainer installed", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, true, false, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "lora_train", "download_stream"}},
+		{"face swap ready", "sdcpp", config.KindSDCpp, config.LLMLlamaCpp, true, true, true, []string{"sdcpp", "sd_jobs", "sd_cache", "llamacpp", "lora_train", "face_swap", "download_stream"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,6 +39,7 @@ func TestRootReportsFeatures(t *testing.T) {
 				h.llmRunning = func() []string { return nil }
 			}
 			h.trainAvailable = func() bool { return tc.train }
+			h.faceSwapAvailable = func() bool { return tc.face }
 			h.config.Backends = map[string]config.BackendConfig{"sdcpp": {Kind: config.KindSDCpp}}
 			rec := httptest.NewRecorder()
 			h.handleRoot(rec, httptest.NewRequest(http.MethodGet, "/", nil))

@@ -266,7 +266,7 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 
 | Endpoint | Method | What it does |
 |----------|--------|--------------|
-| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` (sd.cpp is the active backend), `sd_jobs` (the SD jobs API below), `sd_cache` (jobs accept `cache_mode`), `llamacpp` (when text models are available), `lora_train` (LoRA training installed, see below), `download_stream`. Old server versions don't send it |
+| `/` | GET | `{name, version, status, features}`; `features` lists the active engines and capabilities: `sdcpp` (sd.cpp is the active backend), `sd_jobs` (the SD jobs API below), `sd_cache` (jobs accept `cache_mode`), `llamacpp` (when text models are available), `lora_train` (LoRA training installed, see below), `face_swap` (ONNX Runtime and all six face models are present, see below), `download_stream`. Old server versions don't send it |
 | `/api/server/status` | GET | `processes`, `health`, `gpu`, `installs`, `models`, host CPU/RAM `sys` |
 | `/api/server/start/{name}` | POST | start a process |
 | `/api/server/stop/{name}` | POST | stop a process |
@@ -282,9 +282,10 @@ All under `http://<host>:8080`. No authorization — the server is meant for a t
 | `/api/server/models/vae` | GET / POST | the same for VAE |
 | `/api/server/models/text_encoder` | GET / POST | the same for text encoders and tokenizers (`.json`); without `text_encoder_dir` — the `text_encoder` folder next to `models_dir` |
 | `/api/server/models/train` | GET / POST | the same for files used only by LoRA training: the `train` folder next to `models_dir` |
+| `/api/server/models/face` | GET / POST | face swap models (`.onnx` only): the `face` folder next to `models_dir` |
 | `/api/server/models/llm` | GET / POST | list text models / pull one (the same code as `/api/pull`; 503 when there is no llama.cpp) |
 | `/api/server/models/llm/pull` | GET | pull a text model with streamed progress, `?name=` |
-| `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae\|text_encoder\|train&url=&filename=` |
+| `/api/server/models/download/stream` | GET | download a model with streamed progress, `?type=sd\|lora\|vae\|text_encoder\|train\|face&url=&filename=` |
 | `/api/server/models/delete/{sd,lora,vae,text_encoder,llm}/{name}` | DELETE | delete a model |
 | `/api/gpu/*` | | queue and leases, see above |
 | `/api/sd/*` | * | the SD jobs API below |
@@ -299,7 +300,7 @@ A generation is a job with an id: the server answers at once and runs the job in
 Errors: `4xx/5xx {"error":{"code","message"}}`, codes `invalid_params`, `model_not_found`, `queue_full`, `not_found`, `not_ready`, `sd_failed`, `cancelled`, `server_restarted`.
 
 ```
-POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_ref?,
+POST   /api/sd/jobs            {kind: txt2img|img2img|upscale|face_swap, client, client_ref?,
                                 model: {checkpoint, vae, modules[], klein_reference, moss_reference},
                                 params: {prompt, negative_prompt, sampler, scheduler, steps, cfg_scale,
                                          distilled_cfg_scale, width, height, seed (-1 random), clip_skip, batch_size,
@@ -307,7 +308,8 @@ POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_re
                                          cache_mode?, cache_option?,               (sd.cpp step cache, see below)
                                          init_image, mask, denoising_strength,      (img2img)
                                          ref_image?,                                (img2img with klein_reference: a second reference picture, e.g. a garment to try on)
-                                         image, upscaler, scale}}                   (upscale; model not needed)
+                                         image, upscaler, scale,                    (upscale; model not needed)
+                                         image, person, restore_blend?}}            (face_swap; model not needed)
        -> 202 JobStatus | 200 JobStatus (same client + client_ref already queued, running or completed)
        -> 400 invalid_params | model_not_found;  409 model_not_found (empty checkpoint, nothing loaded or queued);  429 queue_full (100 unfinished jobs; SD jobs do not count toward the GPU queue length limit, so a queue full of text requests does not reject them)
 GET    /api/sd/jobs[?client=X]  -> {jobs: [JobStatus]}  (unfinished and recent)
@@ -334,6 +336,7 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 - `model.checkpoint: ""` — fixed at submit: the model of the last unfinished job in the queue, or the loaded one if the queue is empty, with its VAE and modules unless the job sets its own; neither → `409 model_not_found`. The job status and GPU lease then name that checkpoint.
 - `info` of a txt2img/img2img result: `checkpoint` (resolved), `vae`, `modules`, `sampler`, `scheduler`, `steps`, `cfg_scale` (actual, defaults 20 and 7 filled in), `seed` (actual), `all_seeds`, `width`, `height`, `prompt`, `negative_prompt`, `batch_size`, `denoising_strength` (img2img only), `sd_model_name`, `backend`.
 - `cache_mode` — sd.cpp step cache: `easycache`, `dbcache`, `taylorseer`, `cache-dit` (transformer models: Flux, Chroma, Moss, Z-Image), `ucache` (U-Net: SD 1.5, SDXL), `spectrum` (both). It skips nearly identical work of neighbouring steps: about 2× faster at the cost of fine detail; barely useful on 4–8 step models. `cache_option` — sd.cpp parameters `key=number[,key=number…]` (e.g. `threshold=0.2,start=0.15`). No `cache_mode` means no cache; `cache_option` without a mode is `400`. Mode and options are added to the result `info`. A server with this feature lists `sd_cache` in the `/` root `features`.
+- `face_swap` puts the face of a trained person (`person` — name from `/api/train/people` with `identity: true`) into `image`: the largest face is found (SCRFD), swapped (inswapper 128), restored (GFPGAN 1.4, share `restore_blend`, 0..1, default 0.6) and pasted back inside the face area (BiSeNet), so hair and background stay. It runs on the CPU (ONNX Runtime, about 1.3 s per frame on 6 cores), does not wait for the GPU queue and runs one at a time. A frame with no face, a face under 60 px high or turned more than 65° is left as is: result `images: []`. Result `info`: `face_swap: done|skipped`, `skip: ""|no_face|face_small|yaw`, `face_px`, `yaw`. Submit errors: `400 invalid_params` (no image/person, `restore_blend` outside 0..1), `404 person_not_found`, `409 identity_missing` (the person has no face identity yet), `503 face_models_missing`. Models in `<face>` (the `face` folder next to `models_dir`): `det_10g.onnx`, `1k3d68.onnx`, `w600k_r50.onnx` (insightface buffalo_l), `inswapper_128.onnx` (fp32), `bisenet_resnet_34.onnx`, `gfpgan_1.4.onnx`.
 - `running` starts when the engine reports the first step (model loading counts as `queued`).
 - Results are kept on disk in `<data>/sdjobs` for `sd.job_result_ttl_hours` (24 by default) and survive a restart; jobs that were queued or running at a restart become `lost` with `server_restarted`. Expired results are removed. The folder and files are readable by the server user only (0700/0600); job input images are not kept in memory after the job ends.
 - `/api/sd/*` and `/api/train/*` send no CORS headers: a web page in a LAN browser cannot read job results (other routes keep `Access-Control-Allow-Origin: *`).
@@ -360,12 +363,13 @@ POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when t
 POST   /api/train/jobs/{id}/pause    -> 200 Job (running → paused once the trainer stops; paused → no-op) | 409 not_running
 POST   /api/train/jobs/{id}/resume   -> 200 Job (paused → queued; queued/running → no-op) | 409 not_paused
 GET    /api/train/bases              -> {bases: [...]}  (bases with all files present, in order Z-Image, Moss-Image, SDXL, Flux.2; may be empty)
-GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at}]}  (old records without base are Z-Image)
+GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at, identity}]}  (old records without base are Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 POST   /api/train/people/{name}/rename  JSON {name} -> 200 {person} | 400 invalid_request | 404 | 409 name_taken
+POST   /api/train/people/{name}/identity  multipart: photos (3–50, same limits as training) -> 200 {person} | 400 invalid_request | 400 too_few_faces (fewer than 3 photos with a face of 60 px or more) | 404 | 413 too_large | 503 face_models_missing
 ```
 
-Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|paused|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished (including paused) and are deleted after any end; `status.json` and `train.log` stay 7 days after the end. The trainer saves every 250 steps; a paused job resumes from the last save (up to 250 steps are redone). A server restart or stop turns unfinished jobs into `paused`. Renaming a person renames both files; styles that name the old LoRA by hand stop finding it. The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
+Job: `{id, client, client_ref, name, trigger, gender, base, photos, status: queued|running|paused|completed|failed|cancelled|lost, progress: {step, steps}, error, created_at, started_at, finished_at}`. The trigger is `<name>_<gender>`; in a prompt use `<trigger>` and `<lora:<name>:1>`. Photos live in `<data>/trainjobs/<id>` only while the job is unfinished (including paused) and are deleted after any end; `status.json` and `train.log` stay 7 days after the end. The trainer saves every 250 steps; a paused job resumes from the last save (up to 250 steps are redone). A server restart or stop turns unfinished jobs into `paused`. Before the GPU lease, training also computes the person's face identity (the mean ArcFace w600k_r50 embedding of the largest face on each photo; at least 3 faces) for `face_swap`; it is kept in `<name>.person.json`, the API shows only `identity: true|false`. If it cannot be computed, training goes on and the job gets `identity: "skipped:too_few_faces|face_models_missing|failed"` (`"done"` otherwise); `.../identity` computes it later from new photos, which are deleted right after. Renaming a person renames both files and keeps the identity; styles that name the old LoRA by hand stop finding it. The result is `<lora_dir>/<name>.safetensors` plus `<name>.person.json`; deleting a person removes both. Requests with an `Origin` header (from a browser page) get `403 forbidden`. Photos are sent only to this server: it has no authorization, use it in a trusted LAN.
 
 mDNS: service `_imagecaster._tcp`, instance "Imagecaster Server", TXT `version=<version>`; `mdns: false` turns it off.
 
