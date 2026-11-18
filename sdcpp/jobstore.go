@@ -252,7 +252,7 @@ func (s *jobStore) janitor() {
 const inputPrefix = "input-"
 
 func inputFields(p *GenParams) map[string]*string {
-	return map[string]*string{"init_image": &p.InitImage, "mask": &p.Mask, "image": &p.Image}
+	return map[string]*string{"init_image": &p.InitImage, "ref_image": &p.RefImage, "mask": &p.Mask, "image": &p.Image}
 }
 
 func (s *jobStore) stashInputs(id string, p *GenParams) []string {
@@ -317,7 +317,7 @@ func (s *jobStore) dropInputs(j *job) {
 }
 
 func removeStaleInputs(dir string) {
-	for _, name := range []string{"init_image", "mask", "image"} {
+	for name := range inputFields(&GenParams{}) {
 		if err := os.Remove(filepath.Join(dir, inputPrefix+name)); err != nil && !os.IsNotExist(err) {
 			log.Printf("[sdcpp] remove input %s: %v", name, err)
 		}

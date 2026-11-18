@@ -114,7 +114,11 @@ func (f *Facade) buildNative(ctx context.Context, p GenParams, img2img bool, m M
 		n["init_image"] = p.InitImage
 		n["strength"] = *p.DenoisingStrength
 		if m.KleinReference {
-			n["ref_images"] = []string{p.InitImage}
+			refs := []string{p.InitImage}
+			if p.RefImage != "" {
+				refs = append(refs, p.RefImage)
+			}
+			n["ref_images"] = refs
 		}
 		if p.Mask != "" {
 			n["mask_image"] = p.Mask

@@ -4,6 +4,7 @@
 
 ### Added
 - LoRA training: `POST /api/train/jobs/{id}/pause` and `.../resume` (new status `paused`, the trainer saves every 250 steps and resumes from the last save); a server restart pauses unfinished training instead of losing it; `POST /api/train/people/{name}/rename`
+- SD jobs: img2img takes an optional `params.ref_image` — with `model.klein_reference` it goes to sd.cpp as the second reference picture after `init_image` (garment try-on by photo); without `klein_reference` → 400 `invalid_params`
 
 ## [2.0.0] — 2026-11-16
 

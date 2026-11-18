@@ -306,6 +306,7 @@ POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_re
                                          hires: {enable, scale, upscaler, denoising, steps, resize_x, resize_y},
                                          cache_mode?, cache_option?,               (sd.cpp step cache, see below)
                                          init_image, mask, denoising_strength,      (img2img)
+                                         ref_image?,                                (img2img with klein_reference: a second reference picture, e.g. a garment to try on)
                                          image, upscaler, scale}}                   (upscale; model not needed)
        -> 202 JobStatus | 200 JobStatus (same client + client_ref already queued, running or completed)
        -> 400 invalid_params | model_not_found;  409 model_not_found (empty checkpoint, nothing loaded or queued);  429 queue_full (100 unfinished jobs; SD jobs do not count toward the GPU queue length limit, so a queue full of text requests does not reject them)

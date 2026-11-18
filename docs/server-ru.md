@@ -306,6 +306,7 @@ POST   /api/sd/jobs            {kind: txt2img|img2img|upscale, client, client_re
                                          hires: {enable, scale, upscaler, denoising, steps, resize_x, resize_y},
                                          cache_mode?, cache_option?,               (кэш шагов sd.cpp, см. ниже)
                                          init_image, mask, denoising_strength,      (img2img)
+                                         ref_image?,                                (img2img с klein_reference: вторая картинка-образец, например вещь для примерки)
                                          image, upscaler, scale}}                   (upscale; модель не нужна)
        -> 202 JobStatus | 200 JobStatus (тот же client + client_ref уже в очереди, идёт или готов)
        -> 400 invalid_params | model_not_found;  409 model_not_found (пустой checkpoint, ничего не загружено и не в очереди);  429 queue_full (100 незавершённых заданий; задания SD не входят в лимит длины очереди видеокарты, поэтому очередь, полная текстовых запросов, их не отклоняет)

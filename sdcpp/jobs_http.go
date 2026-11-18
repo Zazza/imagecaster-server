@@ -78,6 +78,14 @@ func (f *Facade) validate(req *jobRequest) error {
 		if _, _, err := imgb64.Check(p.InitImage, imageLimits); err != nil {
 			return apiErr(http.StatusBadRequest, "invalid_params", "decode init_image: %v", err)
 		}
+		if p.RefImage != "" {
+			if !req.Model.KleinReference {
+				return apiErr(http.StatusBadRequest, "invalid_params", "params.ref_image needs model.klein_reference")
+			}
+			if _, _, err := imgb64.Check(p.RefImage, imageLimits); err != nil {
+				return apiErr(http.StatusBadRequest, "invalid_params", "decode ref_image: %v", err)
+			}
+		}
 		if p.Mask != "" {
 			if _, _, err := imgb64.Check(p.Mask, imageLimits); err != nil {
 				return apiErr(http.StatusBadRequest, "invalid_params", "decode mask: %v", err)

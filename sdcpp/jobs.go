@@ -54,6 +54,7 @@ type GenParams struct {
 	BatchSize         int          `json:"batch_size"`
 	Hires             *HiresParams `json:"hires"`
 	InitImage         string       `json:"init_image"`
+	RefImage          string       `json:"ref_image"`
 	Mask              string       `json:"mask"`
 	DenoisingStrength *float64     `json:"denoising_strength"`
 	Image             string       `json:"image"`
