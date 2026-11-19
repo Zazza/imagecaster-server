@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- LoRA training: `POST /api/train/jobs` takes `start=false` — the job is created `paused` with its photos on the server and waits for `.../resume`; several such jobs can wait at once. Resubmitting the same `client` + `client_ref` returns a paused job too (was `409 name_taken`)
 - LoRA training: `POST /api/train/jobs/{id}/pause` and `.../resume` (new status `paused`, the trainer saves every 250 steps and resumes from the last save); a server restart pauses unfinished training instead of losing it; `POST /api/train/people/{name}/rename`
 - Face swap: SD job `kind: face_swap` (`params.image`, `person`, `restore_blend` 0..1, default 0.6) puts a trained person's face into a picture on the CPU (ONNX Runtime: SCRFD, inswapper 128, GFPGAN 1.4, BiSeNet mask), without the GPU queue, one at a time; frames with no face, a face under 60 px or turned over 65° are skipped (`images: []`, `info.skip`). Errors `404 person_not_found`, `409 identity_missing`, `503 face_models_missing`. Model type `face` (`.onnx`, folder `face` next to `models_dir`); root `features` lists `face_swap` when ONNX Runtime and all six models are there
 - LoRA training computes the person's face identity before the GPU lease and keeps it in `<name>.person.json` (API: `identity: true|false`; a failure does not stop training, job `identity: "skipped:<reason>"`); `POST /api/train/people/{name}/identity` computes it from 3–50 new photos; rename keeps it

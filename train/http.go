@@ -171,6 +171,7 @@ func (m *Manager) handleRenamePerson(w http.ResponseWriter, r *http.Request, nam
 type submitForm struct {
 	name, gender, base, client, clientRef string
 	photos                                int
+	hold                                  bool
 }
 
 func normalizeName(s string) string {
@@ -227,7 +228,7 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	if form.clientRef != "" {
 		for _, j := range m.jobs {
-			if j.active() && j.Client == form.client && j.ClientRef == form.clientRef {
+			if j.holdsName() && j.Client == form.client && j.ClientRef == form.clientRef {
 				snap := m.snapshot(j)
 				m.mu.Unlock()
 				writeJSON(w, http.StatusOK, snap)
@@ -240,10 +241,14 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errf(http.StatusConflict, "name_taken", "name %q is already used", form.name))
 		return
 	}
+	status := statusQueued
+	if form.hold {
+		status = statusPaused
+	}
 	now := time.Now()
 	j := &Job{
 		ID: id, Client: form.client, ClientRef: form.clientRef, Name: form.name, Trigger: trigger,
-		Gender: form.gender, Base: form.base, Photos: form.photos, Status: statusQueued,
+		Gender: form.gender, Base: form.base, Photos: form.photos, Status: status,
 		Progress: Progress{Steps: m.cfg.Steps}, CreatedAt: &now,
 	}
 	m.jobs[id] = j
@@ -319,6 +324,8 @@ func (m *Manager) readPart(part *multipart.Part, dst string, f *submitForm, tota
 			f.client = v
 		case "client_ref":
 			f.clientRef = v
+		case "start":
+			f.hold = strings.EqualFold(v, "false")
 		}
 		return nil
 	}

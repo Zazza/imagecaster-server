@@ -355,8 +355,8 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 `<train>` — каталог `train` рядом с `models_dir` (тип моделей `train`). Одно задание за раз; оно занимает весь бюджет видеокарты, задания SD ждут (2000 шагов: SDXL ≈ 21 мин, Klein ≈ 55, Moss ≈ 70, Z-Image ≈ 77). Перед обучением модель SD выгружается. Файлы пропали, пока задание ждало очереди, — задание падает с `base_unavailable`.
 
 ```
-POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, base Z-Image|Moss-Image|SDXL|Flux.2 (пусто — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
-       -> 202 Job | 200 Job (такой client + client_ref уже идёт) | 400 invalid_request | 400 base_unavailable (нет файлов модели) | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, приводится к нижнему регистру), gender man|woman|person, base Z-Image|Moss-Image|SDXL|Flux.2 (пусто — Z-Image), client, client_ref, start (`false` — создать на паузе, запуск позже через resume), photos (10–50 JPEG/PNG/WebP)
+       -> 202 Job | 200 Job (такой client + client_ref уже в очереди, идёт или на паузе) | 400 invalid_request | 400 base_unavailable (нет файлов модели) | 409 name_taken | 413 too_large (30 МБ на фото, 300 МБ всего) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
 POST   /api/train/jobs/{id}/cancel   -> 200 Job (cancelled — когда тренер остановится; задание на паузе — сразу)

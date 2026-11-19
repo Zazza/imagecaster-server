@@ -355,8 +355,8 @@ Feature `lora_train`. Training is a Z-Image, Moss, SDXL or Flux.2 Klein 4B LoRA 
 `<train>` is the `train` folder next to `models_dir` (model type `train`). One job at a time; it takes the whole GPU budget and SD jobs wait (2000 steps: SDXL ≈ 21 min, Klein ≈ 55, Moss ≈ 70, Z-Image ≈ 77). The SD model is unloaded before training. If the files disappear while the job is queued, the job fails with `base_unavailable`.
 
 ```
-POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, base Z-Image|Moss-Image|SDXL|Flux.2 (empty — Z-Image), client, client_ref, photos (10–50 JPEG/PNG/WebP)
-       -> 202 Job | 200 Job (same client + client_ref is active) | 400 invalid_request | 400 base_unavailable (model files missing) | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
+POST   /api/train/jobs               multipart: name (2–32, a-z0-9_, lowercased), gender man|woman|person, base Z-Image|Moss-Image|SDXL|Flux.2 (empty — Z-Image), client, client_ref, start (`false` — create paused, start later with resume), photos (10–50 JPEG/PNG/WebP)
+       -> 202 Job | 200 Job (same client + client_ref is queued, running or paused) | 400 invalid_request | 400 base_unavailable (model files missing) | 409 name_taken | 413 too_large (30 MB per photo, 300 MB total) | 503 not_available
 GET    /api/train/jobs?client=       -> {jobs: [Job]}
 GET    /api/train/jobs/{id}          -> Job | 404
 POST   /api/train/jobs/{id}/cancel   -> 200 Job (status becomes cancelled when the trainer stops; a paused job is cancelled at once)
