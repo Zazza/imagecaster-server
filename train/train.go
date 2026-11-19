@@ -77,21 +77,23 @@ type JobError struct {
 }
 
 type Job struct {
-	ID         string     `json:"id"`
-	Client     string     `json:"client"`
-	ClientRef  string     `json:"client_ref"`
-	Name       string     `json:"name"`
-	Trigger    string     `json:"trigger"`
-	Gender     string     `json:"gender"`
-	Base       string     `json:"base"`
-	Photos     int        `json:"photos"`
-	Identity   string     `json:"identity,omitempty"`
-	Status     string     `json:"status"`
-	Progress   Progress   `json:"progress"`
-	Error      *JobError  `json:"error"`
-	CreatedAt  *time.Time `json:"created_at"`
-	StartedAt  *time.Time `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at"`
+	ID             string     `json:"id"`
+	Client         string     `json:"client"`
+	ClientRef      string     `json:"client_ref"`
+	Name           string     `json:"name"`
+	Trigger        string     `json:"trigger"`
+	Gender         string     `json:"gender"`
+	Base           string     `json:"base"`
+	DisplayName    string     `json:"display_name,omitempty"`
+	DisplayReplace bool       `json:"display_replace,omitempty"`
+	Photos         int        `json:"photos"`
+	Identity       string     `json:"identity,omitempty"`
+	Status         string     `json:"status"`
+	Progress       Progress   `json:"progress"`
+	Error          *JobError  `json:"error"`
+	CreatedAt      *time.Time `json:"created_at"`
+	StartedAt      *time.Time `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at"`
 }
 
 func (j *Job) active() bool {
@@ -103,14 +105,15 @@ func (j *Job) holdsName() bool {
 }
 
 type Person struct {
-	Name      string     `json:"name"`
-	Trigger   string     `json:"trigger"`
-	Gender    string     `json:"gender"`
-	Base      string     `json:"base"`
-	Lora      string     `json:"lora"`
-	Steps     int        `json:"steps"`
-	CreatedAt *time.Time `json:"created_at"`
-	Identity  bool       `json:"identity"`
+	Name        string     `json:"name"`
+	Trigger     string     `json:"trigger"`
+	Gender      string     `json:"gender"`
+	Base        string     `json:"base"`
+	DisplayName string     `json:"display_name,omitempty"`
+	Lora        string     `json:"lora"`
+	Steps       int        `json:"steps"`
+	CreatedAt   *time.Time `json:"created_at"`
+	Identity    bool       `json:"identity"`
 }
 
 type personFile struct {
@@ -583,7 +586,24 @@ func (m *Manager) installPerson(j *Job, output string, ident *faceswap.Identity)
 		return &codedError{code: "install_failed", err: err}
 	}
 	now := time.Now()
-	p := personFile{Person: Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}, Identity: ident}
+	display := j.DisplayName
+	if display != "" {
+		m.mu.Lock()
+		holder := m.displayHolderLocked(display, j.Base, j.Name)
+		if holder != "" && j.DisplayReplace {
+			if err := m.clearDisplayLocked(holder); err != nil {
+				log.Printf("[train] %s: clear display name of %s: %v", j.Name, holder, err)
+			} else {
+				holder = ""
+			}
+		}
+		m.mu.Unlock()
+		if holder != "" {
+			log.Printf("[train] %s: display name %q is taken by %s, not set", j.Name, display, holder)
+			display = ""
+		}
+	}
+	p := personFile{Person: Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, DisplayName: display, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}, Identity: ident}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return &codedError{code: "install_failed", err: err}
@@ -702,6 +722,9 @@ func (m *Manager) renamePerson(from, to string) (Person, int, string) {
 		return p.public(), 200, ""
 	}
 	if m.nameTakenLocked(to) {
+		return Person{}, 409, "name_taken"
+	}
+	if d, ok := m.displayFoldLocked(to); ok && !strings.EqualFold(d, p.DisplayName) {
 		return Person{}, 409, "name_taken"
 	}
 	oldLora := filepath.Join(m.cfg.LoraDir, p.Lora+".safetensors")

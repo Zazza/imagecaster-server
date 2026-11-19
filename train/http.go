@@ -78,6 +78,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"people": m.people()})
 	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/rename") && r.Method == http.MethodPost:
 		m.handleRenamePerson(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/rename"))
+	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/display") && r.Method == http.MethodPost:
+		m.handleDisplay(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/display"))
 	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/identity") && r.Method == http.MethodPost:
 		m.handleIdentity(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/identity"))
 	case strings.HasPrefix(p, "people/") && r.Method == http.MethodDelete:
@@ -170,6 +172,8 @@ func (m *Manager) handleRenamePerson(w http.ResponseWriter, r *http.Request, nam
 
 type submitForm struct {
 	name, gender, base, client, clientRef string
+	display                               string
+	displayReplace                        bool
 	photos                                int
 	hold                                  bool
 }
@@ -241,6 +245,28 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errf(http.StatusConflict, "name_taken", "name %q is already used", form.name))
 		return
 	}
+	if d, ok := m.displayFoldLocked(form.name); ok && !strings.EqualFold(d, form.display) {
+		m.mu.Unlock()
+		writeError(w, errf(http.StatusConflict, "name_taken", "name %q is already used as a person name (%s)", form.name, d))
+		return
+	}
+	form.display = m.canonicalDisplayLocked(form.display)
+	holder := m.displayHolderLocked(form.display, form.base, form.name)
+	jobHolder := m.displayJobHolderLocked(form.display, form.base, form.name)
+	if holder == "" {
+		holder = jobHolder
+	}
+	if clash := m.techNameClashLocked(form.display, form.name); clash != "" {
+		holder, form.displayReplace = clash, false
+	}
+	if holder != "" && !form.displayReplace {
+		m.mu.Unlock()
+		writeError(w, errf(http.StatusConflict, "display_taken", "display name %q is already used by %s", form.display, holder))
+		return
+	}
+	if jobHolder != "" {
+		m.clearJobDisplayLocked(jobHolder)
+	}
 	status := statusQueued
 	if form.hold {
 		status = statusPaused
@@ -248,7 +274,7 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	j := &Job{
 		ID: id, Client: form.client, ClientRef: form.clientRef, Name: form.name, Trigger: trigger,
-		Gender: form.gender, Base: form.base, Photos: form.photos, Status: status,
+		Gender: form.gender, Base: form.base, DisplayName: form.display, DisplayReplace: form.displayReplace, Photos: form.photos, Status: status,
 		Progress: Progress{Steps: m.cfg.Steps}, CreatedAt: &now,
 	}
 	m.jobs[id] = j
@@ -326,6 +352,14 @@ func (m *Manager) readPart(part *multipart.Part, dst string, f *submitForm, tota
 			f.clientRef = v
 		case "start":
 			f.hold = strings.EqualFold(v, "false")
+		case "display_name":
+			d, err := normalizeDisplay(v)
+			if err != nil {
+				return errf(http.StatusBadRequest, "invalid_request", "%v", err)
+			}
+			f.display = d
+		case "display_replace":
+			f.displayReplace = v == "1" || strings.EqualFold(v, "true")
 		}
 		return nil
 	}
