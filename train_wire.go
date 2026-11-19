@@ -23,7 +23,7 @@ func trainLoraDir(cfg *config.Config) string {
 	return effectiveDir(pc.Args, pc.WorkDir, "--lora-model-dir", b.LoraDir)
 }
 
-func newTrainManager(cfg *config.Config, gate *Gate, sd *sdcpp.Facade) *train.Manager {
+func newTrainManager(cfg *config.Config, gate *Gate, sd *sdcpp.Facade, llm idleUnloader) *train.Manager {
 	loraDir := trainLoraDir(cfg)
 	if cfg.DataDir == "" || loraDir == "" || sd == nil {
 		return nil
@@ -33,19 +33,10 @@ func newTrainManager(cfg *config.Config, gate *Gate, sd *sdcpp.Facade) *train.Ma
 		return nil
 	}
 	var m *train.Manager
-	leaser := func(ctx context.Context, client string) (func(), error) {
-		release, err := gate.LeaseTrain(ctx, client, func() {
-			log.Printf("[train] GPU lease lost, stopping training")
-			m.CancelRunning()
-		})
-		if err != nil {
-			return nil, err
-		}
-		if err := sd.UnloadModel(ctx); err != nil {
-			log.Printf("[train] unload sd model: %v", err)
-		}
-		return release, nil
-	}
+	leaser := trainLeaser(gate.LeaseTrain, sd.UnloadModel, llm, func() {
+		log.Printf("[train] GPU lease lost, stopping training")
+		m.CancelRunning()
+	})
 	b := cfg.GetActiveBackend()
 	m, err := train.New(train.Config{
 		Python:     cfg.Train.Python,
@@ -64,4 +55,22 @@ func newTrainManager(cfg *config.Config, gate *Gate, sd *sdcpp.Facade) *train.Ma
 		return nil
 	}
 	return m
+}
+
+func trainLeaser(lease func(ctx context.Context, client string, onLost func()) (func(), error), unloadSD func(context.Context) error, llm idleUnloader, onLost func()) train.Leaser {
+	return func(ctx context.Context, client string) (func(), error) {
+		release, err := lease(ctx, client, onLost)
+		if err != nil {
+			return nil, err
+		}
+		if err := unloadSD(ctx); err != nil {
+			log.Printf("[train] unload sd model: %v", err)
+		}
+		if llm != nil {
+			if err := llm.UnloadIdle(ctx); err != nil {
+				log.Printf("[train] unload llm: %v", err)
+			}
+		}
+		return release, nil
+	}
 }

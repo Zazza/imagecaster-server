@@ -12,6 +12,7 @@ const (
 	baseMoss   = "Moss-Image"
 	baseSDXL   = "SDXL"
 	baseFlux2  = "Flux.2"
+	baseFlux1  = "Flux.1"
 
 	fileQwen3TE  = "qwen_3_4b.safetensors"
 	fileKleinVAE = "flux2-klein-vae.safetensors"
@@ -30,14 +31,16 @@ type need struct {
 }
 
 type localFiles struct {
-	TE  string `json:"te,omitempty"`
-	VAE string `json:"vae,omitempty"`
+	TE     string `json:"te,omitempty"`
+	VAE    string `json:"vae,omitempty"`
+	AIO    string `json:"aio,omitempty"`
+	Config string `json:"flux1_config,omitempty"`
 }
 
 type baseSpec struct {
 	name  string
 	needs []need
-	build func(p []string) (modelBlock, localFiles)
+	build func(p []string, workDir string) (modelBlock, localFiles, error)
 }
 
 var trainBases = []baseSpec{
@@ -49,8 +52,8 @@ var trainBases = []baseSpec{
 			{dirTextEncoder, []string{fileQwen3TE}},
 			{dirVAE, []string{"ae.safetensors"}},
 		},
-		build: func(p []string) (modelBlock, localFiles) {
-			return zimageBlock(p[0], p[1]), localFiles{TE: p[2], VAE: p[3]}
+		build: func(p []string, _ string) (modelBlock, localFiles, error) {
+			return zimageBlock(p[0], p[1]), localFiles{TE: p[2], VAE: p[3]}, nil
 		},
 	},
 	{
@@ -60,8 +63,8 @@ var trainBases = []baseSpec{
 			{dirTextEncoder, []string{"qwen35_9b_int8_convrot.safetensors"}},
 			{dirVAE, []string{fileKleinVAE, "flux2-vae.safetensors", "flux2-vae_small.safetensors"}},
 		},
-		build: func(p []string) (modelBlock, localFiles) {
-			return mossBlock(p[0], p[1], p[2]), localFiles{}
+		build: func(p []string, _ string) (modelBlock, localFiles, error) {
+			return mossBlock(p[0], p[1], p[2]), localFiles{}, nil
 		},
 	},
 	{
@@ -69,8 +72,8 @@ var trainBases = []baseSpec{
 		needs: []need{
 			{dirModels, []string{"juggernautXL_ragnarokBy.safetensors", "epicrealismXL_pureFix.safetensors"}},
 		},
-		build: func(p []string) (modelBlock, localFiles) {
-			return sdxlBlock(p[0]), localFiles{}
+		build: func(p []string, _ string) (modelBlock, localFiles, error) {
+			return sdxlBlock(p[0]), localFiles{}, nil
 		},
 	},
 	{
@@ -80,8 +83,21 @@ var trainBases = []baseSpec{
 			{dirTextEncoder, []string{fileQwen3TE}},
 			{dirVAE, []string{fileKleinVAE}},
 		},
-		build: func(p []string) (modelBlock, localFiles) {
-			return kleinBlock(p[0], p[2]), localFiles{TE: p[1]}
+		build: func(p []string, _ string) (modelBlock, localFiles, error) {
+			return kleinBlock(p[0], p[2]), localFiles{TE: p[1]}, nil
+		},
+	},
+	{
+		name: baseFlux1,
+		needs: []need{
+			{dirModels, []string{"flux1-dev-fp8.safetensors"}},
+		},
+		build: func(p []string, workDir string) (modelBlock, localFiles, error) {
+			dir, err := writeFlux1Config(workDir)
+			if err != nil {
+				return modelBlock{}, localFiles{}, err
+			}
+			return flux1Block(dir), localFiles{AIO: p[0], Config: dir}, nil
 		},
 	},
 }
@@ -171,7 +187,10 @@ func (m *Manager) prepareBase(name string, spec RunSpec, jobName, trigger string
 		if !ok {
 			return &codedError{code: "base_unavailable", err: errors.New(name + " model files are missing on the server")}
 		}
-		block, local := b.build(p)
+		block, local, err := b.build(p, filepath.Dir(spec.ConfigPath))
+		if err != nil {
+			return &codedError{code: "config_failed", err: err}
+		}
 		if err := writeBaseConfig(spec, jobName, trigger, block); err != nil {
 			return &codedError{code: "config_failed", err: err}
 		}

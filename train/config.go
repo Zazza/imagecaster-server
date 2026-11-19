@@ -106,6 +106,21 @@ func kleinBlock(checkpoint, vae string) modelBlock {
 	}
 }
 
+func flux1Block(configDir string) modelBlock {
+	return modelBlock{
+		model: `        name_or_path: ` + yamlQuote(configDir) + `
+        is_flux: true
+        quantize: true
+        quantize_te: false
+        qtype: qfloat8
+        low_vram: true
+`,
+		datasetExtra: "          cache_text_embeddings: true\n",
+		trainExtra:   "        unload_text_encoder: true\n",
+		resolution:   512,
+	}
+}
+
 func sdxlBlock(checkpoint string) modelBlock {
 	return modelBlock{
 		model: `        name_or_path: ` + yamlQuote(checkpoint) + `

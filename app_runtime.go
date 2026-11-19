@@ -94,7 +94,11 @@ func initApp(cfg *config.Config) *appDeps {
 		handlers.sdCheckpoint = sdRoutes.jobs.LoadedCheckpoint
 		fs := wireFaceSwap(cfg, sdRoutes.jobs)
 		handlers.faceSwapAvailable = fs.Available
-		tm = newTrainManager(cfg, gate, sdRoutes.jobs)
+		var llm idleUnloader
+		if lf != nil {
+			llm = lf
+		}
+		tm = newTrainManager(cfg, gate, sdRoutes.jobs, llm)
 		if tm != nil {
 			tm.SetIdentityBuilder(fs)
 		}

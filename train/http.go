@@ -263,7 +263,7 @@ func validateForm(f submitForm) *httpError {
 		return errf(http.StatusBadRequest, "invalid_request", "gender must be man, woman or person")
 	}
 	if f.base != "" && !knownBase(f.base) {
-		return errf(http.StatusBadRequest, "invalid_request", "base must be %s, %s, %s or %s", baseZImage, baseMoss, baseSDXL, baseFlux2)
+		return errf(http.StatusBadRequest, "invalid_request", "base must be %s, %s, %s, %s or %s", baseZImage, baseMoss, baseSDXL, baseFlux2, baseFlux1)
 	}
 	if f.photos < minPhotos || f.photos > maxPhotos {
 		return errf(http.StatusBadRequest, "invalid_request", "need %d-%d photos, got %d", minPhotos, maxPhotos, f.photos)
