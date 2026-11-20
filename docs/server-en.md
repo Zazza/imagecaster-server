@@ -366,6 +366,7 @@ GET    /api/train/bases              -> {bases: [...]}  (bases with all files pr
 GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at, identity}]}  (old records without base are Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 POST   /api/train/people/{name}/rename  JSON {name} -> 200 {person} | 400 invalid_request | 404 | 409 name_taken
+POST   /api/train/faces                  JSON {image_base64, refs: [[512 floats]] up to 100} -> 200 {faces: [{box: [x0,y0,x1,y1] fractions, height_px, score, yaw (degrees), sharpness, embedding, similarity (max vs refs)}], width, height} | 400 invalid_request|invalid_image (up to 4096 px, 16 MP, 24 MB body) | 503 face_models_missing — CPU, up to 8 faces, for checking photos before training
 POST   /api/train/people/{name}/identity  multipart: photos (3–50, same limits as training) -> 200 {person} | 400 invalid_request | 400 too_few_faces (fewer than 3 photos with a face of 60 px or more) | 404 | 413 too_large | 503 face_models_missing
 ```
 

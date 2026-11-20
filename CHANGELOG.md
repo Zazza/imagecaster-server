@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- LoRA training: `POST /api/train/faces` — every face in a photo (box, size, yaw, sharpness, ArcFace embedding, similarity to given reference embeddings) on the CPU, for checking photos before they go into a training set
 - LoRA training: a person's display name — `display_name` in the person card and in `GET /api/train/people`, form field `display_name` on `POST /api/train/jobs`, `POST /api/train/people/{name}/display` `{display_name, replace}` (up to 40 characters, empty removes it; the name keeps the spelling it already has on the person's other LoRAs; one LoRA per name and base, queued and running trainings included — `409 display_taken`, `replace: true` (form field `display_replace=1` when training) moves the name); rename keeps it
 - LoRA training: `POST /api/train/jobs` takes `start=false` — the job is created `paused` with its photos on the server and waits for `.../resume`; several such jobs can wait at once. Resubmitting the same `client` + `client_ref` returns a paused job too (was `409 name_taken`)
 - LoRA training: `POST /api/train/jobs/{id}/pause` and `.../resume` (new status `paused`, the trainer saves every 250 steps and resumes from the last save); a server restart pauses unfinished training instead of losing it; `POST /api/train/people/{name}/rename`

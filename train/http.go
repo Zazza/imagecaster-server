@@ -72,6 +72,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"jobs": m.list(r.URL.Query().Get("client"))})
 	case strings.HasPrefix(p, "jobs/"):
 		m.handleJob(w, r, strings.TrimPrefix(p, "jobs/"))
+	case p == "faces" && r.Method == http.MethodPost:
+		m.handleFaces(w, r)
 	case p == "bases" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]any{"bases": m.Bases()})
 	case p == "people" && r.Method == http.MethodGet:

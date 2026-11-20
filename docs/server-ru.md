@@ -366,6 +366,7 @@ GET    /api/train/bases              -> {bases: [...]}  (базы, у котор
 GET    /api/train/people             -> {people: [{name, trigger, gender, base, lora, steps, created_at, identity}]}  (старые записи без base — Z-Image)
 DELETE /api/train/people/{name}      -> 200 | 404 | 409 busy
 POST   /api/train/people/{name}/rename  JSON {name} -> 200 {person} | 400 invalid_request | 404 | 409 name_taken
+POST   /api/train/faces                  JSON {image_base64, refs: [[512 чисел]] до 100} -> 200 {faces: [{box: [x0,y0,x1,y1] в долях, height_px, score, yaw (градусы), sharpness, embedding, similarity (максимум по refs)}], width, height} | 400 invalid_request|invalid_image (до 4096 px, 16 Мп, тело до 24 МБ) | 503 face_models_missing — на CPU, до 8 лиц, для проверки фото перед обучением
 POST   /api/train/people/{name}/identity  multipart: photos (3–50, те же ограничения, что у обучения) -> 200 {person} | 400 invalid_request | 400 too_few_faces (меньше 3 фото с лицом от 60 px) | 404 | 413 too_large | 503 face_models_missing
 ```
 
