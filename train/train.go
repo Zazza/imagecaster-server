@@ -48,6 +48,7 @@ type Config struct {
 	TextEncoderDir string
 	VAEDir         string
 	TrainDir       string
+	PrevDir        string
 }
 
 type RunSpec struct {
@@ -58,6 +59,9 @@ type RunSpec struct {
 	LogPath    string
 	LocalPath  string
 	Steps      int
+
+	NewDatasetDir string
+	Pretrained    string
 }
 
 type Runner interface {
@@ -87,6 +91,10 @@ type Job struct {
 	DisplayName    string     `json:"display_name,omitempty"`
 	DisplayReplace bool       `json:"display_replace,omitempty"`
 	Photos         int        `json:"photos"`
+	NewPhotos      int        `json:"new_photos"`
+	Mode           string     `json:"mode,omitempty"`
+	Steps          int        `json:"steps,omitempty"`
+	PhotosAt       *time.Time `json:"photos_at,omitempty"`
 	Identity       string     `json:"identity,omitempty"`
 	Status         string     `json:"status"`
 	Progress       Progress   `json:"progress"`
@@ -114,6 +122,10 @@ type Person struct {
 	Steps       int        `json:"steps"`
 	CreatedAt   *time.Time `json:"created_at"`
 	Identity    bool       `json:"identity"`
+	Mode        string     `json:"mode,omitempty"`
+	Rounds      int        `json:"rounds"`
+	PhotosAt    *time.Time `json:"photos_at,omitempty"`
+	Previous    bool       `json:"previous"`
 }
 
 type personFile struct {
@@ -528,12 +540,25 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 		OutputPath: filepath.Join(dir, "output", j.Name, j.Name+".safetensors"),
 		LogPath:    filepath.Join(dir, "train.log"),
 		LocalPath:  filepath.Join(dir, "local.json"),
-		Steps:      m.cfg.Steps,
+		Steps:      m.jobSteps(j),
+	}
+	if newDir := filepath.Join(dir, newDatasetDir); len(photoPaths(newDir)) > 0 {
+		if len(photoPaths(spec.DatasetDir)) == 0 {
+			spec.DatasetDir = newDir
+		} else {
+			spec.NewDatasetDir = newDir
+		}
+	}
+	if j.Mode == modeContinue {
+		spec.Pretrained = filepath.Join(m.cfg.LoraDir, j.Name+".safetensors")
+		if !fsutil.FileExists(spec.Pretrained) {
+			return &codedError{code: "not_found", err: errors.New("the LoRA to continue from is missing")}
+		}
 	}
 	if err := m.prepareBase(j.Base, spec, j.Name, j.Trigger); err != nil {
 		return err
 	}
-	ident, err := m.buildIdentity(ctx, j, spec.DatasetDir)
+	ident, err := m.buildIdentity(ctx, j, spec.DatasetDir, spec.NewDatasetDir)
 	if err != nil {
 		return err
 	}
@@ -551,7 +576,7 @@ func (m *Manager) train(ctx context.Context, j *Job) error {
 	now := time.Now()
 	j.Status = statusRunning
 	j.StartedAt = &now
-	j.Progress = Progress{Step: j.Progress.Step, Steps: m.cfg.Steps}
+	j.Progress = Progress{Step: j.Progress.Step, Steps: spec.Steps}
 	m.persist(j)
 	m.mu.Unlock()
 	err = m.run.Run(ctx, spec, func(step, steps int) {
@@ -576,18 +601,33 @@ func (m *Manager) installPerson(j *Job, output string, ident *faceswap.Identity)
 	if err := os.MkdirAll(m.cfg.LoraDir, 0o755); err != nil {
 		return &codedError{code: "install_failed", err: err}
 	}
+	var old *personFile
+	if replacesPerson(j.Mode) && fsutil.FileExists(dst) {
+		if pf, err := readPersonFile(m.personPath(j.Name)); err == nil {
+			old = &pf
+			if err := m.stagePrev(j.Name); err != nil {
+				m.dropPending(j.Name)
+				return &codedError{code: "install_failed", err: err}
+			}
+		}
+	}
 	if err := copyFile(output, dst+".tmp"); err != nil {
+		os.Remove(dst + ".tmp")
+		m.dropPending(j.Name)
 		return &codedError{code: "install_failed", err: err}
 	}
 	if err := fsutil.Rename(dst+".tmp", dst); err != nil {
 		if rmErr := os.Remove(dst + ".tmp"); rmErr != nil {
 			log.Printf("[train] remove %s.tmp: %v", dst, rmErr)
 		}
+		m.dropPending(j.Name)
 		return &codedError{code: "install_failed", err: err}
 	}
 	now := time.Now()
 	display := j.DisplayName
-	if display != "" {
+	if old != nil {
+		display = old.DisplayName
+	} else if display != "" {
 		m.mu.Lock()
 		holder := m.displayHolderLocked(display, j.Base, j.Name)
 		if holder != "" && j.DisplayReplace {
@@ -603,16 +643,44 @@ func (m *Manager) installPerson(j *Job, output string, ident *faceswap.Identity)
 			display = ""
 		}
 	}
-	p := personFile{Person: Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, DisplayName: display, Lora: j.Name, Steps: m.cfg.Steps, CreatedAt: &now}, Identity: ident}
-	data, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return &codedError{code: "install_failed", err: err}
+	p := personFile{Person: Person{Name: j.Name, Trigger: j.Trigger, Gender: j.Gender, Base: j.Base, DisplayName: display, Lora: j.Name, Steps: m.jobSteps(j), CreatedAt: &now, PhotosAt: j.CreatedAt}, Identity: ident}
+	if j.PhotosAt != nil {
+		p.PhotosAt = j.PhotosAt
 	}
-	if err := fsutil.WriteFileAtomic(m.personPath(j.Name), data, 0o644); err != nil {
-		if rmErr := os.Remove(dst); rmErr != nil {
+	if ident == nil && old != nil {
+		p.Identity = old.Identity
+	}
+	switch {
+	case j.Mode == modeQuick:
+		p.Mode = modeQuick
+	case j.Mode == modeContinue && old != nil:
+		p.Mode, p.Rounds, p.Steps = old.Mode, old.Rounds+1, old.Steps+m.jobSteps(j)
+		if p.Mode == "" {
+			p.Mode = modeFull
+		}
+	default:
+		p.Mode = modeFull
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err == nil {
+		err = fsutil.WriteFileAtomic(m.personPath(j.Name), data, 0o644)
+	}
+	if err != nil {
+		if old != nil {
+			if rbErr := m.restoreFromPending(j.Name); rbErr != nil {
+				log.Printf("[train] %s: restore previous version: %v", j.Name, rbErr)
+			}
+			m.dropPending(j.Name)
+		} else if rmErr := os.Remove(dst); rmErr != nil {
 			log.Printf("[train] remove %s: %v", dst, rmErr)
 		}
 		return &codedError{code: "install_failed", err: err}
+	}
+	if old != nil {
+		if err := m.commitPrev(j.Name); err != nil {
+			log.Printf("[train] %s: keep previous version: %v", j.Name, err)
+			m.dropPending(j.Name)
+		}
 	}
 	return nil
 }
@@ -639,6 +707,7 @@ func (m *Manager) people() []Person {
 		if _, err := os.Stat(filepath.Join(m.cfg.LoraDir, p.Lora+".safetensors")); err != nil {
 			continue
 		}
+		p.Previous = m.hasPrev(p.Name)
 		out = append(out, p)
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].Name < out[b].Name })
@@ -694,6 +763,9 @@ func (m *Manager) deletePerson(name string) (int, string) {
 			return 500, "delete_failed"
 		}
 	}
+	if err := m.removePrev(name); err != nil {
+		log.Printf("[train] delete previous %s: %v", name, err)
+	}
 	return 200, ""
 }
 
@@ -720,6 +792,11 @@ func (m *Manager) renamePerson(from, to string) (Person, int, string) {
 	}
 	if from == to {
 		return p.public(), 200, ""
+	}
+	for _, j := range m.jobs {
+		if j.Name == from && j.holdsName() {
+			return Person{}, 409, "busy"
+		}
 	}
 	if m.nameTakenLocked(to) {
 		return Person{}, 409, "name_taken"
@@ -748,7 +825,10 @@ func (m *Manager) renamePerson(from, to string) (Person, int, string) {
 	if err := os.Remove(m.personPath(from)); err != nil {
 		log.Printf("[train] remove %s: %v", m.personPath(from), err)
 	}
-	return p.public(), 200, ""
+	m.renamePrev(from, to)
+	out2 := p.public()
+	out2.Previous = m.hasPrev(to)
+	return out2, 200, ""
 }
 
 func readPersonFile(path string) (personFile, error) {

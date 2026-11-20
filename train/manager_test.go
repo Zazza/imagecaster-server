@@ -539,7 +539,7 @@ func TestUpload_InvalidRequest(t *testing.T) {
 		files  func(t *testing.T) []upload
 	}{
 		{"nine photos", personFields("anna", "woman"), func(t *testing.T) []upload { return photos(t, 9) }},
-		{"fifty one photos", personFields("anna", "woman"), func(t *testing.T) []upload { return photos(t, 51) }},
+		{"over the limit", personFields("anna", "woman"), func(t *testing.T) []upload { return photos(t, maxPhotos+1) }},
 		{"text file as jpg", personFields("anna", "woman"), func(t *testing.T) []upload { return append(photos(t, 10), notImage) }},
 		{"text file instead of photo", personFields("anna", "woman"), func(t *testing.T) []upload { return append(photos(t, 9), notImage) }},
 		{"empty name", personFields("", "woman"), func(t *testing.T) []upload { return photos(t, 10) }},

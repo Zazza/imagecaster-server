@@ -18,11 +18,13 @@ import (
 	"time"
 
 	_ "golang.org/x/image/webp"
+
+	"imagecaster-server/fsutil"
 )
 
 const (
 	minPhotos     = 10
-	maxPhotos     = 50
+	maxPhotos     = 100
 	maxPhotoBytes = 30 << 20
 	maxTotalBytes = 300 << 20
 	maxFieldBytes = 4 << 10
@@ -80,6 +82,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"people": m.people()})
 	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/rename") && r.Method == http.MethodPost:
 		m.handleRenamePerson(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/rename"))
+	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/rollback") && r.Method == http.MethodPost:
+		m.handleRollback(w, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/rollback"))
 	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/display") && r.Method == http.MethodPost:
 		m.handleDisplay(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "people/"), "/display"))
 	case strings.HasPrefix(p, "people/") && strings.HasSuffix(p, "/identity") && r.Method == http.MethodPost:
@@ -172,12 +176,36 @@ func (m *Manager) handleRenamePerson(w http.ResponseWriter, r *http.Request, nam
 	}
 }
 
+func (m *Manager) handleRollback(w http.ResponseWriter, name string) {
+	if !nameRe.MatchString(name) {
+		writeError(w, errf(http.StatusNotFound, "not_found", "person %q not found", name))
+		return
+	}
+	p, status, code := m.rollbackPerson(name)
+	switch status {
+	case http.StatusOK:
+		writeJSON(w, http.StatusOK, map[string]any{"person": p})
+	case http.StatusNotFound:
+		writeError(w, errf(status, code, "person %q not found", name))
+	case http.StatusConflict:
+		if code == "busy" {
+			writeError(w, errf(status, code, "person %q is being trained", name))
+		} else {
+			writeError(w, errf(status, code, "person %q has no previous version", name))
+		}
+	default:
+		writeError(w, errf(status, code, "cannot roll back person %q", name))
+	}
+}
+
 type submitForm struct {
 	name, gender, base, client, clientRef string
 	display                               string
 	displayReplace                        bool
-	photos                                int
+	photos, newPhotos                     int
 	hold                                  bool
+	mode                                  string
+	photosAt                              *time.Time
 }
 
 func normalizeName(s string) string {
@@ -209,7 +237,7 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	form, herr := m.readUpload(w, r, filepath.Join(dir, datasetDir))
+	form, herr := m.readUpload(w, r, dir)
 	if herr != nil {
 		writeError(w, herr)
 		return
@@ -217,6 +245,21 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	if herr := validateForm(form); herr != nil {
 		writeError(w, herr)
 		return
+	}
+	if form.mode == "" {
+		form.mode = modeFull
+	}
+	replace := replacesPerson(form.mode)
+	if replace {
+		pf, err := readPersonFile(m.personPath(form.name))
+		if err != nil || !fsutil.FileExists(filepath.Join(m.cfg.LoraDir, form.name+".safetensors")) {
+			writeError(w, errf(http.StatusNotFound, "not_found", "person %q not found", form.name))
+			return
+		}
+		form.base, form.display, form.displayReplace = pf.Base, pf.DisplayName, false
+		if genders[pf.Gender] {
+			form.gender = pf.Gender
+		}
 	}
 	if form.base == "" {
 		form.base = baseZImage
@@ -226,9 +269,14 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	trigger := form.name + "_" + form.gender
-	if err := writeCaptions(filepath.Join(dir, datasetDir), form.gender); err != nil {
-		writeError(w, errf(http.StatusInternalServerError, "internal", "write captions: %v", err))
-		return
+	for _, d := range []string{datasetDir, newDatasetDir} {
+		if form.newPhotos == 0 && d == newDatasetDir {
+			continue
+		}
+		if err := writeCaptions(filepath.Join(dir, d), form.gender); err != nil {
+			writeError(w, errf(http.StatusInternalServerError, "internal", "write captions: %v", err))
+			return
+		}
 	}
 
 	m.mu.Lock()
@@ -242,17 +290,27 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if m.nameTakenLocked(form.name) {
+	if replace {
+		for _, j := range m.jobs {
+			if j.Name == form.name && j.holdsName() {
+				m.mu.Unlock()
+				writeError(w, errf(http.StatusConflict, "busy", "person %q is already training", form.name))
+				return
+			}
+		}
+	} else if m.nameTakenLocked(form.name) {
 		m.mu.Unlock()
 		writeError(w, errf(http.StatusConflict, "name_taken", "name %q is already used", form.name))
 		return
 	}
-	if d, ok := m.displayFoldLocked(form.name); ok && !strings.EqualFold(d, form.display) {
+	if d, ok := m.displayFoldLocked(form.name); !replace && ok && !strings.EqualFold(d, form.display) {
 		m.mu.Unlock()
 		writeError(w, errf(http.StatusConflict, "name_taken", "name %q is already used as a person name (%s)", form.name, d))
 		return
 	}
-	form.display = m.canonicalDisplayLocked(form.display)
+	if !replace {
+		form.display = m.canonicalDisplayLocked(form.display)
+	}
 	holder := m.displayHolderLocked(form.display, form.base, form.name)
 	jobHolder := m.displayJobHolderLocked(form.display, form.base, form.name)
 	if holder == "" {
@@ -276,8 +334,9 @@ func (m *Manager) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	j := &Job{
 		ID: id, Client: form.client, ClientRef: form.clientRef, Name: form.name, Trigger: trigger,
-		Gender: form.gender, Base: form.base, DisplayName: form.display, DisplayReplace: form.displayReplace, Photos: form.photos, Status: status,
-		Progress: Progress{Steps: m.cfg.Steps}, CreatedAt: &now,
+		Gender: form.gender, Base: form.base, DisplayName: form.display, DisplayReplace: form.displayReplace, Photos: form.photos + form.newPhotos,
+		NewPhotos: form.newPhotos, Mode: form.mode, Steps: m.modeSteps(form.mode), PhotosAt: form.photosAt, Status: status,
+		Progress: Progress{Steps: m.modeSteps(form.mode)}, CreatedAt: &now,
 	}
 	m.jobs[id] = j
 	m.persist(j)
@@ -298,13 +357,20 @@ func validateForm(f submitForm) *httpError {
 	if f.base != "" && !knownBase(f.base) {
 		return errf(http.StatusBadRequest, "invalid_request", "base must be %s, %s, %s, %s or %s", baseZImage, baseMoss, baseSDXL, baseFlux2, baseFlux1)
 	}
-	if f.photos < minPhotos || f.photos > maxPhotos {
-		return errf(http.StatusBadRequest, "invalid_request", "need %d-%d photos, got %d", minPhotos, maxPhotos, f.photos)
+	if !modes[f.mode] {
+		return errf(http.StatusBadRequest, "invalid_request", "mode must be full, quick, continue or retrain")
+	}
+	if f.newPhotos > 0 && f.mode != modeContinue {
+		return errf(http.StatusBadRequest, "invalid_request", "new_photos only with mode=continue")
+	}
+	if n := f.photos + f.newPhotos; n < minPhotos || n > maxPhotos {
+		return errf(http.StatusBadRequest, "invalid_request", "need %d-%d photos, got %d", minPhotos, maxPhotos, n)
 	}
 	return nil
 }
 
-func (m *Manager) readUpload(w http.ResponseWriter, r *http.Request, dst string) (submitForm, *httpError) {
+func (m *Manager) readUpload(w http.ResponseWriter, r *http.Request, dir string) (submitForm, *httpError) {
+	dst := filepath.Join(dir, datasetDir)
 	var f submitForm
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	mr, err := r.MultipartReader()
@@ -323,7 +389,7 @@ func (m *Manager) readUpload(w http.ResponseWriter, r *http.Request, dst string)
 		if err != nil {
 			return f, uploadErr(err)
 		}
-		herr := m.readPart(part, dst, &f, &total)
+		herr := m.readPart(part, dir, &f, &total)
 		if cerr := part.Close(); cerr != nil && herr == nil {
 			herr = uploadErr(cerr)
 		}
@@ -334,7 +400,7 @@ func (m *Manager) readUpload(w http.ResponseWriter, r *http.Request, dst string)
 	return f, nil
 }
 
-func (m *Manager) readPart(part *multipart.Part, dst string, f *submitForm, total *int64) *httpError {
+func (m *Manager) readPart(part *multipart.Part, dir string, f *submitForm, total *int64) *httpError {
 	if part.FileName() == "" {
 		b, err := io.ReadAll(io.LimitReader(part, maxFieldBytes))
 		if err != nil {
@@ -360,19 +426,38 @@ func (m *Manager) readPart(part *multipart.Part, dst string, f *submitForm, tota
 				return errf(http.StatusBadRequest, "invalid_request", "%v", err)
 			}
 			f.display = d
+		case "mode":
+			f.mode = strings.ToLower(v)
+		case "photos_at":
+			t, err := time.Parse(time.RFC3339Nano, v)
+			if err != nil {
+				return errf(http.StatusBadRequest, "invalid_request", "photos_at must be RFC 3339: %v", err)
+			}
+			f.photosAt = &t
 		case "display_replace":
 			f.displayReplace = v == "1" || strings.EqualFold(v, "true")
 		}
 		return nil
 	}
-	if part.FormName() != "photos" {
+	switch part.FormName() {
+	case "photos":
+		f.photos++
+	case "new_photos":
+		f.newPhotos++
+	default:
 		return nil
 	}
-	f.photos++
-	if f.photos > maxPhotos {
+	if f.photos+f.newPhotos > maxPhotos {
 		return errf(http.StatusBadRequest, "invalid_request", "at most %d photos", maxPhotos)
 	}
-	return savePhoto(part, dst, f.photos, total)
+	if part.FormName() == "new_photos" {
+		nd := filepath.Join(dir, newDatasetDir)
+		if err := os.MkdirAll(nd, 0o700); err != nil {
+			return errf(http.StatusInternalServerError, "internal", "%v", err)
+		}
+		return savePhoto(part, nd, f.newPhotos, total)
+	}
+	return savePhoto(part, filepath.Join(dir, datasetDir), f.photos, total)
 }
 
 func savePhoto(part io.Reader, dst string, n int, total *int64) *httpError {

@@ -23,7 +23,7 @@ config:
         type: lora
         linear: 16
         linear_alpha: 16
-      save:
+{{pretrained}}      save:
         dtype: float16
         save_every: {{save_every}}
         max_step_saves_to_keep: 1
@@ -33,7 +33,7 @@ config:
           caption_ext: txt
 {{dataset_extra}}          cache_latents_to_disk: true
           resolution: [{{resolution}}]
-      train:
+{{dataset_new}}      train:
         batch_size: 1
         steps: {{steps}}
         gradient_accumulation_steps: 1
@@ -141,7 +141,20 @@ func writeBaseConfig(spec RunSpec, name, trigger string, b modelBlock) error {
 	if b.ddpm {
 		noise, sampler = "ddpm", "ddpm"
 	}
+	pretrained, datasetNew := "", ""
+	if spec.Pretrained != "" {
+		pretrained = "        pretrained_lora_path: " + yamlQuote(spec.Pretrained) + "\n"
+	}
+	if spec.NewDatasetDir != "" {
+		datasetNew = "        - folder_path: " + yamlQuote(spec.NewDatasetDir) + "\n" +
+			"          caption_ext: txt\n" + b.datasetExtra +
+			"          cache_latents_to_disk: true\n" +
+			"          resolution: [" + strconv.Itoa(resolution) + "]\n" +
+			"          num_repeats: " + strconv.Itoa(newRepeats) + "\n"
+	}
 	r := strings.NewReplacer(
+		"{{pretrained}}", pretrained,
+		"{{dataset_new}}", datasetNew,
 		"{{resolution}}", strconv.Itoa(resolution),
 		"{{noise}}", noise,
 		"{{sampler}}", sampler,

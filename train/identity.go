@@ -55,7 +55,7 @@ func identitySkip(err error) string {
 	return "failed"
 }
 
-func (m *Manager) buildIdentity(ctx context.Context, j *Job, dataset string) (*faceswap.Identity, error) {
+func (m *Manager) buildIdentity(ctx context.Context, j *Job, datasets ...string) (*faceswap.Identity, error) {
 	b := m.identityBuilder()
 	if b == nil {
 		return nil, nil
@@ -63,7 +63,13 @@ func (m *Manager) buildIdentity(ctx context.Context, j *Job, dataset string) (*f
 	var ident *faceswap.Identity
 	status := "skipped:face_models_missing"
 	if b.Available() {
-		got, err := b.FromImages(ctx, photoPaths(dataset))
+		var paths []string
+		for _, d := range datasets {
+			if d != "" {
+				paths = append(paths, photoPaths(d)...)
+			}
+		}
+		got, err := b.FromImages(ctx, paths)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

@@ -174,7 +174,7 @@ func TestIdentityEndpoint(t *testing.T) {
 		{"ok min", "anna", 3, &fakeIdentity{available: true}, http.StatusOK, ""},
 		{"ok max", "anna", 50, &fakeIdentity{available: true}, http.StatusOK, ""},
 		{"too few photos", "anna", 2, &fakeIdentity{available: true}, http.StatusBadRequest, "invalid_request"},
-		{"too many photos", "anna", 51, &fakeIdentity{available: true}, http.StatusBadRequest, "invalid_request"},
+		{"too many photos", "anna", maxPhotos + 1, &fakeIdentity{available: true}, http.StatusBadRequest, "invalid_request"},
 		{"too few faces", "anna", 5, &fakeIdentity{available: true, err: fmt.Errorf("%w: 2 of 3", faceswap.ErrTooFewFaces)}, http.StatusBadRequest, "too_few_faces"},
 		{"models missing", "anna", 3, &fakeIdentity{available: false}, http.StatusServiceUnavailable, "face_models_missing"},
 		{"unknown person", "zoe", 3, &fakeIdentity{available: true}, http.StatusNotFound, "not_found"},
