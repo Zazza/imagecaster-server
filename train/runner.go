@@ -22,6 +22,11 @@ import (
 //go:embed launcher/aitk_local.py
 var launcherScript []byte
 
+//go:embed launcher/training_memory.py
+var memoryScript []byte
+
+const memoryScriptName = "training_memory.py"
+
 const launcherName = "aitk_local.py"
 
 var progressRe = regexp.MustCompile(`(\d+)/(\d+) \[`)
@@ -39,6 +44,9 @@ func (p *processRunner) Run(ctx context.Context, spec RunSpec, progress func(ste
 	launcher := filepath.Join(spec.WorkDir, launcherName)
 	if err := os.WriteFile(launcher, launcherScript, 0o644); err != nil {
 		return fmt.Errorf("write trainer launcher: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(spec.WorkDir, memoryScriptName), memoryScript, 0o644); err != nil {
+		return fmt.Errorf("write trainer memory helper: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, p.python, launcher, p.toolkitDir, spec.ConfigPath, spec.LocalPath)
 	cmd.Dir = p.toolkitDir

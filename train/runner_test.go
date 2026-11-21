@@ -140,6 +140,9 @@ func TestProcessRunner_CommandLine(t *testing.T) {
 	body, err := os.ReadFile(script)
 	require.NoError(t, err)
 	assert.NotEmpty(t, strings.TrimSpace(string(body)), "aitk_local.py must contain the embedded script")
+	helper, err := os.ReadFile(filepath.Join(f.spec.WorkDir, memoryScriptName))
+	require.NoError(t, err)
+	assert.Equal(t, memoryScript, helper)
 }
 
 func TestProcessRunner_ScriptWrittenBeforeStart(t *testing.T) {

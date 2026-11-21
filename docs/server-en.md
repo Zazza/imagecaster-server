@@ -343,6 +343,8 @@ JobStatus = {id, kind, client, client_ref, status: queued|running|completed|fail
 
 ### LoRA training API (people)
 
+Before each training launch or resume, the server checks free VRAM on the selected CUDA device after unloading SD/LLM models. With less than 14 GiB free it enables layer offloading to system RAM for all bases; otherwise it disables offloading. This is a general memory-saving policy, not a measured minimum for every model. The mode and free VRAM are logged in `train.log`; if measurement fails, a warning is logged and existing settings are preserved. System RAM must hold the offloaded weights; minimum RAM and full training on physical 8-GB cards have not been established. The older measurements below describe training without automatic offloading.
+
 Feature `lora_train`. Training is a Z-Image, Moss, SDXL or Flux.2 Klein 4B LoRA (ai-toolkit, rank 16; 768 px, SDXL 1024 px). A model is offered only when all its files are on the server; nothing heavy is downloaded — the server hands ai-toolkit the file paths through the embedded launcher `aitk_local.py` (only config and tokenizer files, megabytes, come from the internet):
 
 | Base | Files | Memory / step on 16 GB |

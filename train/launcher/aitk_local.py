@@ -11,6 +11,10 @@ sys.path.insert(0, toolkit_dir)
 if local.get("aio"):
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+from training_memory import configure_memory
+
+configure_memory(config_path)
+
 from toolkit.models.v2 import _mixin
 from toolkit.models.v2.text_encoders.qwen3 import Qwen3TextEncoder
 from toolkit.models.v2.vae.autoencoder_kl import KLVAE
