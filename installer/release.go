@@ -46,7 +46,7 @@ type Artifact struct {
 const (
 	sdcppBase   = "https://github.com/leejet/stable-diffusion.cpp/releases/download/" + config.SDCppVersion + "/"
 	ownBase     = "https://github.com/Zazza/imagecaster-server/releases/download/sdcpp-465adf3/"
-	onnxBase    = "https://github.com/microsoft/onnxruntime/releases/download/v" + config.OnnxVersion + "/"
+	onnxBase    = "https://registry.npmmirror.com/-/binary/onnxruntime/v" + config.OnnxVersion + "/"
 	dwposeBase  = "https://huggingface.co/yzd-v/DWPose/resolve/main/"
 	onnxTarget  = "engines/onnxruntime"
 	poseTarget  = "models/openpose"

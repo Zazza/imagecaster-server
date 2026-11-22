@@ -29,6 +29,8 @@ There are no builds for Linux ARM, Windows ARM and Intel Macs: stable-diffusion.
 
 Unpack anywhere. The first start downloads the engines — up to about 4 GB without models (most of it CUDA libraries).
 
+ONNX Runtime is downloaded from `registry.npmmirror.com`. Archives are verified against the pinned SHA-256 checksums of the original releases; the runtime version is unchanged. A different file is rejected before extraction.
+
 ### Windows
 
 1. Start `imagecaster-server.exe`.
